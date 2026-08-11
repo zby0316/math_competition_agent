@@ -32,3 +32,4 @@ _rerun*
 # WorkBuddy 系统目录（工作日志/临时文件，非评测交付物）
 .workbuddy/
 .git_broken/
+local_test/

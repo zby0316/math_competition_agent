@@ -155,13 +155,34 @@ flowchart LR
 │   ├── critic_audit.py           # 【新】审计 JSON 解析与保守合并
 │   ├── modular_guard.py          # 【新】F_2/Z_m 语境检出 + 结构内聚合核查
 │   ├── time_budget.py            # 【改】+ apply_difficulty_profile 软预算
+│   ├── judge_confirm.py          # 【新】判断题双向确认（结论→温度0自证→反向重解）
+│   ├── counting_guard.py         # 【新】计数题小规模枚举对照 + 代码静态核查
+│   ├── verify_router.py          # 【新】填空细分：概念填空快速路径 / 实算填空双路验证
+│   ├── prefill.py                # 【新】prefill 组装与拼接（分类/仲裁/审计加速）
+│   ├── problem_anchor.py         # 【新】题面契约哈希锚点（完整性事件）
+│   ├── problem_profile.py        # 【新】题型画像（计算/证明/选择/判断/填空）
+│   ├── category_embedding_index.py  # 【新】领域候选的 TF-IDF 检索
+│   ├── prompt_templates.py       # 【新】集中提示词模板（分类/推理/仲裁/审计）
+│   ├── response_normalize.py     # 【新】官方 client 全形态响应归一化（0 分防线）
+│   ├── verification_authenticity.py # 【新】证据真实性校验（防伪造）
 │   └── answer_matcher.py         # 【改】+ 限时代简、符号对齐、≤4 维采样
 ├── mcp_servers/python_executor/server.py  # 【改】+ 静态安全扫描 + 资源限额
 ├── graph/solving_subgraph.py     # 【改】+ 条件扇出异构第二路径
-├── tests/                        # 【新】32 项离线回归测试（基线未随仓附带）
+├── local_test/                   # 【新】本地评测工具链（批量求解/LLM 判分/监控面板）
+│   ├── run_tests.py              # 批量求解 + 指标采集 + 断点续跑
+│   ├── grade_llm.py              # LLM 判分器（模拟官方 Judger）
+│   ├── server.py / index.html    # 本地监控面板
+│   └── README.md                 # 工具链使用文档
+├── tests/                        # 【新】72 项离线回归测试（基线未随仓附带）
 │   ├── test_veritas_upgrades.py
 │   ├── test_integration_graph.py
-│   └── test_integration_repair_loop.py
+│   ├── test_integration_repair_loop.py
+│   ├── test_integration_contradict.py
+│   ├── test_integration_fill_verify.py
+│   ├── test_m56_guards.py
+│   ├── test_platform_defenses.py
+│   ├── test_qiyuan_ports.py
+│   └── test_stress_faults.py
 └── （以下与基线一致）state/、skills_pythonscripts/（18 领域手册+验证知识）、
     main.py、user_agent.py、llm_client.py、config.py、requirements.txt
 ```
@@ -194,9 +215,26 @@ python main.py --input_file input.jsonl --output_dir outputs
 python -B -m unittest discover -s tests -v
 ```
 
-32 项测试，零 API 调用：升级机制单测（审计解析/模守护/季后赛裁决/软预算/
-matcher 加固/执行器拦截）+ 两条全图集成链路（happy path；双证伪→异构重算翻盘）
-+ 客观题快速路径。Python 验证代码由真实执行器子进程运行。
+**72 项测试 + 30 项子测试**（`pytest tests/` 全绿），零 API 调用：升级机制单测
+（审计解析/模守护/季后赛裁决/软预算/matcher 加固/执行器拦截/判断题双向确认/
+计数枚举守护/平台防线三形态加载）+ 多条全图集成链路（happy path；双证伪→异构
+重算翻盘；contradict 假证据→playoff 裁决）+ 题面滥用/故障注入/ReDoS 压测。
+Python 验证代码由真实执行器子进程运行。
+
+### 4.4 本地测试与监控（local_test/）
+
+项目自带本地评测工具链（离线，随仓库提交）：
+
+```bash
+python local_test/run_tests.py --input 题集.jsonl --concurrency 3 --live   # 批量求解（实时写盘）
+python local_test/grade_llm.py --input 结果.json --concurrency 6            # LLM 判分（模拟官方 Judger）
+python local_test/server.py --port 8000                                     # 监控面板（http://127.0.0.1:8000）
+```
+
+- **判分口径**：统一 LLM 判分（Intern-S 模拟官方 Judger，correct/wrong/partial），
+  不使用本地符号/字符串判分器——与官方口径一致（模型综合判定，等价表达判对）。
+- 面板实时显示：进度/正确率/API 次数/耗时/难度分布/推理过程（trace 展开）。
+- `--resume` 支持断点续跑（跳过已成功题）。
 
 ## 5. 配置（新增项）
 
@@ -210,6 +248,8 @@ matcher 加固/执行器拦截）+ 两条全图集成链路（happy path；双�
 | `enable_objective_revote` | True | 客观题低置信复核投票 |
 | `matcher_simplify_timeout_s` / `matcher_max_sample_symbols` | 8 / 4 | 等价判定加固 |
 | `enable_modular_guard` | True | 模结构三重守护 |
+| `enable_judge_confirm` | True | 判断题双向确认（结论→自证→反向重解） |
+| `enable_counting_guard` | True | 计数题小规模枚举对照守护 |
 | `node_timeouts.critic` / `playoff` | 120 / 300 | 新节点上限（仍受 deadline 钳制） |
 
 ## 6. 与基线的兼容性
