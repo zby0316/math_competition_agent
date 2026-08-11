@@ -168,11 +168,6 @@ flowchart LR
 │   └── answer_matcher.py         # 【改】+ 限时代简、符号对齐、≤4 维采样
 ├── mcp_servers/python_executor/server.py  # 【改】+ 静态安全扫描 + 资源限额
 ├── graph/solving_subgraph.py     # 【改】+ 条件扇出异构第二路径
-├── local_test/                   # 【新】本地评测工具链（批量求解/LLM 判分/监控面板）
-│   ├── run_tests.py              # 批量求解 + 指标采集 + 断点续跑
-│   ├── grade_llm.py              # LLM 判分器（模拟官方 Judger）
-│   ├── server.py / index.html    # 本地监控面板
-│   └── README.md                 # 工具链使用文档
 ├── tests/                        # 【新】72 项离线回归测试（基线未随仓附带）
 │   ├── test_veritas_upgrades.py
 │   ├── test_integration_graph.py
@@ -223,7 +218,7 @@ Python 验证代码由真实执行器子进程运行。
 
 ### 4.4 本地测试与监控（local_test/）
 
-项目自带本地评测工具链（离线，随仓库提交）：
+本地评测工具链（离线，保留在开发机 `local_test/` 目录，不入评测仓库）：
 
 ```bash
 python local_test/run_tests.py --input 题集.jsonl --concurrency 3 --live   # 批量求解（实时写盘）
