@@ -1,0 +1,165 @@
+"""Per-problem wall-clock budget — the competition's hard constraint is time, not tokens.
+
+Why this exists (measured 2026-07-29 against intern-s2-preview-397b):
+
+`intern-s2-preview-397b` is a reasoning model. It returns a separate
+`reasoning_content` field and BOTH it and `content` are billed against
+`max_tokens`. Latency is ~55 completion tokens/s and depends only on tokens
+actually generated — `max_tokens` never speeds a call up, it only truncates it
+(`finish_reason="length"`, partial CoT leaking into `content`). So token caps
+cannot bound a problem's runtime; only a clock can.
+
+The judge run's single failure (Q3 at 1307s vs the 1200s limit) is not explained
+by the sum of its stages (~250s measured). The gap is nested transport retry:
+`LLMRetryWrapper(max_retries=3)` wrapping a client that itself retries 3× at a
+120s socket timeout is up to 9 requests ≈ 1080s from one node. Bounding retries
+by count cannot fix that, because the count is split across two layers we do not
+jointly control (the platform injects its own client). Bounding them by a
+deadline can.
+
+Every LLM call site therefore consults this budget before spending, and optional
+stages degrade to deterministic fallbacks once the reserve is reached. The
+reserve keeps enough time to always emit a real answer instead of timing out
+with nothing.
+"""
+
+from __future__ import annotations
+
+import time
+from threading import Lock
+
+from config import CONFIG
+
+
+class TimeBudget:
+    """Monotonic per-problem deadline shared by every node in one solve() call.
+
+    Three horizons:
+      * ``soft`` (total - reserve) — deadline for *optional* work. Past it the
+        graph stops paying for arbitration/coordination LLM calls and falls back
+        to deterministic answer selection.
+      * ``fast_path`` threshold — enough time left for one more full LLM call?
+        Below it, skip retries and second-chance stages.
+      * ``total`` — the platform's hard per-problem limit. Never intentionally
+        reached; the reserve is what keeps us clear of it.
+    """
+
+    def __init__(
+        self,
+        total_seconds: float | None = None,
+        reserve_seconds: float | None = None,
+        fast_path_threshold: float | None = None,
+        clock=time.monotonic,
+    ) -> None:
+        self.total = float(
+            total_seconds if total_seconds is not None else CONFIG["problem_time_budget_s"]
+        )
+        self.reserve = float(
+            reserve_seconds if reserve_seconds is not None else CONFIG["time_reserve_s"]
+        )
+        self.fast_path_threshold = float(
+            fast_path_threshold
+            if fast_path_threshold is not None
+            else CONFIG["time_fast_path_threshold_s"]
+        )
+        self._clock = clock
+        self._start = clock()
+        self._lock = Lock()
+        self._spend_log: list[dict] = []
+        # VeritasMath 难度感知软预算：soft_total 是"可选工作"的购买力上限，
+        # 由分类节点按难度画像调用 apply_difficulty_profile() 收紧；
+        # self.total（平台硬限 1200s）永不下调，进行中的调用不会被提前杀死。
+        self.soft_total = self.total
+        self.difficulty_profile = "default"
+
+    def apply_difficulty_profile(self, difficulty: str) -> float:
+        """按难度收紧软预算，返回生效的 soft_total。
+
+        全局约束（2026-08 判分规则）：112 题、平台并发 3、智能体总运行 6h 封顶，
+        超出后未答题不计分 ⇒ 全卷平均每题只有 ~9.6min。统一 1200s 软预算意味着
+        简单题也敢花 900s，把难题挤出全局预算。难度画像让客观题/常规题在
+        480s/840s 处停止购买可选阶段（重试、仲裁、叙事生成），把 20 分钟全预算
+        留给真正需要的竞赛难题。
+
+        安全边界：只影响 can_afford / fast_path / expired 的判定，不动
+        remaining_hard——软预算耗尽后系统走确定性兜底与 reserve 配额通道，
+        已发起的调用照常完成，永远不会出现"简单题被截断交白卷"。
+        """
+        profile = (difficulty or "").strip().lower()
+        budgets = CONFIG.get("difficulty_soft_budgets") or {}
+        target = budgets.get(profile)
+        if isinstance(target, (int, float)) and target > 0:
+            with self._lock:
+                # 只收紧不放宽：后到的更难画像不会把已收紧的预算放回去，
+                # 画像标签也只在真正收紧时更新（保持名实一致）。
+                if float(target) < self.soft_total:
+                    self.soft_total = float(target)
+                    self.difficulty_profile = profile
+        return self.soft_total
+
+    # ---- horizons ----
+
+    def now(self) -> float:
+        """This budget's clock reading.
+
+        Callers that measure a call's duration must use *this* clock, not
+        `time.monotonic()` directly: if the two disagree, a measured cost cannot be
+        compared against `remaining()` and every deadline check built on it silently
+        stops working.
+        """
+        return self._clock()
+
+    def elapsed(self) -> float:
+        return self._clock() - self._start
+
+    def remaining(self) -> float:
+        """Seconds left before optional work must stop. May go negative."""
+        return self.soft_total - self.reserve - self.elapsed()
+
+    def remaining_hard(self) -> float:
+        """Seconds left before the platform's hard limit."""
+        return self.total - self.elapsed()
+
+    def expired(self) -> bool:
+        return self.remaining() <= 0
+
+    def can_afford(self, seconds: float) -> bool:
+        return self.remaining() >= float(seconds)
+
+    def fast_path(self) -> bool:
+        """True when there is no longer room for a full extra LLM round trip."""
+        return self.remaining() < self.fast_path_threshold
+
+    def timeout_for(self, ceiling: float | None) -> float | None:
+        """Clamp a node's configured ceiling to what the deadline actually allows.
+
+        A node may never outlive the problem: a generous per-node ceiling catches
+        true hangs, while the deadline caps the real world. Returns a small
+        positive floor rather than 0 so an already-late node still gets a chance
+        to return the answer it has instead of raising.
+        """
+        allowed = max(1.0, self.remaining_hard())
+        if ceiling is None:
+            return allowed
+        return min(float(ceiling), allowed)
+
+    # ---- observability ----
+
+    def record(self, label: str, seconds: float) -> None:
+        with self._lock:
+            self._spend_log.append({"label": label, "seconds": round(float(seconds), 2)})
+
+    def spend_log(self) -> list[dict]:
+        with self._lock:
+            return list(self._spend_log)
+
+    def snapshot(self) -> dict:
+        return {
+            "elapsed_s": round(self.elapsed(), 2),
+            "remaining_s": round(self.remaining(), 2),
+            "total_s": self.total,
+            "soft_total_s": self.soft_total,
+            "difficulty_profile": self.difficulty_profile,
+            "reserve_s": self.reserve,
+            "fast_path": self.fast_path(),
+        }

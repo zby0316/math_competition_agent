@@ -1,0 +1,34 @@
+__pycache__/
+*.py[cod]
+*.tmp
+.DS_Store
+.env
+.env.*
+logs/
+outputs/
+sample_outputs/
+*.log
+
+# Local evaluation/test artifacts intentionally excluded from the published system repo
+# NOTE: `tests/` is deliberately NOT ignored — the offline regression suite is a
+# published quality asset (README §7.1 documents it as such). Only ad-hoc local
+# scratch dirs are excluded.
+test/
+competition/
+.codegraph/
+.worktrees/
+sample_data/
+*_output*/
+*_outputs*/
+
+# 本地临时/冒烟文件不提交评测仓库
+_smoke*
+_rerun*
+.review_tmp/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# WorkBuddy 系统目录（工作日志/临时文件，非评测交付物）
+.workbuddy/
+.git_broken/
