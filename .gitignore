@@ -33,3 +33,6 @@ _rerun*
 .workbuddy/
 .git_broken/
 local_test/
+
+# 浏览器自动化工具临时目录（截图/快照）
+.playwright-mcp/

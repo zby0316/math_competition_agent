@@ -71,6 +71,9 @@ class TimeBudget:
         # self.total（平台硬限 1200s）永不下调，进行中的调用不会被提前杀死。
         self.soft_total = self.total
         self.difficulty_profile = "default"
+        # V2 M1 PaperPacer 全卷预算帽（秒）：由题间预算池动态给出，
+        # 与难度画像 soft_total 取 min 生效。None 表示未启用。
+        self.paper_cap: float | None = None
 
     def apply_difficulty_profile(self, difficulty: str) -> float:
         """按难度收紧软预算，返回生效的 soft_total。

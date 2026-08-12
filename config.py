@@ -20,6 +20,13 @@ CONFIG = {
                       "reconciliation": 10, "semantic_arbiter": 150, "coordinator": 420,
                       "critic": 120, "playoff": 300},
     "classifier_confidence_threshold": 0.85,
+    # V2 M2 置信门控：最少资源高准确率
+    #   high(≥0.90) → fast 单路径快速答（省 Python/双路径）
+    #   low(<0.70)  → deep 深思考通道（M3 DeepSolver）
+    #   中间        → standard 双路验证（现状）
+    "confidence_gate": {"high": 0.90, "low": 0.70},
+    # V2 M3 DeepSolver 深思考通道触发的领域（科研级超难题高发）
+    "deep_solver_domains": ["数论", "组合数学", "高等代数", "抽象代数"],
     # Zero-cost deterministic ranking is retained purely as a fallback for a
     # failed/unparseable LLM classification; it no longer narrows the LLM's
     # candidate list (all 18 domains go in one prefilled call).
@@ -40,9 +47,16 @@ CONFIG = {
     # （*_compressed，助手种子抑制私有推理，全部 token 用于可见章节，~150s）。
     # 首轮 24576-32768 区间的成功解极少（中档题实测 5-7k token，奥赛题贴 32768
     # 也多为耗尽），降低上限牺牲的成功区间可忽略，换来的重试窗口是净收益。
+    #
+    # 2026-08-12 官方评测防御性下调（eval_log_c0a00cb…）：官方评测 11h19m 远超
+    # 6h 上限、最终 accuracy 0.1429 + status degraded + runner failed——官方 API
+    # 单次推理响应慢，24576 全量思维链在官方 client 下大概率触发请求超时/截断，
+    # 大量题无法产出有效答案。首轮降至 8192（中档题实测 5-7k token 覆盖大部分），
+    # 配合 *_compressed 8192 双通道，单次推理时长显著缩短，官方环境下更可能在
+    # 超时前完成。牺牲的仅是极少数"贴 24576 上限"的奥赛题成功区间。
     "max_tokens": {"classifier": 96, "classifier_fallback": 8192,
                    "objective_reasoning": 4096,
-                   "reasoning": 24576, "python": 24576,
+                   "reasoning": 8192, "python": 8192,
                    "reasoning_compressed": 8192, "python_compressed": 8192,
                    "reconciliation": 32768,
                    "semantic_arbiter": 96, "semantic_arbiter_fallback": 4096,
@@ -63,6 +77,11 @@ CONFIG = {
     "problem_time_budget_s": 1200,
     "time_reserve_s": 300,
     "time_fast_path_threshold_s": 300,
+    # V2 M1 全卷完成率引擎（PaperPacer）：平台 6h 全卷硬限（秒）。
+    # 官方评测实证：V1 每题固定 1200s 软预算导致 112 题只完成 16 题（14.29%）。
+    # PaperPacer 按"剩余全卷时间 ÷ 剩余题数"动态收紧每题软预算，保证
+    # 6h 内 112 题全部产出答案（完成率 100% > 单题完美）。
+    "paper_total_seconds": 21600,
     # ==================== VeritasMath 升级配置 ====================
     # 难度感知软预算（全局约束：112 题 / 平台并发 3 / 6h 上限 ⇒ 平均每题 ~9.6min）。
     # 分类节点在同一 prefill 调用里顺带输出难度（边际成本≈0），TimeBudget 据此
@@ -99,6 +118,12 @@ CONFIG = {
     # 强制条款，并对生成代码做确定性静态核查（评委报告 idx 7：F_2 六值被按
     # 普通整数相加得 3，应模 2 得 1）。
     "enable_modular_guard": True,
+    # V2 M4 答案形式对齐：数学对但形式不合（idx=94 答区间而非半长）时，
+    # 低成本 LLM 重述修正（~512 token）。关闭即跳过。
+    "enable_form_align": True,
+    # V2.1 M7 ProofDeepener：证明/推导题结构补强（定理陈述→步骤链→结论），
+    # 解决 L3/L4 证明题"内容对但结构不被 judger 认可"的失分。
+    "enable_proof_deepener": True,
     # 评委建议 5：reserve 划出固定配额给语义仲裁与应急直答，杜绝
     # `arbiter=skipped(0.0s)`。含义：硬上限前剩余 ≥ 该值时，prefill 仲裁
     # （~10s）与应急直答（~30s）仍然放行；再低则只做确定性兜底。

@@ -16,6 +16,8 @@ def _want_diverse_branch(state, config) -> bool:
       最高的四类）随首路径并行发出；
     - 调解重算轮：一律追加（此时已知首路径失败，多样性正是缺的东西）；
     - 客观题、时间 fast path、配置关闭时不发。
+    - V2 M2：分类置信度高（≥0.90，fast 档）时即使高风险领域也不扇出——
+      首答已高度可信，第二路径是浪费资源（最少资源原则）。
     """
     if not CONFIG.get("enable_diverse_reasoning", True):
         return False
@@ -23,6 +25,10 @@ def _want_diverse_branch(state, config) -> bool:
         return False
     if state.get("reconciliation_round", 0) >= 1:
         return True
+    # V2 M2 置信门控：fast 档（高置信）省第二路径
+    from utils.confidence_gate import confidence_level
+    if confidence_level(state.get("category_confidence")) == "fast":
+        return False
     category = state.get("category", "")
     if category not in (CONFIG.get("high_risk_domains") or []):
         return False
@@ -47,15 +53,43 @@ def build_solving_subgraph():
                                 "method_variant": ""}
         )
         sends = [reasoning_send]
-        if _want_diverse_branch(state, config):
+        # V2.1 M8 FastLane：L1 客观题高置信 → 单路径快速答
+        # （省 Python/critic，时间给难题）。实算填空/难题不触发。
+        from utils.confidence_gate import fast_lane_eligible
+        if fast_lane_eligible(
+                state.get("question_mode", "computation"),
+                state.get("category_confidence"),
+                state.get("difficulty", ""),
+                state.get("problem", "")):
+            return sends
+        # V2 M3 DeepSolver：深思考信号时强制扇出 B 路径（第二候选），
+        # 供 cross_validator 多数一致合并（超难题单候选不够）。
+        from utils.confidence_gate import wants_deep_solver
+        if wants_deep_solver(
+                state.get("question_mode", "computation"),
+                state.get("category_confidence"),
+                state.get("category", ""),
+                state.get("difficulty", "")):
+            sends.append(Send(
+                "reasoning_agent", {**state, "branch_hint": state.get("reasoning_retry_hint"),
+                                    "method_variant": "B"}
+            ))
+        elif _want_diverse_branch(state, config):
             sends.append(Send(
                 "reasoning_agent", {**state, "branch_hint": state.get("reasoning_retry_hint"),
                                     "method_variant": "B"}
             ))
         question_mode = state.get("question_mode", "computation")
-        # VeritasMath 治本（ultra_112 idx=13/40）：实算填空题不再跳过 Python 验证——
-        # 它们恰是最易算错、最缺机器证据的题型。纯概念填空（术语/定义）才走快速路径。
-        if is_objective_mode(question_mode):
+        # V2 M2 置信门控：高置信纯概念客观题跳过 Python 验证（省资源）
+        from utils.confidence_gate import can_skip_python_verify, wants_deep_solver
+        if can_skip_python_verify(question_mode, state.get("category_confidence"),
+                                  state.get("problem", "")):
+            return sends
+        # V2 M3 DeepSolver：深思考信号时即使客观题也保留 Python（超难题要机器证据）
+        deep_triggered = wants_deep_solver(
+            question_mode, state.get("category_confidence"),
+            state.get("category", ""), state.get("difficulty", ""))
+        if not deep_triggered and is_objective_mode(question_mode):
             from utils.verify_router import needs_python_verify
             if not needs_python_verify(state.get("problem", ""), question_mode):
                 # 纯概念客观题：短路径自带核对，Python 标量无法表达多空/选项，跳过

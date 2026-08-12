@@ -90,6 +90,7 @@ class MathAgentGraph:
 
     def run(self, initial_state, token_budget=None, time_budget=None):
         from utils.deps import Deps
+        from utils.paper_pacer import PaperPacer
         from utils.token_budget import TokenBudget
         from utils.time_budget import TimeBudget
         tb = token_budget or TokenBudget()
@@ -97,9 +98,33 @@ class MathAgentGraph:
         # same origin. The platform's limit is wall-clock, so this is the budget
         # that actually decides pass/fail.
         clock = time_budget or TimeBudget()
+        # V2 M1 全卷完成率引擎：按"剩余全卷时间 ÷ 剩余题数"收紧本
+        # 题软预算（paper_cap），保证 6h 内 112 题全部完成。只影响软预算
+        # （可选阶段购买力），remaining_hard（1200s 平台硬限）不动。
+        try:
+            pacer = PaperPacer.get_instance()
+            idx = -1
+            meta = initial_state.get("meta") if isinstance(initial_state, dict) else None
+            if isinstance(meta, dict):
+                idx = meta.get("idx", -1)
+            paper_cap = pacer.budget_for(idx)
+            pacer.mark_started(idx)
+            clock.paper_cap = paper_cap
+            # 与难度画像取 min：两者都是"可选阶段购买力"上限
+            if paper_cap < clock.soft_total:
+                clock.soft_total = float(paper_cap)
+        except Exception:  # noqa: BLE001 - 完成率引擎是锦上添花，失败不拖垮单题
+            pass
         deps = Deps(client=self.client, skills_loader=self.skills_loader,
                     mcp_client=self.mcp_client, token_budget=tb, time_budget=clock)
-        final_state = self.app.invoke(initial_state, config={"configurable": {"deps": deps}})
+        try:
+            final_state = self.app.invoke(initial_state, config={"configurable": {"deps": deps}})
+        finally:
+            # 每题结束都计数（无论成功失败），驱动全卷节奏
+            try:
+                PaperPacer.get_instance().mark_done()
+            except Exception:  # noqa: BLE001
+                pass
         if isinstance(final_state, dict):
             final_state["_time_budget"] = clock.snapshot()
             final_state["_llm_spend_log"] = clock.spend_log()

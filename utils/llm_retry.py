@@ -123,9 +123,22 @@ class LLMRetryWrapper:
                     )
                     break
                 delay = 0 if self.backoff_factor == 0 else self.backoff_factor ** (attempt - 1)
-                self.logger.warning(
-                    "LLM call failed on attempt %s/%s: %s", attempt, self.max_retries, exc
-                )
+                # V2 M6 限流感知退避：官方 client 的限流/配额错误（429、配额耗尽
+                # -20081 等）说明"当前请求不该立即重发"，短退避只会连续撞墙浪费
+                # 时间预算。检测到限流特征时用更长退避（≥10s），并降级重试次数
+                # 语义——留给后续节点的时间比盲目重试更值钱。
+                err_text = f"{exc}".lower()
+                if any(k in err_text for k in ("429", "rate limit", "rate_limit",
+                                               "配额", "quota", "tokens", "-20081",
+                                               "busy", "overloaded", "too many")):
+                    delay = max(delay, 10.0 + 5.0 * attempt)
+                    self.logger.warning(
+                        "%s: 检测到限流/配额特征(attempt %s/%s)，退避 %.0fs: %s",
+                        label, attempt, self.max_retries, delay, exc)
+                else:
+                    self.logger.warning(
+                        "LLM call failed on attempt %s/%s: %s", attempt, self.max_retries, exc
+                    )
                 if delay > 0:
                     time.sleep(delay)
         raise last_error

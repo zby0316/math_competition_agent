@@ -10,7 +10,10 @@ mcp>=1.0.0
 
 # Symbolic, numeric, and scientific computation used by Python verification scripts.
 sympy>=1.12
-mpmath>=1.3
+# 2026-08-12 修正（官方日志 P5）：sympy 依赖约束 mpmath<1.4,>=1.1.0，
+# 旧声明 mpmath>=1.3 会让 pip 先装 1.4.1 再被迫降级 1.3.0（日志实证）。
+# 对齐 sympy 兼容范围，避免无谓降级与版本漂移。
+mpmath>=1.3,<1.4
 numpy>=1.24.0
 scipy>=1.10.0
 
