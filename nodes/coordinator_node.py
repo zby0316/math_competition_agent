@@ -185,6 +185,7 @@ def _form_align_reframe(client, deps, problem: str, answer: str,
         )
         raw = chat_prefilled(
             client, [{"role": "user", "content": prompt}],
+            prefix="",
             temperature=0.0, max_tokens=256,
             label="form_align", time_budget=deps.time_budget,
             reserve_margin_s=45,
