@@ -62,24 +62,32 @@ flowchart LR
 与基线的拓扑差异：**所有答案进 coordinator 前必经 Critic 审计门**；计算题冲突
 **先进 Playoff 再决定重算或仲裁**——重算从"第一反应"降级为"复算无效后的手段"。
 
+> V2.1/V2.3 的增强（M7 证明深加工 → M12 逻辑自检 → M13 覆盖检查 → M14 难题兜底）
+> 全部收敛在 coordinator 节点内部，不改变主图拓扑——成稿前做"结构补强 + 逻辑审查 +
+> 覆盖核对 + 放弃兜底"四道后处理。
+
 ### 2.2 Solving 子图（多径扇出）
 
 ```mermaid
 flowchart LR
     S([START]) --> FanOut{fan_out}
-    FanOut -->|主路径·直接法| R1[reasoning_agent]
-    FanOut -->|method_variant=B<br/>异构方法| R2[reasoning_agent]
-    FanOut --> P[python_agent]
-    R1 --> V[cross_validator] 
+    FanOut -->|FastLane 单路径直出 M8| R1[reasoning_agent]
+    FanOut -->|主路径 直接法| R1
+    FanOut -->|method_variant=B<br/>异构方法 8选1| R2[reasoning_agent]
+    FanOut -->|非客观题| P[python_agent]
+    R1 --> V[cross_validator]
     R2 --> V
     P --> V
     V --> E([END])
 ```
 
-第二推理路径（`method_variant="B"`）通过 `DIVERSE_METHOD_HINT` 强制切换方法论
-（构造枚举 / 不变量极端原理 / 反向归谬 / 生成函数递推），与主路径形成方法论独立的
-双证据。触发纪律（控成本）：
+第二推理路径（`method_variant="B"`）通过 `DIVERSE_METHOD_HINT` 强制切换方法论，
+从八类独立方法中选一（V2.3 M11 由 4 类扩充）：构造枚举 / 不变量极端原理 /
+反向归谬 / 生成函数递推 / 变量代换 / 逼近极限 / 对偶互补 / 特例反推，
+与主路径形成方法论独立的双证据。触发纪律（控成本）：
 
+- **FastLane（V2.1 M8）**：L1 客观题且分类高置信 → 单路径直出，跳过 B 路径与
+  Python（省时间给难题）；
 - **首轮**：仅高风险领域（离散数学、非基础及进阶课程、微分几何、测度积分——
   评测集占比最高且单样本错误率最高的四类）并行扇出；
 - **重算轮**：一律追加（此时已知首路径失败，多样性正是缺的东西）；
