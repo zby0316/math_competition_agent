@@ -351,6 +351,17 @@ def _reasoning_agent_impl(state, config):
         problem=problem)
     base_prompt += mode_instruction(question_mode)
     base_prompt += structure_instruction(problem)
+    # V2.3 初解质量强化：超难题"计划先行"（目标锚定→路径规划→逐步求解），
+    # 单次调用内完成，不增加额外 API 调用（串行重解在慢 API 下必然超时）。
+    try:
+        from utils.hard_plan import hard_plan_hint
+        plan_hint = hard_plan_hint(
+            question_mode, state.get("category_confidence"),
+            state.get("difficulty", ""))
+        if plan_hint:
+            base_prompt += plan_hint
+    except Exception:  # noqa: BLE001 - 提示注入失败不影响主路径
+        pass
     # 压缩重试要压的是推导篇幅，不是答案该覆盖的分支（评委复测 idx 14）。
     coverage_clause = answer_coverage_clause(problem)
 

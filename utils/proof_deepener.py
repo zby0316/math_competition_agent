@@ -140,3 +140,101 @@ def deepen_proof(client, deps, problem: str, answer: str,
 def _final_verdict_guard(answer: str) -> bool:
     """最终答案是否包含可判定的结论（judger 依赖）。"""
     return bool(_CONCLUSION_RE.search(str(answer or "")))
+
+
+# ---- V2.3 M12 证明自检（Proof Self-Critique） ----
+
+_SELF_CRITIQUE_PROMPT = (
+    "你是一位严谨的数学审稿人。下面是一道数学题和一份答案。\n\n"
+    "【题目】\n{problem}\n\n"
+    "【答案】\n{proof}\n\n"
+    "请严格审查，只输出一行 JSON：\n"
+    '{{"sound": true|false, "gap": "若 sound=false，指出最关键的一处逻辑跳跃或漏洞（30字内）；否则写 ok", '
+    '"coverage": true|false, "missing": "若 coverage=false，指出题目要求但答案未覆盖的部分（30字内）；否则写 ok"}}\n'
+    "两项判定标准：\n"
+    "① sound（逻辑）：每一步是否可从前一步严格推出；引用的定理是否适用当前条件；结论是否由前文推出。\n"
+    "② coverage（覆盖，V2.3 M13）：题目问了几件事（如『证明X并说明Y』是两件事），答案是否全部覆盖；"
+    "『并/且/同时/以及/说明/求...与...』等连接词提示多问，逐项核对是否都答了。\n"
+    "注意：只找『逻辑漏洞』和『漏答』，不找『表述瑕疵』——数学成立且全覆盖就 sound=true 且 coverage=true。"
+)
+
+
+def proof_self_critique(client, deps, problem: str, proof: str,
+                        max_fix_rounds: int = 1) -> str:
+    """V2.3 M12+M13 答案自检：审稿查逻辑漏洞 + 题面覆盖。
+
+    与 M7（deepen_proof，补结构）的分工：
+      - M7 补"三段式结构"（定理陈述/步骤链/结论是否齐全）；
+      - M12 查"逻辑正确性"（每步能否严格推出，定理是否适用）；
+      - M13 查"题面覆盖"（题目问了几件事，答案是否全答——救 partial 类漏答，
+        如 Hahn-Banach 题漏答『几何意义』）。
+
+    成本：一次 prefill（~10s）；发现实质缺陷时再一轮补强（~512 token）。
+    封顶 1 轮补强，绝不无限循环（官方 20min 硬限）。
+    """
+    if not CONFIG.get("enable_proof_self_critique", True):
+        return str(proof or "")
+    text = str(proof or "").strip()
+    if not text:
+        return text
+    try:
+        from utils.llm_retry import chat_with_retry
+        from utils.cot_stripper import strip_cot_prefix
+        raw = chat_with_retry(
+            client,
+            [{"role": "user", "content": _SELF_CRITIQUE_PROMPT.format(
+                problem=str(problem)[:800], proof=text[:2000])}],
+            temperature=0.0, max_tokens=320,
+            logger=deps.logger, time_budget=deps.time_budget,
+            label="proof_self_critique",
+        )
+        cleaned = strip_cot_prefix(raw or "").strip()
+        # 解析 JSON 判定
+        import json as _json
+        import re as _re
+        sound = None
+        gap = ""
+        coverage_ok = True
+        missing = ""
+        for m in _re.finditer(r"\{[^{}]*\}", cleaned):
+            try:
+                obj = _json.loads(m.group(0))
+                if "sound" in obj:
+                    sound = bool(obj.get("sound"))
+                    gap = str(obj.get("gap", "")).strip()
+                if "coverage" in obj:
+                    coverage_ok = bool(obj.get("coverage"))
+                    missing = str(obj.get("missing", "")).strip()
+            except Exception:  # noqa: BLE001
+                continue
+        if sound is True and coverage_ok:
+            return text
+        # 有实质漏洞或漏答 → 补强一轮（把缺陷清单带进修复提示）
+        defects = []
+        if sound is False and gap:
+            defects.append(f"逻辑漏洞：{gap}")
+        if not coverage_ok and missing:
+            defects.append(f"漏答部分：{missing}")
+        if max_fix_rounds > 0 and defects:
+            from utils.llm_retry import chat_with_retry as _cwr
+            fix_prompt = (
+                "下面是一道数学题和一份答案。审稿人指出以下缺陷：\n\n"
+                + "\n".join(f"· {d}" for d in defects) + "\n\n"
+                f"【题目】{str(problem)[:600]}\n\n"
+                f"【原答案】\n{text[:1500]}\n\n"
+                "请修复上述缺陷，输出完整答案（保持原有正确部分，修正逻辑漏洞、补全漏答部分），"
+                "以『证毕』或『因此…成立，证毕』收尾。"
+            )
+            fixed = _cwr(
+                client, [{"role": "user", "content": fix_prompt}],
+                temperature=0.0, max_tokens=1024,
+                logger=deps.logger, time_budget=deps.time_budget,
+                label="proof_self_critique_fix",
+            )
+            fixed_clean = strip_cot_prefix(fixed or "").strip()
+            if len(fixed_clean) >= 40 and _CONCLUSION_RE.search(fixed_clean):
+                return fixed_clean
+        return text
+    except Exception as exc:  # noqa: BLE001 - 自检失败保持原答案
+        logger.warning("Proof self-critique failed: %s", exc)
+        return text

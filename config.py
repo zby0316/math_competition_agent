@@ -124,6 +124,10 @@ CONFIG = {
     # V2.1 M7 ProofDeepener：证明/推导题结构补强（定理陈述→步骤链→结论），
     # 解决 L3/L4 证明题"内容对但结构不被 judger 认可"的失分。
     "enable_proof_deepener": True,
+    # V2.3 M12 证明自检：审稿查逻辑漏洞（prefill 低成本），有实质漏洞补一轮。
+    "enable_proof_self_critique": True,
+    # V2.3 M14 难题兜底：放弃型答案触发部分求解（特殊情形+思路框架+部分结论）。
+    "enable_hard_fallback": True,
     # 评委建议 5：reserve 划出固定配额给语义仲裁与应急直答，杜绝
     # `arbiter=skipped(0.0s)`。含义：硬上限前剩余 ≥ 该值时，prefill 仲裁
     # （~10s）与应急直答（~30s）仍然放行；再低则只做确定性兜底。

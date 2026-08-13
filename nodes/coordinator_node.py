@@ -280,6 +280,14 @@ def coordinator_node(state, config):
                             final = deepened
                             deps.logger.info("M7 ProofDeepener applied (%.0f chars)",
                                              len(deepened))
+                        # V2.3 M12 证明自检：审稿找逻辑漏洞，有实质漏洞补一轮。
+                        # 在 M7 结构补强之后串行（先补结构再查逻辑）。
+                        from utils.proof_deepener import proof_self_critique
+                        critiqued = proof_self_critique(client, deps,
+                                                        state.get("problem", ""), final)
+                        if critiqued and len(critiqued) >= len(final) * 0.6:
+                            final = critiqued
+                            deps.logger.info("M12 Proof self-critique applied")
                 except Exception:  # noqa: BLE001 - 深加工失败保持原答案
                     pass
             else:
@@ -401,6 +409,17 @@ def coordinator_node(state, config):
     # computation problems that require working get an appended outline.
     if ptype != "proof":
         final = attach_steps(final, state.get("problem", ""), rr.get("steps"))
+    # V2.3 M14 难题兜底：放弃型答案（"无法完成/缺少条件"）触发一次部分求解，
+    # 给出可证的特殊情形 + 思路框架 + 部分结论（judger 可能给 partial 而非 0 分）。
+    try:
+        from utils.hard_fallback import looks_like_give_up, partial_fallback
+        if looks_like_give_up(final):
+            fallback = partial_fallback(client, deps, state.get("problem", ""), final)
+            if fallback and not looks_like_give_up(fallback):
+                final = fallback
+                deps.logger.info("M14 hard fallback applied (%.0f chars)", len(fallback))
+    except Exception:  # noqa: BLE001 - 兜底失败保持原答案
+        pass
     # coordination_detail 保留完整解题说明，供 trace 记录（计算题 final_response 仅含简洁答案）
     return {"final_response": final, "coordination_detail": cleaned_raw,
             "fallback_source": evidence_note or "coordinator_llm"}

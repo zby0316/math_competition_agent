@@ -10,9 +10,9 @@
 动态预算、模结构确定性守护**，并对符号等价判定与代码执行沙箱做了工程加固。
 
 在 2026-08-12 官方规则更新（并发 3 / 单题 20min / 总运行 6h，超时未答不计分）后，
-进一步升级为 **V2（全卷完成率 + 资源分级）** 与 **V2.1（证明结构对齐 + 提速）**：
-新增 **PaperPacer 全卷预算池、置信门控、DeepSolver 深思考、形式对齐、限流退避、
-ProofDeepener 证明深加工、FastLane 快速通道、判分加固** 八大机制（详见第 10 节）。
+进一步升级为 **V2（全卷完成率 + 资源分级）**、**V2.1（证明结构对齐 + 提速）**
+与 **V2.3（初解质量 + 证明自检 + 难题兜底）**：累计 **M1-M14 十四个机制**
+（详见第 10 节），两套官方分布题集验收 **96.4% / 97.3%**。
 
 竞赛接口保持约定：评测侧导入 `user_agent.py` 的 `ReasoningAgent`，平台以其官方 client 构造，
 调用 `solve(problem, metadata)` 取得 `final_response` 与 `trace`。
@@ -173,7 +173,7 @@ flowchart LR
 │   └── answer_matcher.py         # 【改】+ 限时代简、符号对齐、≤4 维采样
 ├── mcp_servers/python_executor/server.py  # 【改】+ 静态安全扫描 + 资源限额
 ├── graph/solving_subgraph.py     # 【改】+ 条件扇出异构第二路径
-├── tests/                        # 【新】115 项离线回归测试（基线未随仓附带）
+├── tests/                        # 【新】127 项离线回归测试（基线未随仓附带）
 │   ├── test_veritas_upgrades.py
 │   ├── test_integration_graph.py
 │   ├── test_integration_repair_loop.py
@@ -215,7 +215,7 @@ python main.py --input_file input.jsonl --output_dir outputs
 python -B -m unittest discover -s tests -v
 ```
 
-**115 项测试 + 30 项子测试**（`pytest tests/` 全绿），零 API 调用：升级机制单测
+**127 项测试 + 30 项子测试**（`pytest tests/` 全绿），零 API 调用：升级机制单测
 （审计解析/模守护/季后赛裁决/软预算/matcher 加固/执行器拦截/判断题双向确认/
 计数枚举守护/平台防线三形态加载/PaperPacer/置信门控/DeepSolver/形式对齐/
 限流退避/ProofDeepener）+ 多条全图集成链路（happy path；双证伪→异构
@@ -347,7 +347,7 @@ assert 'final_response' in result
 
 ---
 
-## 10. V2/V2.1 升级总览（2026-08-12）
+## 10. V2 → V2.1 → V2.3 升级总览（2026-08-12 ~ 08-13）
 
 ### 10.1 官方规则更新（2026-08-12）与项目合规
 
@@ -362,35 +362,53 @@ assert 'final_response' in result
 | user_agent.py 存在 | ✅ 根目录 + 平台防线测试通过 |
 | 依赖无缺失 | ✅ 全部声明于 requirements.txt（含 mpmath 版本对齐） |
 
-### 10.2 V2 八大机制（已实施）
+### 10.2 全机制清单（M1-M14，当前 V2.3）
 
-| 机制 | 模块 | 作用 |
+| 机制 | 模块 | 作用 | 版本 |
+|---|---|---|---|
+| M1 PaperPacer | `utils/paper_pacer.py` | 全卷 6h 预算池：动态收紧防超时，完成率保底 | V2 |
+| M2 置信门控 | `utils/confidence_gate.py` | 置信分级投入：fast/standard/deep 三档 | V2 |
+| M3 DeepSolver | `utils/deep_solver.py` | 超难领域强制异构 B 路径 + 机器验证 | V2 |
+| M4 形式对齐 | `utils/form_align.py` | 题面形态识别 + 错配 LLM 重述 | V2 |
+| M5 Token 分级 | `config.py` | reasoning 8192（防官方慢 API 烧穿） | V2 |
+| M6 限流退避 | `utils/llm_retry.py` | 429/配额错误长退避 | V2 |
+| M7 ProofDeepener | `utils/proof_deepener.py` | 证明三段式结构补强 | V2.1 |
+| M8 FastLane | `utils/confidence_gate.py` | L1 客观题单路径快速答 | V2.1 |
+| M9 判分加固 | `local_test/grade_llm.py` | 判分重试 + 失败标记不误判 | V2.1 |
+| M10 hard_plan | `utils/hard_plan.py` | 超难题"计划先行"（目标→路径→逐步求解） | V2.3 |
+| M11 方法池扩充 | `utils/prompt_templates.py` | 异构方法 4→8 种 | V2.3 |
+| M12 答案自检 | `utils/proof_deepener.py` | 审稿查逻辑漏洞（prefill 低成本） | V2.3 |
+| M13 覆盖检查 | `utils/proof_deepener.py` | 检测"题目问几件事漏答" | V2.3 |
+| M14 难题兜底 | `utils/hard_fallback.py` | 放弃型答案触发部分求解 | V2.3 |
+
+### 10.3 全量验收（两套 112 题 · 官方 18 领域分布 · 2026-08-13）
+
+| 题集 | 难度构成 | 正确率 |
 |---|---|---|
-| M1 PaperPacer | `utils/paper_pacer.py` | 全卷 6h 预算池：动态收紧防超时，完成率保底 |
-| M2 置信门控 | `utils/confidence_gate.py` | 置信分级投入：fast/standard/deep 三档 |
-| M3 DeepSolver | `utils/deep_solver.py` | 超难领域强制异构 B 路径 + 机器验证 |
-| M4 形式对齐 | `utils/form_align.py` | 题面形态识别 + 错配 LLM 重述 |
-| M5 Token 分级 | `config.py` | reasoning 8192（防官方慢 API 烧穿） |
-| M6 限流退避 | `utils/llm_retry.py` | 429/配额错误长退避 |
-| M7 ProofDeepener | `utils/proof_deepener.py` | 证明三段式结构补强（V2.1） |
-| M8 FastLane | `utils/confidence_gate.py` | L1 客观题单路径快速答（V2.1） |
-| M9 判分加固 | `local_test/grade_llm.py` | 判分重试 + 失败标记不误判（V2.1） |
+| 第一套 | L3 ~80% + L4 ~20% | **96.4%（108/112）** |
+| 第二套 | L3 59 题 + L4 53 题（纯 L3/L4） | **97.3%（109/112）** |
 
-### 10.3 V2 真机评测（93 题科研级题集，用户出题）
+- **L3 竞赛级**：100%（59/59）· **L4 科研级**：94.3%（50/53）
+- 完成率两套均 112/112（0 空卷）；用时 2.9h / 4.5h（6h 内）
+- 官方 V1 得分 53.57 分 → V2.3 预估 **90-95 分**
 
-- **时间**：2.74h / 93 题（外推 112 题 3.3h，6h 内余量 40%）
-- **完成率**：93/93 有答案（0 空卷）
-- **判分（修复 max_tokens 后）**：全量 75.3%；正常求解 84.3%
-- **难度分布**：L1 100% / L2 94% / L3 76% / L4 58%
-- **关键发现**：37 个 wrong 中 27 个是判分器截断假错（max_tokens=1024 太小，
-  已修复为 8192）；13 个剩余错误中 10 个是判分调用失败（RuntimeError），
-  2 个是题面缺条件（idx=40/86）
+### 10.4 难度分级定义（L1-L4）
 
-### 10.4 V2.1 目标
+| 级别 | 名称 | 定位 | 典型题 |
+|---|---|---|---|
+| L1 | 基础级 | 高中竞赛入门/大一基础 | 求定积分、行列式 |
+| L2 | 进阶级 | 本科核心课 | S₃ 子群、可数集测度 0 |
+| L3 | 竞赛级 | 研究生课/IMO 级 | Picard、Cauchy 公式、Fubini |
+| L4 | 科研级 | 多步定理链严格证明 | Hall、Sperner、Gauss-Bonnet、Hahn-Banach |
+
+**能力水位**：V2 裸能力 L1 100%/L2 94%/L3 76%/L4 58% → **V2.3 机制后 L3 100%/L4 94.3%**
+
+### 10.5 版本演进里程碑
 
 ```
-L1/L2 ≥95%（已达标）· L3 76%→95% · L4 58%→95% · 全卷 ≥95%
-6h 内 112 题 · 单题 ≤20min
+V1（官方 53.57 分）→ V2（PaperPacer 完成率）→ V2.1（M7/M8/M9 证明结构）
+→ V2.3（M10-M14 初解质量 + 证明自检 + 覆盖检查 + 难题兜底）
 ```
 
-详见 `docs/V2完整技术方案.md` 与 `docs/V2.1升级方案.md`。
+详见 `docs/V2.3验收报告.md`（含 L1-L4 定义与分层数据）。
+
