@@ -578,11 +578,21 @@ def _reasoning_agent_impl(state, config):
         # exception propagated out of the node and the wrapper substituted an empty
         # result, so cross-validation saw a placeholder and had one candidate left.
         try:
-            resp = chat_with_retry(
+            # V2.4 token 分级：按难度给足推理空间（难题 16384，简单 8192），
+            # 恢复 V2.1 一刀切 8192 砍掉的难题推理深度。
+            _diff = str(state.get("difficulty") or "medium").lower()
+            _mt = CONFIG.get("reasoning_tokens_by_difficulty", {}).get(
+                _diff, CONFIG["max_tokens"]["reasoning"])
+            # V2.4 prefill 抑制 CoT：intern-s2 的私有思维链（reasoning_content）
+            # 计入 max_tokens 且慢 API 下生成极慢（16384 token ≈ 811s，真机实测）。
+            # 用 prefill 让模型从"## 问题分析"直接作答、跳过 CoT——思考引导已由
+            # 提示词内化七点承担（结构/覆盖/逻辑/自洽验证），不再依赖 CoT 空想。
+            resp = chat_prefilled(
                 client,
                 messages=[{"role": "user", "content": prompt}],
+                prefix="## 问题分析\n",
                 temperature=CONFIG["temperatures"]["reasoning"],
-                max_tokens=CONFIG["max_tokens"]["reasoning"],
+                max_tokens=_mt,
                 logger=deps.logger,
                 time_budget=deps.time_budget,
                 label="reasoning",

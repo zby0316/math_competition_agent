@@ -70,14 +70,17 @@ def classify_question_mode(problem: str) -> str:
     text = str(problem or "").strip()
     if not text:
         return "computation"
+    # 选择题选项标记必须在判断题字面之前：官方题集常见
+    # "判断下列说法正确的是（  ）\nA. … B. … C. … D. …"——
+    # 出现 ≥2 个选项标记就是选择题，不是判断题（V2.4 方向 5 审查发现）。
+    option_count = len(_OPTION_RE.findall(text)) + len(_OPTION_PAREN_RE.findall(text))
+    if option_count >= 2 or re.search(r"(?:选择题|单选|多选|下列.*(?:正确|错误|是|为).*选)", text, re.I):
+        return "choice"
     if _TRUE_FALSE_RE.search(text) or re.search(r"判断\s*(?:题)?\s*[：:]", text):
         return "true_false"
     # Official questions often use ``（）`` after the stem and place options
     # inline (``A.均值B.方差``).  Option detection must therefore precede the
     # generic blank marker; otherwise almost every objective item becomes fill-in.
-    option_count = len(_OPTION_RE.findall(text)) + len(_OPTION_PAREN_RE.findall(text))
-    if option_count >= 2 or re.search(r"(?:选择题|单选|多选|下列.*(?:正确|错误|是|为).*选)", text, re.I):
-        return "choice"
     if _FILL_RE.search(text) or re.search(
         r"(?:填空题|fill\s*in|blank|指标是|分别为\s*$)", text, re.I
     ):

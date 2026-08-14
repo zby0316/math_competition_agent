@@ -76,5 +76,89 @@ class TestCheckFormAlignment(unittest.TestCase):
         self.assertTrue(r["aligned"])
 
 
+class TestObjectiveChoiceForm(unittest.TestCase):
+    """方向 5（V2.4）：选择题格式对齐——官方可能精确匹配选项字母。"""
+
+    def test_choice_expected_form(self):
+        # 显式"选择题"字面
+        self.assertEqual(expected_form("选择题：下列哪个函数是奇函数？"), "choice")
+        # 选项标记 A. B. C.
+        self.assertEqual(
+            expected_form("下列正确的是\nA. x B. y C. z"), "choice")
+        # 带空括号 + 选项 → 必须是 choice 不是 fill（关键歧义修复）
+        self.assertEqual(
+            expected_form("下列说法正确的是（  ）\nA. 甲 B. 乙 C. 丙 D. 丁"),
+            "choice")
+        # 单选/多选字面
+        self.assertEqual(expected_form("单选：下列积分收敛的是？"), "choice")
+        self.assertEqual(expected_form("多选：下列命题正确的有？"), "choice")
+
+    def test_judge_with_options_is_choice(self):
+        """'判断下列说法正确的是' + 选项 → choice 不是 judge（审查发现边界修复）。"""
+        self.assertEqual(
+            expected_form("判断下列说法正确的是（  ）\nA. 甲 B. 乙 C. 丙 D. 丁"),
+            "choice")
+        self.assertEqual(
+            expected_form("判断下列命题正确的有（多选）\nA. 甲 B. 乙 C. 丙"),
+            "choice")
+
+    def test_choice_answer_letters_aligned(self):
+        problem = "选择题：下列哪个函数是奇函数？\nA. y=x² B. y=x³ C. y=|x|"
+        self.assertTrue(check_form_alignment(problem, "B")["aligned"])
+        self.assertTrue(check_form_alignment(problem, "选B")["aligned"])
+        self.assertTrue(check_form_alignment(problem, "B、D")["aligned"])
+        self.assertTrue(check_form_alignment(problem, "答案：C")["aligned"])
+
+    def test_choice_answer_with_explanation_misaligned(self):
+        """选择题答了完整解释而非字母 → 触发重述。"""
+        problem = "选择题：下列哪个函数是奇函数？\nA. y=x² B. y=x³ C. y=|x|"
+        r = check_form_alignment(problem, "B. y=x³ 是奇函数，因为 f(-x)=-f(x)")
+        self.assertFalse(r["aligned"])
+        self.assertEqual(r["expected"], "choice")
+
+    def test_choice_numeric_answer_misaligned(self):
+        """选择题答数值（而非字母）→ 错配（精确匹配下失分）。"""
+        problem = "选择题：x²=4 的解是？\nA. 1 B. 2 C. 3"
+        r = check_form_alignment(problem, "x=2")
+        self.assertFalse(r["aligned"])
+
+
+class TestObjectiveJudgeForm(unittest.TestCase):
+    """方向 5（V2.4）：判断题判定词覆盖（正确/错误 与 judge_confirm 口径一致）。"""
+
+    def test_judge_positive_words(self):
+        problem = "判断：函数 f(x)=x² 在 R 上单调递增是否正确？"
+        for ans in ("正确", "错误", "不正确", "对", "错", "是", "否", "成立", "不成立",
+                    "√", "×", "错误，因为 f(-1)=f(1)"):
+            self.assertTrue(
+                check_form_alignment(problem, ans)["aligned"],
+                f"判定词应对齐: {ans!r}")
+
+    def test_judge_non_word_misaligned(self):
+        problem = "判断：函数 f(x)=x² 在 R 上单调递增是否正确？"
+        r = check_form_alignment(problem, "x²在R上不单调")
+        self.assertFalse(r["aligned"])
+
+
+class TestObjectiveFillForm(unittest.TestCase):
+    """方向 5（V2.4）：填空题格式对齐。"""
+
+    def test_fill_expected_form(self):
+        self.assertEqual(expected_form("填空：若 x²=4，则 x=____"), "fill")
+        self.assertEqual(expected_form("若 x²=4，则 x=（  ）"), "fill")
+        self.assertEqual(expected_form("空1 为____，空2 为____"), "fill")
+
+    def test_fill_answer_aligned(self):
+        problem = "填空：若 x²=4，则 x=____"
+        self.assertTrue(check_form_alignment(problem, "±2")["aligned"])
+        self.assertTrue(check_form_alignment(problem, "空1: ±2")["aligned"])
+        self.assertTrue(check_form_alignment(problem, "x=±2")["aligned"])
+
+    def test_fill_multiple_blanks_answer(self):
+        problem = "填空：空1 为____，空2 为____"
+        r = check_form_alignment(problem, "空1: 3；空2: -1")
+        self.assertTrue(r["aligned"])
+
+
 if __name__ == "__main__":
     unittest.main()

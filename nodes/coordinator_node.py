@@ -175,13 +175,23 @@ def _form_align_reframe(client, deps, problem: str, answer: str,
     try:
         if not answer.strip():
             return ""
+        # V2.4 提分（方向 5）：客观题（选择/判断/填空）若官方精确匹配，
+        # 重述必须输出规范形态——选项字母 / 判断词 / 空位序列。
+        format_rule = {
+            "choice": "只输出正确选项的字母（如 A、C；多选按字母序用顿号分隔），不要解释",
+            "judge": "只输出判断词：正确/错误（或 是/否/成立/不成立），不要解释",
+            "fill": "按空位顺序输出：空1: <结果>；空2: <结果>（单空直接给结果），不要解释",
+            "single": "只输出具体数值/表达式，不要区间、不要解释",
+            "interval": "只输出区间或数值，不要解释",
+            "enum": "列出全部值/对象，不要只给一个",
+        }.get(expected, "只输出符合题面要求的最终答案本身（数值/表达式/区间/判断词）")
         prompt = (
             "你负责把已有的数学答案重新表述为题目要求的答案形态。\n\n"
             f"【题目】\n{str(problem)[:800]}\n\n"
             f"【已有答案】\n{str(answer)[:400]}\n\n"
             f"【期望形态】{expected}\n"
-            "请只输出符合题面要求的最终答案本身（数值/表达式/区间/判断词），"
-            "不要解释，不要前缀。若已有答案已包含该值，直接提取。"
+            f"【格式要求】{format_rule}\n"
+            "不要解释，不要前缀，不要多余的推导。若已有答案已包含该值，直接提取。"
         )
         raw = chat_prefilled(
             client, [{"role": "user", "content": prompt}],
@@ -196,6 +206,17 @@ def _form_align_reframe(client, deps, problem: str, answer: str,
         m = _re.search(r"最终答案[：:]\s*(.+)", text, re.DOTALL)
         text = (m.group(1) if m else text).strip()
         text = text.splitlines()[0].strip() if text else ""
+        # V2.4：选择题重述结果再做一次确定性归一化（仅保留字母），
+        # 防止重述输出"选B、选C"这类仍不合规的形态。
+        if expected == "choice" and text:
+            try:
+                from utils.problem_profile import (
+                    normalize_objective_answer, objective_answer_is_usable)
+                normalized = normalize_objective_answer(text, "choice")
+                if normalized and objective_answer_is_usable(normalized, "choice"):
+                    return normalized
+            except Exception:  # noqa: BLE001 - 归一化失败退回原重述
+                pass
         if not text or len(text) > 300 or is_placeholder_answer(text):
             return ""
         return text
@@ -271,9 +292,14 @@ def coordinator_node(state, config):
                 final = build_proof_body(final, rr)
                 # V2.1 M7 ProofDeepener：证明结构补强（定理陈述→步骤链→结论），
                 # 解决 L3/L4 证明题"内容对但结构不被 judger 认可"的失分。
+                # V2.4 预算分级：M7+M12 深加工是 2-3 次额外调用，官方慢 API 下
+                # 每次 ~35-90s。剩余硬时间不足 180s 时跳过，直接成稿保不超时
+                # （V2.1 官方评测 19 题单题超时被强杀的教训）。
                 try:
                     from utils.proof_deepener import deepen_proof, is_proof_question
-                    if is_proof_question(state.get("problem", ""), ptype):
+                    budget_ok = (not deps.time_budget
+                                 or deps.time_budget.remaining_hard() > 180.0)
+                    if is_proof_question(state.get("problem", ""), ptype) and budget_ok:
                         deepened = deepen_proof(client, deps,
                                                 state.get("problem", ""), final)
                         if deepened and len(deepened) > len(final) * 0.6:
@@ -288,6 +314,8 @@ def coordinator_node(state, config):
                         if critiqued and len(critiqued) >= len(final) * 0.6:
                             final = critiqued
                             deps.logger.info("M12 Proof self-critique applied")
+                    elif is_proof_question(state.get("problem", ""), ptype):
+                        deps.logger.info("M7/M12 skipped: hard time budget low")
                 except Exception:  # noqa: BLE001 - 深加工失败保持原答案
                     pass
             else:
@@ -411,9 +439,12 @@ def coordinator_node(state, config):
         final = attach_steps(final, state.get("problem", ""), rr.get("steps"))
     # V2.3 M14 难题兜底：放弃型答案（"无法完成/缺少条件"）触发一次部分求解，
     # 给出可证的特殊情形 + 思路框架 + 部分结论（judger 可能给 partial 而非 0 分）。
+    # V2.4 预算分级：剩余硬时间不足 90s 时跳过（兜底是额外调用，慢 API 下 ~35-90s）。
     try:
         from utils.hard_fallback import looks_like_give_up, partial_fallback
-        if looks_like_give_up(final):
+        budget_ok = (not deps.time_budget
+                     or deps.time_budget.remaining_hard() > 90.0)
+        if looks_like_give_up(final) and budget_ok:
             fallback = partial_fallback(client, deps, state.get("problem", ""), final)
             if fallback and not looks_like_give_up(fallback):
                 final = fallback

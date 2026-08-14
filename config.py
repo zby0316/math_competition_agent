@@ -1,6 +1,9 @@
 CONFIG = {
     "model": "intern-s2-preview-397b",
-    "max_retries_per_node": 2, "llm_max_retries": 3, "backoff_factor": 2.0,
+    # V2.4 单题时间硬约束：官方慢 API（35s/请求）下，每次重试都是一次超时风险。
+    # 3 次重试最坏 3×120s=360s 打水漂，是 V2.1 官方评测 19 题 error（单题超时被
+    # 强杀）的重要推手。降到 1 次：快失败快降级，用"现有最佳答案成稿"而非死磕。
+    "max_retries_per_node": 1, "llm_max_retries": 1, "backoff_factor": 1.5,
     # Ceilings are a hang detector of LAST resort; TimeBudget.timeout_for() clamps
     # each to whatever the problem deadline still allows, and that clamp is the real
     # bound. They are near the full budget on purpose.
@@ -56,11 +59,20 @@ CONFIG = {
     # 超时前完成。牺牲的仅是极少数"贴 24576 上限"的奥赛题成功区间。
     "max_tokens": {"classifier": 96, "classifier_fallback": 8192,
                    "objective_reasoning": 4096,
-                   "reasoning": 8192, "python": 8192,
-                   "reasoning_compressed": 8192, "python_compressed": 8192,
+                   "reasoning": 12288, "python": 8192,
+                   "reasoning_compressed": 12288, "python_compressed": 8192,
                    "reconciliation": 32768,
                    "semantic_arbiter": 96, "semantic_arbiter_fallback": 4096,
                    "coordinator": 16384, "emergency_answer": 1280},
+    # V2.4 token 分级恢复：V2.1 把 reasoning 一刀切到 8192 导致难题推理被截断
+    # （正确率 60→45）。恢复为按难度分级：简单题省 token（快），难题给足（推理
+    # 充分）。hard 恢复到 V1 峰值 24576（V1 正是用 24576 拿到 60 correct），
+    # 配合"提分内化到提示词 + 调用精简"不加剧超时。
+    # V2.4 真机验证（10 题 L4）：hard 24576 使单次 reasoning 143-231s，且
+    # reconciliation 重算 3 次 → 单题 7-8min → 全卷墙钟逼近 6h。回落：
+    # hard 16384（单次 reasoning 实测 ~34s）、medium 12288。16384 对难题已够
+    # （V1 每题均 3.8K token，峰值 24576 是极少数题）。
+    "reasoning_tokens_by_difficulty": {"easy": 8192, "medium": 12288, "hard": 16384},
     "reconciliation_max_rounds": 2,
     "token_budget_max": 256000, "token_budget_warn_ratio": 0.9,
     # Wall-clock budget per problem. The platform's hard limit is 20 min; the
@@ -81,7 +93,11 @@ CONFIG = {
     # 官方评测实证：V1 每题固定 1200s 软预算导致 112 题只完成 16 题（14.29%）。
     # PaperPacer 按"剩余全卷时间 ÷ 剩余题数"动态收紧每题软预算，保证
     # 6h 内 112 题全部产出答案（完成率 100% > 单题完美）。
-    "paper_total_seconds": 21600,
+    #
+    # V2.4 余量冗余（铁律⑨）：目标 5h 完成（18000s），留 1h 余量给官方 API 波动
+    # （V1 评测 15.9s/请求 → V2.1 评测 35s/请求，慢一倍多）。PaperPacer 以 5h 为
+    # 目标收紧，即使 API 变慢也有 1h 缓冲，杜绝 V2.1 的 19 题超时被强杀。
+    "paper_total_seconds": 18000,
     # ==================== VeritasMath 升级配置 ====================
     # 难度感知软预算（全局约束：112 题 / 平台并发 3 / 6h 上限 ⇒ 平均每题 ~9.6min）。
     # 分类节点在同一 prefill 调用里顺带输出难度（边际成本≈0），TimeBudget 据此

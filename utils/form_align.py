@@ -41,20 +41,44 @@ _ENUM_RE = re.compile(
     r"(?:列出|列举|枚举|的所有解|的全部解|共有哪些|分别是|的所有取值|"
     r"的全部取值|全体|所有可能)", re.IGNORECASE)
 
+#: 选择题答案形态：允许的选项字母（A-E，含全角）。
+_CHOICE_LETTER_RE = re.compile(r"[A-EＡ-Ｅ]")
+#: 判断题判定词（与 judge_confirm 口径一致：正确/错误/对/错/是/否/成立）
+_JUDGE_WORD_HEAD_RE = re.compile(
+    r"^(?:正确|错误|不正确|对|错|是|否|成立|不成立|√|×|true|false|yes|no|t\b|f\b)",
+    re.IGNORECASE)
+
 
 def expected_form(problem: str) -> str:
     """从题面推断期望答案形态。
 
-    Returns: "single" | "interval" | "judge" | "enum" | "unknown"
+    Returns: "choice" | "single" | "interval" | "judge" | "enum" | "fill" | "unknown"
 
-    优先级（2026-08-12 修正，idx=94 实证）："置信区间长度的一半"问的是
-    半长（单值），不是区间——单值限定词（半长/长度/数值/大小）优先于
-    区间/枚举信号；判断信号仍最优先（形态最特殊）。
+    优先级（V2.4 提分修正）：
+    1. 显式题型词（选择题/判断题/填空题）最优先——官方题集用词规范；
+    2. 判断信号（"是否"类）形态最特殊，次优先；
+    3. 单值限定词（半长/长度/数值/大小）优先于区间；
+    4. 选择题选项（A. B. C.）出现 ≥2 个 → choice。
     """
     text = str(problem or "")
+    # 显式题型词优先（官方题集常见"选择题/判断题/填空题"字面）
+    if re.search(r"选择(?:题)?|单选|多选|不定项", text):
+        return "choice"
+    # 选择题选项标记：A. xxx B. xxx 出现 ≥2 个 → choice。
+    # 必须在 fill 的"空括号"检测之前：官方选择题常写作
+    # "下列说法正确的是（  ）\nA. … B. … C. …"，空括号不该被当成填空。
+    # 也必须在 judge 的"判断"字样之前："判断下列说法正确的是（  ）A. B. C. D."
+    # 实为选择题而非判断题——只要出现 ≥2 个选项标记，就是 choice。
+    option_count = len(re.findall(r"(?<![A-Za-z0-9])[A-EＡ-Ｅ]\s*[.．、:：)）]", text))
+    if option_count >= 2:
+        return "choice"
+    if re.search(r"判断(?:题)?|正误|对错|是否正确|是否成立", text):
+        return "judge"
     # 判断信号优先（"是否"类题目答案形态最特殊）
     if _JUDGE_RE.search(text):
         return "judge"
+    if re.search(r"填空(?:题)?|填[“\"\"]|空\d|_{3,}|＿{2,}|[（(]\s*[）)]", text):
+        return "fill"
     # 单值限定词优先于区间：问"区间长度/半长/大小"时答案应是单值
     if re.search(r"(?:区间|范围|解集|值域|定义域|置信区间).{0,8}(?:长度|半长|大小|数值|宽度|半径)", text):
         return "single"
@@ -83,11 +107,47 @@ def _looks_interval(s: str) -> bool:
 
 
 def _looks_judge(s: str) -> bool:
-    # 剥离"结论：/最终答案：/答案："前缀再看判断词（2026-08-12 修正）
+    # 剥离"结论：/最终答案：/答案："前缀再看判断词（2026-08-12 修正）；
+    # 判定词覆盖正确/错误/对/错/是/否/成立/√/×（V2.4 与 judge_confirm 口径对齐）
     core = re.sub(r"^(?:最终答案|结论|答案|判断|判定)\s*[：:]\s*", "", s.strip())
-    head = core.strip().lower()
-    return head.startswith(("是", "否", "能", "不能", "存在", "不存在",
-                            "成立", "不成立", "yes", "no", "true", "false"))
+    core = core.strip().strip("$* ").rstrip("。．，,；;：:")
+    return bool(_JUDGE_WORD_HEAD_RE.match(core)) or core.lower().startswith(
+        ("是", "否", "能", "不能", "存在", "不存在", "成立", "不成立",
+         "yes", "no", "true", "false"))
+
+
+def _looks_choice(s: str) -> bool:
+    """粗判字符串是否"看起来是选择题答案"（选项字母 A-E，含中文"选B"）。
+
+    V2.4 提分（方向 5）：官方选择题可能精确匹配选项字母。答案需含
+    纯字母（A、B、C）或"选A/选项B"形态；仅给数值/区间不满足。
+    """
+    core = re.sub(r"^(?:最终答案|答案|结论|选择)\s*[：:]\s*", "", s.strip())
+    core = core.strip().strip("$* ").rstrip("。．，,；;：:")
+    # 纯字母形态："A"、"A、C"、"AB"、"A,B"
+    if re.fullmatch(r"[A-EＡ-Ｅ](?:[、,，\s]*[A-EＡ-Ｅ])*", core, flags=re.IGNORECASE):
+        return True
+    # "选A"/"选择B"/"选项C"/"A正确"/"B和D"
+    if re.search(r"(?:选|选择|选项)\s*[A-EＡ-Ｅ]", core, flags=re.IGNORECASE):
+        return True
+    if re.search(r"^[A-EＡ-Ｅ]\s*(?:正确|错误|成立|和|与|、|,|，)", core, flags=re.IGNORECASE):
+        return True
+    return False
+
+
+def _looks_fill(s: str) -> bool:
+    """粗判字符串是否"看起来是填空答案"（含空位标记或分号分隔的多值）。"""
+    core = re.sub(r"^(?:最终答案|答案|结论)\s*[：:]\s*", "", s.strip())
+    if not core:
+        return False
+    # 空位格式："空1: xxx；空2: yyy" 或含 "_" 空位回填
+    if re.search(r"空\s*\d+\s*[:：]", core):
+        return True
+    # 分号分隔的多值（填空答案常见形态），或单值
+    if "；" in core or ";" in core:
+        parts = [p.strip() for p in re.split(r"[；;]", core) if p.strip()]
+        return len(parts) >= 1
+    return bool(re.search(r"\d|[\u4e00-\u9fff]|\\frac|\\sqrt", core))
 
 
 def check_form_alignment(problem: str, answer: str) -> dict:
@@ -101,10 +161,18 @@ def check_form_alignment(problem: str, answer: str) -> dict:
     answer_text = str(answer or "").strip()
     if expected == "unknown" or not answer_text:
         return {"aligned": True, "expected": expected, "reason": "无法判断"}
+    if expected == "choice":
+        ok = _looks_choice(answer_text)
+        return {"aligned": ok, "expected": expected,
+                "reason": "选择题需以选项字母作答（如 A、C）" if not ok else ""}
     if expected == "judge":
         ok = _looks_judge(answer_text)
         return {"aligned": ok, "expected": expected,
-                "reason": "判断题需以是/否/成立开头" if not ok else ""}
+                "reason": "判断题需以正确/错误/是/否开头" if not ok else ""}
+    if expected == "fill":
+        ok = _looks_fill(answer_text)
+        return {"aligned": ok, "expected": expected,
+                "reason": "填空题需给出空位对应值（如 空1: xxx；空2: yyy）" if not ok else ""}
     if expected == "interval":
         ok = _looks_interval(answer_text) or _looks_numeric(answer_text)
         return {"aligned": ok, "expected": expected,

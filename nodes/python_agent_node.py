@@ -262,10 +262,38 @@ def python_agent_node(state, config):
     last_output = None
     last_code = ""
     clock = deps.time_budget
+    # V2.4 提分（idx=92 实证）：代码执行失败（多为生成代码的语法错误，如
+    # "from sympy.stats import Sample mean_sym = ..." 一行两语句）时，旧链路
+    # 在 max_attempts=1 下直接放弃 → 无验证证据出厂。这里给一次独立的
+    # "执行修复"重试（不消耗主生成配额，受预算门禁保护），让 idx=92 类
+    # 题至少有第二证据而非裸 reasoning 出厂。
+    exec_fix_used = False
+    exec_fix_pending = False
 
     def finalize(output):
         enriched = parse_verification_evidence(
             output, candidate_answer=candidate_answer, code=last_code)
+        # V2.4 提分（idx=85 实证）：Python 验证"内部自洽 PASS"但符号与推理
+        # 候选相反时，旧链路把 support 证据出厂、仲裁盲选推理错值。这里做
+        # 确定性数值兜底：只要 python answer 与候选都是可解析数值且不一致，
+        # 一律把证据降级为 contradict，让下游 playoff/仲裁用确定性计算纠偏。
+        py_answer = str(enriched.get("answer") or "").strip()
+        if candidate_answer and py_answer and enriched.get("success"):
+            try:
+                from utils.numeric_crosscheck import numeric_crosscheck
+                xc = numeric_crosscheck(candidate_answer, py_answer)
+                if xc["status"] == "mismatch":
+                    enriched["evidence_status"] = "contradict"
+                    enriched["evidence_summary"] = (xc["reason"]
+                                                    + "（确定性数值比对兜底）")
+                    existing = [c for c in enriched.get("contradictions") or []
+                                if xc["reason"] not in c]
+                    enriched["contradictions"] = existing + [xc["reason"]]
+                    deps.logger.warning(
+                        "Python 数值比对兜底: idx候选与python结果不一致 -> %s",
+                        xc["reason"])
+            except Exception:  # noqa: BLE001 - 兜底失败不影响主流程
+                pass
         return {
             "python_code": last_code,
             "python_output": enriched,
@@ -296,13 +324,17 @@ def python_agent_node(state, config):
                               "reason": comp_fail or "compressed_retry_failed"})
                 break
         else:
-            if attempts >= max_attempts:
+            if attempts >= max_attempts and not exec_fix_pending:
                 break
+            # exec_fix 重试：独立于主配额的一次放行（执行失败后的语法修复）。
+            exec_fix_round = exec_fix_pending
+            exec_fix_pending = False
             # Same affordability rule as the reasoning branch: fund a retry against
             # what the last attempt actually cost. Both branches retrying blindly at
             # ~510s each is what overran the deadline and produced no answer on
             # 2026-07-29.
-            if attempts and not can_afford_retry(clock, "python"):
+            if attempts and not exec_fix_round \
+                    and not can_afford_retry(clock, "python"):
                 deps.logger.warning(
                     "Skipping Python retry: %.0fs left, last attempt cost %.0fs",
                     clock.remaining(), last_attempt_cost(clock, "python"))
@@ -314,9 +346,12 @@ def python_agent_node(state, config):
             # this branch already produced rather than emptying it, so the other
             # branch is never left as the sole candidate when it did not have to be.
             try:
-                resp = chat_with_retry(
+                # V2.4 prefill 抑制 CoT：Python 代码生成前也有私有 CoT（单次实测
+                # ~190s），用 prefill 让模型直接从代码块开始、跳过 CoT。
+                resp = chat_prefilled(
                     client,
                     messages=[{"role": "user", "content": prompt}],
+                    prefix=_COMPRESSED_PREFILL,
                     temperature=CONFIG["temperatures"]["python"],
                     max_tokens=CONFIG["max_tokens"]["python"],
                     logger=deps.logger,
@@ -443,4 +478,17 @@ def python_agent_node(state, config):
             f"代码执行失败：\n错误：{(output.get('stderr') or '')[:500]}\n"
             "请只输出修正后的 ```python``` 代码块，用 sympy，结尾 print(\"最终答案:\", answer)。",
             problem, candidate_answer)
+        # V2.4 提分：执行失败给一次独立修复机会（语法错误常见且易修，不消耗
+        # 主生成配额；受预算门禁保护，预算紧时仍直接放弃）。
+        if not exec_fix_used:
+            exec_fix_used = True
+            if not can_afford_retry(clock, "python"):
+                deps.logger.warning(
+                    "Skipping Python exec-fix retry: %.0fs left", clock.remaining())
+                trace.append({"attempt": attempts, "status": "exec_fix_skipped",
+                              "reason": "retry_unaffordable"})
+                break
+            exec_fix_pending = True
+            trace.append({"attempt": attempts, "status": "exec_fix_retry"})
+            continue
     return finalize(last_output)

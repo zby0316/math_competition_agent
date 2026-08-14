@@ -43,12 +43,12 @@ class TestPaperPacer(unittest.TestCase):
         self.assertAlmostEqual(cap, PaperPacer.IDEAL, delta=1.0)
 
     def test_lagging_pace_tightens_but_floor_holds(self):
-        # 20 题 2h → pace 360s/题，预测 40320 > 21600×1.15 → 落后
-        # 剩余 14400s / 92 题 = 156.5s → max(120, 156.5)
+        # 20 题 2h → pace 360s/题，预测 40320 > 18000×1.15 → 落后
+        # 剩余 10800s / 92 题 = 117.4s < MIN_SOFT(120) → 保底 120
         self.pacer._done = 20
         self.fc.t = 10000.0 + 7200
         cap = self.pacer.budget_for(20)
-        self.assertAlmostEqual(cap, 14400.0 / 92, delta=1.0)
+        self.assertAlmostEqual(cap, PaperPacer.MIN_SOFT, delta=1.0)
         self.assertGreaterEqual(cap, PaperPacer.MIN_SOFT)
 
     def test_extreme_lag_floor_holds(self):

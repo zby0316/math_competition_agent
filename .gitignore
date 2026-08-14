@@ -36,3 +36,7 @@ local_test/
 
 # 浏览器自动化工具临时目录（截图/快照）
 .playwright-mcp/
+
+# 本地代码审查产物（不提交评测仓库）
+review_results.json
+reports/

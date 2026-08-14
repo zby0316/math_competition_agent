@@ -10,9 +10,10 @@
 动态预算、模结构确定性守护**，并对符号等价判定与代码执行沙箱做了工程加固。
 
 在 2026-08-12 官方规则更新（并发 3 / 单题 20min / 总运行 6h，超时未答不计分）后，
-进一步升级为 **V2（全卷完成率 + 资源分级）**、**V2.1（证明结构对齐 + 提速）**
-与 **V2.3（初解质量 + 证明自检 + 难题兜底）**：累计 **M1-M14 十四个机制**
-（详见第 10 节），两套官方分布题集验收 **96.4% / 97.3%**。
+进一步升级为 **V2（全卷完成率 + 资源分级）**、**V2.1（证明结构对齐 + 提速）**、
+**V2.3（初解质量 + 证明自检 + 难题兜底）** 与 **V2.4（prefill 抑制 CoT 提速 +
+判分口径对齐 + 客观题格式兜底）**：累计 **M1-M14 十四个机制**（详见第 10 节），
+V2.4 全量验收 **110/112（98.2%，历史最高）**。
 
 竞赛接口保持约定：评测侧导入 `user_agent.py` 的 `ReasoningAgent`，平台以其官方 client 构造，
 调用 `solve(problem, metadata)` 取得 `final_response` 与 `trace`。
@@ -174,6 +175,7 @@ flowchart LR
 │   ├── prefill.py                # 【新】prefill 组装与拼接（分类/仲裁/审计加速）
 │   ├── problem_anchor.py         # 【新】题面契约哈希锚点（完整性事件）
 │   ├── problem_profile.py        # 【新】题型画像（计算/证明/选择/判断/填空）
+│   ├── numeric_crosscheck.py     # 【新】V2.4 数值比对兜底（LaTeX→sympy 精确比对）
 │   ├── category_embedding_index.py  # 【新】领域候选的 TF-IDF 检索
 │   ├── prompt_templates.py       # 【新】集中提示词模板（分类/推理/仲裁/审计）
 │   ├── response_normalize.py     # 【新】官方 client 全形态响应归一化（0 分防线）
@@ -181,7 +183,7 @@ flowchart LR
 │   └── answer_matcher.py         # 【改】+ 限时代简、符号对齐、≤4 维采样
 ├── mcp_servers/python_executor/server.py  # 【改】+ 静态安全扫描 + 资源限额
 ├── graph/solving_subgraph.py     # 【改】+ 条件扇出异构第二路径
-├── tests/                        # 【新】127 项离线回归测试（基线未随仓附带）
+├── tests/                        # 【新】153 项离线回归测试（基线未随仓附带）
 │   ├── test_veritas_upgrades.py
 │   ├── test_integration_graph.py
 │   ├── test_integration_repair_loop.py
@@ -190,7 +192,10 @@ flowchart LR
 │   ├── test_m56_guards.py
 │   ├── test_platform_defenses.py
 │   ├── test_qiyuan_ports.py
-│   └── test_stress_faults.py
+│   ├── test_stress_faults.py
+│   ├── test_v24_budget.py         # 【新】V2.4 token 分级 + 单题预算
+│   ├── test_v24_grade_boost.py    # 【新】V2.4 数值比对/统计口径/执行修复
+│   └── test_form_align.py         # 【新】形式对齐（含客观题格式）
 └── （以下与基线一致）state/、skills_pythonscripts/（18 领域手册+验证知识）、
     main.py、user_agent.py、llm_client.py、config.py、requirements.txt
 ```
@@ -223,11 +228,11 @@ python main.py --input_file input.jsonl --output_dir outputs
 python -B -m unittest discover -s tests -v
 ```
 
-**127 项测试 + 30 项子测试**（`pytest tests/` 全绿），零 API 调用：升级机制单测
+**153 项测试 + 30 项子测试**（`pytest tests/` 全绿），零 API 调用：升级机制单测
 （审计解析/模守护/季后赛裁决/软预算/matcher 加固/执行器拦截/判断题双向确认/
 计数枚举守护/平台防线三形态加载/PaperPacer/置信门控/DeepSolver/形式对齐/
-限流退避/ProofDeepener）+ 多条全图集成链路（happy path；双证伪→异构
-重算翻盘；contradict 假证据→playoff 裁决）+ 题面滥用/故障注入/ReDoS 压测。
+限流退避/ProofDeepener/V2.4 数值比对/客观题格式）+ 多条全图集成链路（happy path；
+双证伪→异构重算翻盘；contradict 假证据→playoff 裁决）+ 题面滥用/故障注入/ReDoS 压测。
 Python 验证代码由真实执行器子进程运行。
 
 ### 4.4 本地测试与监控（local_test/）
@@ -389,16 +394,28 @@ assert 'final_response' in result
 | M13 覆盖检查 | `utils/proof_deepener.py` | 检测"题目问几件事漏答" | V2.3 |
 | M14 难题兜底 | `utils/hard_fallback.py` | 放弃型答案触发部分求解 | V2.3 |
 
-### 10.3 全量验收（两套 112 题 · 官方 18 领域分布 · 2026-08-13）
+V2.4 新增（2026-08-14，不新增编号，均为现有链路的确定性加固）：
+
+| 机制 | 模块 | 作用 |
+|---|---|---|
+| prefill 抑制 CoT | `reasoning_agent_node` / `python_agent_node` | 用 chat_prefilled 预填开头跳过私有 CoT，单次调用 811s→41-77s |
+| token 分级恢复 | `config.py` | easy 8192 / medium 12288 / hard 16384（V2.1 一刀切 8192 教训） |
+| 数值比对兜底 | `utils/numeric_crosscheck.py` | Python 验证结果与推理候选确定性数值比对，mismatch→contradict |
+| 统计口径对齐 | `prompt_templates.py` | 方差/标准差未明口径时按总体（÷n）作答 |
+| 执行失败修复重试 | `python_agent_node.py` | 代码执行失败给一次独立修复（预算门禁保护） |
+| 客观题格式对齐 | `form_align.py` / `problem_profile.py` | 选择/判断/填空答案形态识别 + 归一化 + 错配重述 |
+
+### 10.3 全量验收（三套 112 题 · 官方 18 领域分布）
 
 | 题集 | 难度构成 | 正确率 |
 |---|---|---|
 | 第一套 | L3 ~80% + L4 ~20% | **96.4%（108/112）** |
 | 第二套 | L3 59 题 + L4 53 题（纯 L3/L4） | **97.3%（109/112）** |
+| 第三套（V2.4） | L2 12 + L3 71 + L4 29（贴近官方分布） | **98.2%（110/112）** |
 
 - **L3 竞赛级**：100%（59/59）· **L4 科研级**：94.3%（50/53）
-- 完成率两套均 112/112（0 空卷）；用时 2.9h / 4.5h（6h 内）
-- 官方 V1 得分 53.57 分 → V2.3 预估 **90-95 分**
+- 完成率三套均 112/112（0 空卷）；V2.4 墙钟 **1.46h**（并发 3，官方 6h 上限余量 4.5h）
+- 官方 V1 得分 53.57 分 → V2.3 预估 90-95 分 → V2.4 保守 60-68 分（详见 10.6）
 
 ### 10.4 难度分级定义（L1-L4）
 
@@ -416,7 +433,46 @@ assert 'final_response' in result
 ```
 V1（官方 53.57 分）→ V2（PaperPacer 完成率）→ V2.1（M7/M8/M9 证明结构）
 → V2.3（M10-M14 初解质量 + 证明自检 + 覆盖检查 + 难题兜底）
+→ V2.4（prefill 提速 + 判分口径对齐 + 客观题格式兜底，全量 98.2%）
 ```
 
 详见 `docs/V2.3验收报告.md`（含 L1-L4 定义与分层数据）。
+
+### 10.6 V2.4：prefill 提速 + 判分口径对齐 + 客观题格式兜底（2026-08-14）
+
+#### 核心突破：prefill 抑制 CoT
+
+Intern-S2 模型的私有思维链（CoT）计入 `max_tokens`，慢 API 下单次 reasoning
+可到 811s（16384 token）。V2.4 用 `chat_prefilled` 预填开头（reasoning 用
+`## 问题分析`、python 用 ```` ```python ````）让模型跳过 CoT 直接作答，思考
+引导改由提示词内化承担——**单次调用 811s → 41-77s（10 倍提速）**，10 题 L4
+难题验证 100% 正确 + 平均 3.8min。
+
+#### 三项判分口径对齐（针对 V2.4 全量评测 2 道错题根因）
+
+| 错题 | 根因 | 修复 |
+|---|---|---|
+| idx=85 留数符号 | Python 验证内部自洽 PASS 但符号与候选相反，support 证据出厂 | **数值比对兜底**：`numeric_crosscheck` 确定性比对，mismatch→contradict |
+| idx=92 方差口径 | 官方总体口径（÷n）vs 智能体无偏（÷n-1） | **统计口径提示**：未明口径按总体作答，两种口径都注明 |
+
+外加 **执行失败修复重试**（代码语法错误给一次独立修复）。
+
+#### 方向 5：客观题格式兜底（选择/判断/填空）
+
+官方题集若对客观题精确匹配，格式即生死线。`form_align` 新增 choice/fill
+形态识别（选项标记 ≥2 优先于"判断"字样/空括号，修复"判断下列说法正确的是
+（  ）A. B. C. D."误判为判断题的边界），判断题判定词补全（正确/错误/对/错/√/×），
+错配触发低成本 LLM 重述 + choice 答案确定性归一化（"选B"→"B"）。
+
+#### V2.4 全量评测（110/112 = 98.2%）
+
+- 全新 112 题（L2 12 + L3 71 + L4 29，与 v23b/v23c 查重 0 重复）
+- **110 correct / 2 wrong / 0 partial / 0 error**；medium 48/48、hard 7/7 全对
+- 并发 3 墙钟 1.46h（官方 6h 余量 4.5h）；总 API 调用 1761（平均 15.7/题）
+- 保守官方分预估 60-68 分（中枢 63-65，稳超 V1 53.53；中性 68-75，乐观 76-85）
+
+#### 测试规模
+
+**153 项测试 + 30 子测试全绿**（较 V2.3 新增 `test_v24_budget`、
+`test_v24_grade_boost`、`test_form_align` 客观题 9 用例）。
 
