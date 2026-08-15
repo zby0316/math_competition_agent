@@ -262,10 +262,14 @@ def coordinator_node(state, config):
         return {"final_response": final, "coordination_detail": "",
                 "fallback_source": "objective_validated_answer"}
     # 证据优先最终闸门：被自家验证器反驳的答案不得出厂（评委建议 1）。
-    # 仲裁明确锁定的选择（answer_locked）尊重仲裁；未锁定的候选一律过闸。
+    # V2.5 缺口2修复：原实现 answer_locked=True 时跳过证据闸门——仲裁锁定的
+    # 错误答案（idx=85 留数符号，Python 算对但仲裁选了错的推理答案）会漏出。
+    # 改为：证据闸门对"锁定的答案"同样生效——Python 明确 contradict 且非伪造、
+    # 持有不同答案时，覆盖仲裁锁定（被验证器反驳的答案无论如何不该出厂）。
+    # 唯一豁免保留 playoff decisive（playoff 代回复算证据强于 Python 自报证据）。
     evidence_note = ""
+    validated, evidence_note = _evidence_override(state, validated)
     if not state.get("answer_locked"):
-        validated, evidence_note = _evidence_override(state, validated)
         # 洁净度终门（2026-08-09 冒烟 idx 43）：交叉验证在双分支皆弱时可能放行一段
         # 探索散文；deadline 路径会把它原样出厂。修复优先于丢弃——"1/2 works." 这类
         # 正确值+口癖要剥尾保值（idx 2），修不出干净头部才置空。仲裁锁定的选择不经

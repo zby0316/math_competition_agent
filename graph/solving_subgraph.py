@@ -12,8 +12,9 @@ def _want_diverse_branch(state, config) -> bool:
     """异构第二推理路径的触发条件（VeritasMath）。
 
     成本纪律：第二路径是一次完整推理调用（77-550s），不能无条件扇出——
-    - 首轮：只对高风险领域（组合/竞赛构造/微分几何/测度积分，单样本错误率
-      最高的四类）随首路径并行发出；
+    - 首轮：高风险领域（组合/竞赛构造/微分几何/测度积分）随首路径并行发出；
+      V2.5 缺口1扩展：hard 难度 或 分类置信 <0.85 时，**无论哪个领域**都扇出
+      ——异构方法互验是打破"单样本系统性错误"的唯一机制，不该只限 4 领域。
     - 调解重算轮：一律追加（此时已知首路径失败，多样性正是缺的东西）；
     - 客观题、时间 fast path、配置关闭时不发。
     - V2 M2：分类置信度高（≥0.90，fast 档）时即使高风险领域也不扇出——
@@ -30,6 +31,13 @@ def _want_diverse_branch(state, config) -> bool:
     if confidence_level(state.get("category_confidence")) == "fast":
         return False
     category = state.get("category", "")
+    # V2.5 缺口1：hard 难度或低置信（<0.85）→ 全领域扇出 B 路径。
+    # 原 4 领域白名单仍保留：medium 档下只有这 4 个单样本错误率最高的领域扇出。
+    difficulty = str(state.get("difficulty") or "").strip().lower()
+    if difficulty == "hard":
+        return True
+    if (state.get("category_confidence") or 0) < 0.85:
+        return True
     if category not in (CONFIG.get("high_risk_domains") or []):
         return False
     try:

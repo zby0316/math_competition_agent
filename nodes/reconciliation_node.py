@@ -20,15 +20,16 @@ def reconciliation_node(state, config):
     max_rounds = reconciliation_round_limit(config)
     recon_trace = list(state.get("reconciliation_trace") or [])
 
-    # VeritasMath 定向修复直通：Critic（契约缺口）与 Playoff（双证伪）已经
-    # 生成了精确的定向提示，调解节点不再用通用模板覆盖它们——只负责轮次
-    # 计数与轮次上限仲裁。标记一次性消费，防止陈旧提示污染后续轮次。
+    # VeritasMath 定向修复直通：Critic（契约缺口）、Playoff（双证伪）、
+    # Reflection（正确性错误）已经生成了精确的定向提示，调解节点不再用
+    # 通用模板覆盖它们——只负责轮次计数与轮次上限仲裁。标记一次性消费，
+    # 防止陈旧提示污染后续轮次。
     hint_source = state.get("repair_hint_source")
-    if hint_source in {"critic", "playoff"} and state.get("reasoning_retry_hint"):
+    if hint_source in {"critic", "playoff", "reflection"} and state.get("reasoning_retry_hint"):
         if round_num >= max_rounds:
-            # 修复轮次耗尽：Critic 缺口进 coordinator（formatter 最后回捞），
+            # 修复轮次耗尽：Critic/Reflection 缺口进 coordinator（formatter 最后回捞），
             # Playoff 双证伪进仲裁（从既有候选中选"较不残"的一个）。
-            fallback = "coordinator" if hint_source == "critic" else "semantic_arbiter"
+            fallback = "coordinator" if hint_source in {"critic", "reflection"} else "semantic_arbiter"
             recon_trace.append({"round": round_num, "action": f"{hint_source}_repair_exhausted"})
             return {
                 "reconciliation_round": round_num,

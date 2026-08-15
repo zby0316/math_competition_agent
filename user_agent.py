@@ -328,6 +328,20 @@ if _BACKEND == "graph":
                         }
                     ],
                 })
+            if state.get("reflection_trace"):
+                trace.append({
+                    "step": "reflection",
+                    "status": state.get("reflection_status", ""),
+                    "thinking": {
+                        "purpose": "定稿前对答案做正确性批判性复核（代回验证/差一/符号/边界/反例）。",
+                    },
+                    "tools": [
+                        {
+                            "name": "reflection_llm",
+                            "rounds": state.get("reflection_trace", []),
+                        }
+                    ],
+                })
             if state.get("reconciliation_trace"):
                 trace.append({
                     "step": "reconciliation",

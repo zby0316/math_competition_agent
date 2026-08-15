@@ -61,6 +61,10 @@ class MathAgentState(TypedDict):
     critic_missing: NotRequired[List[str]]
     critic_trace: NotRequired[List[Dict]]
     critic_rounds: NotRequired[int]
+    # 深度反思环（VeritasMath reflection：Critic 前对答案做"正确性"批判性复核）
+    reflection_status: NotRequired[str]     # correct | wrong | skipped | error
+    reflection_trace: NotRequired[List[Dict]]
+    reflection_round: NotRequired[int]
     # 确定性复算季后赛（VeritasMath playoff：候选冲突时的代回复算裁决）
     playoff_status: NotRequired[str]        # decisive | indecisive | skipped | error
     playoff_answer: NotRequired[str]
@@ -69,7 +73,7 @@ class MathAgentState(TypedDict):
     objective_revote_trace: NotRequired[List[Dict]]
     # 模结构守护命中标记（F_2 / Z_m 语境；提示注入与静态核查记录）
     modular_guard: NotRequired[Dict[str, Any]]
-    # 定向修复提示来源标记（critic/playoff → reconciliation 直通用，一次性消费）
+    # 定向修复提示来源标记（critic/playoff/reflection → reconciliation 直通用，一次性消费）
     repair_hint_source: NotRequired[Optional[str]]
     # 输出阶段
     final_response: NotRequired[str]

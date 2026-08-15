@@ -59,8 +59,8 @@ CONFIG = {
     # 超时前完成。牺牲的仅是极少数"贴 24576 上限"的奥赛题成功区间。
     "max_tokens": {"classifier": 96, "classifier_fallback": 8192,
                    "objective_reasoning": 4096,
-                   "reasoning": 12288, "python": 8192,
-                   "reasoning_compressed": 12288, "python_compressed": 8192,
+                   "reasoning": 16384, "python": 8192,
+                   "reasoning_compressed": 16384, "python_compressed": 8192,
                    "reconciliation": 32768,
                    "semantic_arbiter": 96, "semantic_arbiter_fallback": 4096,
                    "coordinator": 16384, "emergency_answer": 1280},
@@ -70,9 +70,24 @@ CONFIG = {
     # 配合"提分内化到提示词 + 调用精简"不加剧超时。
     # V2.4 真机验证（10 题 L4）：hard 24576 使单次 reasoning 143-231s，且
     # reconciliation 重算 3 次 → 单题 7-8min → 全卷墙钟逼近 6h。回落：
-    # hard 16384（单次 reasoning 实测 ~34s）、medium 12288。16384 对难题已够
-    # （V1 每题均 3.8K token，峰值 24576 是极少数题）。
-    "reasoning_tokens_by_difficulty": {"easy": 8192, "medium": 12288, "hard": 16384},
+    # hard 16384（单次 reasoning 实测 ~34s）、medium 12288。
+    #
+    # V2.4 官方实测（2026-08-14 eval_log，59.82 分）揭示关键新信号：
+    # truncated_count=91（10.2% 请求输出被截断）+ completion 平均仅 2151
+    # token/请求——大量难题答案没写完就被 max_tokens 切断。且此时 prefill 已
+    # 全面抑制 CoT，token 只花在可见答案上（不再有 811s 的 CoT 慢速），所以
+    # "给足 token"不再等于"慢生成"。官方墙钟仅 2.5h/6h（余量 3.5h），完全
+    # 负担得起上调。V2.5：medium 12288→16384、hard 16384→24576（恢复 V1
+    # 峰值），让长证明/长推导题写完，直接对冲 truncated 截断失分。
+    #
+    # V2.6（方向1）：easy 8192→16384。真机验证发现分类器难度画像不可靠——
+    # 把 level 4 科研级题（球面平均曲率、Z15 乘法群阶）判成 easy + 0.98 高置信，
+    # 而模型在这些"高置信"题上照样答错。easy 档 8192 会让这些"被判 easy 的
+    # 难题"只拿到 8192 token 上限、答案被截断（truncated 的可能根因之一）。
+    # easy 提到 16384 与 medium 平齐，彻底消除"难题判 easy 被截断"风险。
+    # max_tokens 是上限而非配额：easy 题答案本就短，提高上限不增加实际生成量
+    # 与耗时，只防止截断。
+    "reasoning_tokens_by_difficulty": {"easy": 16384, "medium": 16384, "hard": 24576},
     "reconciliation_max_rounds": 2,
     "token_budget_max": 256000, "token_budget_warn_ratio": 0.9,
     # Wall-clock budget per problem. The platform's hard limit is 20 min; the
@@ -113,6 +128,13 @@ CONFIG = {
     # prefill JSON 判定 ~10-20s；不完整且可负担时回调解做定向补算。
     "enable_critic": True,
     "critic_reserve_margin_s": 60,
+    # 深度反思环（V2.6）：Critic 前对答案做"正确性"批判性复核（代回验证/差一/
+    # 符号/边界/反例），补上"reasoning+python 一致地错也直接出厂"的缺口。
+    # 触发：所有非客观题一律反思一次（不依赖分类器 difficulty/confidence——
+    # 实测分类器把科研级题判 easy+0.98 高置信却照样答错，信号不可靠）。
+    # 判错则复用 reconciliation 定向重算回路（非简单 rollout，合规）。
+    "enable_reflection": True,
+    "reflection_reserve_margin_s": 60,
     # 确定性复算季后赛：两路数值冲突时把候选代回原题复算/小规模枚举对照，
     # 替代"只能二选一"的仲裁。一次 playoff ≈ 一次 LLM 生成 + 一次代码执行，
     # 远低于整轮 solving 子图重跑。

@@ -578,8 +578,9 @@ def _reasoning_agent_impl(state, config):
         # exception propagated out of the node and the wrapper substituted an empty
         # result, so cross-validation saw a placeholder and had one candidate left.
         try:
-            # V2.4 token 分级：按难度给足推理空间（难题 16384，简单 8192），
-            # 恢复 V2.1 一刀切 8192 砍掉的难题推理深度。
+            # V2.4 token 分级：按难度给足推理空间（难题 24576，简单/中等 16384），
+            # 恢复 V2.1 一刀切 8192 砍掉的难题推理深度。V2.6 方向1：easy 提到
+            # 16384（分类器难度画像不可靠，防"难题判 easy 被截断"）。
             _diff = str(state.get("difficulty") or "medium").lower()
             _mt = CONFIG.get("reasoning_tokens_by_difficulty", {}).get(
                 _diff, CONFIG["max_tokens"]["reasoning"])

@@ -12,11 +12,12 @@ class TestV24Config(unittest.TestCase):
     def test_token_by_difficulty(self):
         from config import CONFIG
         by_diff = CONFIG["reasoning_tokens_by_difficulty"]
-        self.assertEqual(by_diff["easy"], 8192)
-        self.assertEqual(by_diff["medium"], 12288)
-        self.assertEqual(by_diff["hard"], 16384)
-        # 难题 token > 简单题 token（分级恢复，V2.1 一刀切 8192 的教训）
+        self.assertEqual(by_diff["easy"], 16384)
+        self.assertEqual(by_diff["medium"], 16384)
+        self.assertEqual(by_diff["hard"], 24576)
+        # 难题 token ≥ 简单题 token（easy 已提到与 medium 平齐，防分类器误判 easy 截断）
         self.assertGreater(by_diff["hard"], by_diff["easy"])
+        self.assertGreaterEqual(by_diff["easy"], by_diff["medium"])
 
 
 class TestV24DeepProcessingGate(unittest.TestCase):
@@ -43,10 +44,10 @@ class TestV24DeepProcessingGate(unittest.TestCase):
             return CONFIG.get("reasoning_tokens_by_difficulty", {}).get(
                 str(difficulty or "medium").lower(),
                 CONFIG["max_tokens"]["reasoning"])
-        self.assertEqual(pick("easy"), 8192)
-        self.assertEqual(pick("hard"), 16384)
-        self.assertEqual(pick("medium"), 12288)
-        self.assertEqual(pick(None), 12288)  # None → 默认 medium 档
+        self.assertEqual(pick("easy"), 16384)
+        self.assertEqual(pick("hard"), 24576)
+        self.assertEqual(pick("medium"), 16384)
+        self.assertEqual(pick(None), 16384)  # None → 默认 medium 档
 
 
 if __name__ == "__main__":
