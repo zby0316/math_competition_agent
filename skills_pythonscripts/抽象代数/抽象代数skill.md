@@ -72,13 +72,6 @@ description: Use when verifying abstract algebra problems with sympy — group t
 3. 否则取 $n = \min\{k > 0 \mid g^k \in H\}$（$H$ 中指数最小的正幂）。
 4. 用带余除法证明 $H = \langle g^n \rangle$：任取 $g^m \in H$，$m = qn + r$（$0 \le r < n$），则 $g^r = g^{m - qn} \in H$，由 $n$ 的极小性 $r = 0$，故 $g^m = (g^n)^q$。
 
-#### 对应习题
-
-- **idx 0**: 在 $\mathbb{Z}_{30}$ 中求元素 $12$ 的阶 — 公式 $\mathrm{ord}(a) = 30/\gcd(12,30)$
-- **idx 1**: 在 $S_5$ 中求置换 $(1\ 2\ 3)(4\ 5)$ 的阶 — lcm(3, 2) = 6
-- **idx 3**: 求 $\mathbb{Z}_{18}$ 的所有子群 — 正因子与子群的一一对应
-- **idx 14**: 证明：$a^2 = e$ 对所有 $a$ 成立则 $G$ 为Abel群
-- **idx 15**: 证明：循环群的子群也是循环群
 
 ---
 
@@ -125,11 +118,6 @@ description: Use when verifying abstract algebra problems with sympy — group t
 3. 若 $g \notin H$，则 $gH = G \setminus H = Hg$，故 $gHg^{-1} = H$。
 4. 由定义，$H \trianglelefteq G$。
 
-#### 对应习题
-
-- **idx 4**: 求 $H = \langle 5 \rangle$ 在 $\mathbb{Z}_{15}$ 中的所有陪集
-- **idx 6**: 求商群 $(\mathbb{Z}_4 \times \mathbb{Z}_6) / \langle(2,3)\rangle$ 的阶
-- **idx 16**: 证明：指数为2的子群必为正规子群
 
 ---
 
@@ -172,10 +160,6 @@ description: Use when verifying abstract algebra problems with sympy — group t
 5. 验证满射：对任意 $h \in \operatorname{im}(\varphi)$，存在 $g \in G$ 使 $\varphi(g) = h$，则 $\psi(gK) = h$。
 6. 结论：$\psi$ 为同构。
 
-#### 对应习题
-
-- **idx 5**: 求 $\varphi: \mathbb{Z}_{12} \to \mathbb{Z}_8$（$\varphi(1)=2$）的核与像
-- **idx 19**: 证明群的第一同构定理 $G/\ker(\varphi) \cong \operatorname{im}(\varphi)$
 
 ---
 
@@ -221,10 +205,6 @@ description: Use when verifying abstract algebra problems with sympy — group t
 1. 将置换分解为不相交轮换的乘积。
 2. 取各轮换长度的最小公倍数。
 
-#### 对应习题
-
-- **idx 1**: 计算 $S_5$ 中 $(1\ 2\ 3)(4\ 5)$ 的阶 — lcm(3, 2)
-- **idx 10**: 求 $S_4$ 的共轭类个数、代表元和类方程
 
 #### 竞赛拓展：二面体群 $D_8$ 的结构
 
@@ -291,9 +271,6 @@ description: Use when verifying abstract algebra problems with sympy — group t
    - 利用 Sylow子群的结构信息（如已知子群同构类型时列举它们）。
    - 利用群作用的论证（如 $G$ 在 Sylow $p$-子群的共轭类上的作用诱导同态到 $S_{n_p}$）。
 
-#### 对应习题
-
-- **idx 12**: 求 $S_4$ 中 Sylow 2-子群的个数 $n_2$
 
 ---
 
@@ -337,11 +314,6 @@ description: Use when verifying abstract algebra problems with sympy — group t
 - $( \Rightarrow )$：若 $\mathbb{Z}_n$ 是域，则它是整环（无零因子）。若 $n$ 为合数，存在 $1 < a, b < n$ 使 $n = ab$，则 $a \cdot b \equiv 0$ 但 $a, b \neq 0$，矛盾。
 - $( \Leftarrow )$：若 $n$ 是素数，对任意 $a \in \mathbb{Z}_n \setminus \{0\}$，$\gcd(a, n) = 1$。由 Bezout 恒等式，存在 $x, y$ 使 $ax + ny = 1$，即 $ax \equiv 1 \pmod{n}$，$a$ 有乘法逆元。
 
-#### 对应习题
-
-- **idx 2**: 求 $\mathbb{Z}_{12}$ 中的所有零因子
-- **idx 7**: 判断 $\mathbb{Z}[x]$ 中理想 $\langle 2, x \rangle$ 是否为极大理想
-- **idx 17**: 证明：$\mathbb{Z}/n\mathbb{Z}$ 是域当且仅当 $n$ 是素数
 
 #### 竞赛拓展：多项式整数根的封闭集（rich集）
 
@@ -416,10 +388,6 @@ $$S = \{a \in \mathbb{Z} : P(a) \in S\}$$
 4. 由于基的维度为 9 而 $\{1, \alpha, \alpha^2, \ldots, \alpha^9\}$ 有 10 个元素，它们必定线性相关。求解线性方程组得到极小多项式 $m_\alpha(x)$（通常次数 $\le 9$）。
 5. 验证：极小多项式的次数等于 $[\mathbb{Q}(\alpha) : \mathbb{Q}]$，且 $\mathbb{Q}(\alpha) \subseteq \mathbb{Q}(\sqrt[3]{a}, \sqrt[3]{b})$。
 
-#### 对应习题
-
-- **idx 8**: 判断 $x^4 + x^3 + x^2 + x + 1$ 在 $\mathbb{Q}$ 上是否可约
-- **idx 11**: 求 $[\mathbb{Q}(\sqrt{2}, \sqrt{3}) : \mathbb{Q}]$ 及 $\mathbb{Q}$-基
 
 #### 竞赛拓展：三次根式扩张的降幂展开与极小多项式
 
@@ -480,9 +448,6 @@ $$S = \{a \in \mathbb{Z} : P(a) \in S\}$$
 3. 对元素 $\alpha$，验证 $\alpha^{(q-1)/p} \neq 1$ 对所有 $p \mid (q-1)$ 的素因子 $p$ 成立，则 $\alpha$ 为乘法群的生成元，阶为 $q-1$。
 4. 特别地，若 $q-1$ 是素数，则任何非零非1元素的阶均为 $q-1$。
 
-#### 对应习题
-
-- **idx 9**: 在 $\mathbb{F}_8 = \mathbb{F}_2[x]/(x^3+x+1)$ 中求 $\alpha$ 的阶
 
 ---
 
@@ -515,9 +480,6 @@ $$S = \{a \in \mathbb{Z} : P(a) \in S\}$$
 3. 所有 $p$ 部分的组合给出全部同构类。
 4. 将每个组合化为最简形式（利用 $\mathbb{Z}_a \times \mathbb{Z}_b \cong \mathbb{Z}_{ab}$ 当 $\gcd(a,b) = 1$）。
 
-#### 对应习题
-
-- **idx 13**: 确定所有互不同构的36阶有限Abel群
 
 ---
 
@@ -632,10 +594,10 @@ def order_mod_n(a, n):
     g = gcd(a, n)
     return n // g
 
-# 例：idx 0 - Z_30 中 12 的阶
+# 例： Z_30 中 12 的阶
 order_mod_n(12, 30)  # 5
 
-# 例：idx 3 - Z_18 的所有子群
+# 例： Z_18 的所有子群
 n = 18
 for d in divisors(n):
     generator = n // d
@@ -647,7 +609,7 @@ for d in divisors(n):
 ```python
 from sympy import gcd
 
-# 例：idx 4 - Z_15 中 H=<5> 的陪集
+# 例： Z_15 中 H=<5> 的陪集
 n = 15
 H_gen = 5
 H_size = n // gcd(H_gen, n)  # 3
@@ -670,7 +632,7 @@ assert len(all_elements) == n
 ```python
 from sympy import gcd
 
-# 例：idx 5 - φ: Z_12 -> Z_8, φ(1)=2
+# 例： φ: Z_12 -> Z_8, φ(1)=2
 m, n, k = 12, 8, 2
 
 # 像
@@ -690,7 +652,7 @@ assert ker_size * im_size == m  # 3 * 4 = 12
 ```python
 from sympy import gcd
 
-# 例：idx 2 - Z_12 中的零因子
+# 例： Z_12 中的零因子
 n = 12
 zero_divisors = [a for a in range(1, n) if gcd(a, n) > 1]
 # [2, 3, 4, 6, 8, 9, 10]
@@ -796,7 +758,7 @@ from sympy.polys.galoistools import gf_irreducible
 
 ## 习题索引
 
-| idx | 题型 | 难度 | 主题 | 关键知识点 | 核心方法 | 验证方法 |
+| 题型 | 难度 | 主题 | 关键知识点 | 核心方法 | 验证方法 |
 |-----|------|------|------|-----------|---------|---------|
 | 0 | 计算 | 简单 | 循环群中元素的阶 | $\mathbb{Z}_n$中$\mathrm{ord}(a)=n/\gcd(a,n)$ | 求$\gcd(12,30)=6$，得阶=$30/6=5$ | `gcd` + 除法 |
 | 1 | 计算 | 简单 | 置换的阶 | 轮换分解，阶=各轮换长度的lcm | $(1\ 2\ 3)$阶=3，$(4\ 5)$阶=2，lcm=6 | `Permutation.order()` |
@@ -880,46 +842,46 @@ from sympy.polys.galoistools import gf_irreducible
 
 | 定理 | 精确陈述 | 典型应用 | 相关习题 |
 |------|---------|---------|---------|
-| **Lagrange定理** | 若 $H \le G$（$G$ 有限群），则 $|G| = |H| \cdot [G:H]$，特别地 $|H| \mid |G|$ | 子群的阶必整除群的阶 | idx 4, 6, 12 |
-| **Cauchy定理** | 若 $G$ 是有限群，$p$ 是整除 $|G|$ 的素数，则 $G$ 中存在 $p$ 阶元素 | 存在性定理，Sylow定理的基石 | idx 18 |
-| **第一同构定理** | 若 $\varphi: G \to H$ 是群同态，则 $G/\ker(\varphi) \cong \operatorname{im}(\varphi)$ | 商群同构的判定 | idx 5, 19 |
+| **Lagrange定理** | 若 $H \le G$（$G$ 有限群），则 $|G| = |H| \cdot [G:H]$，特别地 $|H| \mid |G|$ | 子群的阶必整除群的阶 |
+| **Cauchy定理** | 若 $G$ 是有限群，$p$ 是整除 $|G|$ 的素数，则 $G$ 中存在 $p$ 阶元素 | 存在性定理，Sylow定理的基石 |
+| **第一同构定理** | 若 $\varphi: G \to H$ 是群同态，则 $G/\ker(\varphi) \cong \operatorname{im}(\varphi)$ | 商群同构的判定 |
 | **第二同构定理** | 若 $H \le G$，$N \trianglelefteq G$，则 $H/(H \cap N) \cong HN/N$ | 子群与正规子群的交互 | — |
 | **第三同构定理** | 若 $N \trianglelefteq G$，$M \trianglelefteq G$ 且 $N \le M$，则 $(G/N)/(M/N) \cong G/M$ | 嵌套商群的关系 | — |
-| **Sylow第一定理** | 若 $p^k \mid |G|$，则存在 $p^k$ 阶子群 | Sylow $p$-子群的存在性 | idx 12 |
-| **Sylow第二定理** | $G$ 中所有 Sylow $p$-子群相互共轭 | 结构唯一性（至多共轭） | idx 12 |
-| **Sylow第三定理** | $n_p \equiv 1 \pmod{p}$ 且 $n_p \mid m$（其中 $|G|=p^k \cdot m$，$p \nmid m$） | Sylow子群个数计算 | idx 12 |
+| **Sylow第一定理** | 若 $p^k \mid |G|$，则存在 $p^k$ 阶子群 | Sylow $p$-子群的存在性 |
+| **Sylow第二定理** | $G$ 中所有 Sylow $p$-子群相互共轭 | 结构唯一性（至多共轭） |
+| **Sylow第三定理** | $n_p \equiv 1 \pmod{p}$ 且 $n_p \mid m$（其中 $|G|=p^k \cdot m$，$p \nmid m$） | Sylow子群个数计算 |
 | **Cayley定理** | 任意群 $G$ 同构于对称群 $S_{|G|}$ 的一个子群 | 群可嵌入对称群 | — |
-| **有限Abel群结构定理** | 每个有限Abel群同构于循环 $p$-群的直积，且分解（在次序下）唯一 | Abel群的完全分类 | idx 13 |
+| **有限Abel群结构定理** | 每个有限Abel群同构于循环 $p$-群的直积，且分解（在次序下）唯一 | Abel群的完全分类 |
 
 ### 环论定理
 
 | 定理 | 精确陈述 | 典型应用 | 相关习题 |
 |------|---------|---------|---------|
-| **极大理想判据** | $M$ 是含幺交换环 $R$ 的极大理想 $\Leftrightarrow$ $R/M$ 是域 | 极大理想的判定 | idx 7 |
+| **极大理想判据** | $M$ 是含幺交换环 $R$ 的极大理想 $\Leftrightarrow$ $R/M$ 是域 | 极大理想的判定 |
 | **素理想判据** | $P$ 是含幺交换环 $R$ 的素理想 $\Leftrightarrow$ $R/P$ 是整环 | 素理想的判定 | — |
-| **$\mathbb{Z}_n$中单位判定** | $a \in \mathbb{Z}_n$ 是单位 $\Leftrightarrow$ $\gcd(a,n) = 1$ | 可逆元的存在性 | idx 2, 17 |
-| **$\mathbb{Z}_n$中零因子判定** | $a \in \mathbb{Z}_n$（非零）是零因子 $\Leftrightarrow$ $\gcd(a,n) > 1$ | 零因子的筛选 | idx 2 |
-| **$\mathbb{Z}_n$是域的充要条件** | $\mathbb{Z}_n$ 是域 $\Leftrightarrow$ $n$ 是素数 | 有限域的判定 | idx 17 |
-| **Eisenstein判据** | 若存在素数 $p$ 使得 $p \mid a_i$（$i<n$），$p \nmid a_n$，$p^2 \nmid a_0$，则 $f$ 在 $\mathbb{Q}$ 上不可约 | 多项式不可约性 | idx 8 |
+| **$\mathbb{Z}_n$中单位判定** | $a \in \mathbb{Z}_n$ 是单位 $\Leftrightarrow$ $\gcd(a,n) = 1$ | 可逆元的存在性 |
+| **$\mathbb{Z}_n$中零因子判定** | $a \in \mathbb{Z}_n$（非零）是零因子 $\Leftrightarrow$ $\gcd(a,n) > 1$ | 零因子的筛选 |
+| **$\mathbb{Z}_n$是域的充要条件** | $\mathbb{Z}_n$ 是域 $\Leftrightarrow$ $n$ 是素数 | 有限域的判定 |
+| **Eisenstein判据** | 若存在素数 $p$ 使得 $p \mid a_i$（$i<n$），$p \nmid a_n$，$p^2 \nmid a_0$，则 $f$ 在 $\mathbb{Q}$ 上不可约 | 多项式不可约性 |
 
 ### 域论定理
 
 | 定理 | 精确陈述 | 典型应用 | 相关习题 |
 |------|---------|---------|---------|
-| **塔定理** | 若 $F \subseteq K \subseteq E$，则 $[E:F] = [E:K] \cdot [K:F]$ | 逐次扩张次数计算 | idx 11 |
-| **单扩张次数** | 若 $\alpha$ 在 $F$ 上代数，则 $[F(\alpha):F] = \deg(m_\alpha(x))$，其中 $m_\alpha(x)$ 是极小多项式 | 扩张次数的计算 | idx 11 |
-| **有限域存在唯一性** | 对任意素数幂 $q = p^n$，存在唯一的 $q$ 元有限域 | 有限域结构 | idx 9 |
-| **乘法群结构** | $\mathbb{F}_q^\times$ 是 $q-1$ 阶循环群 | 元素阶的计算 | idx 9 |
-| **分圆多项式不可约性** | $\Phi_n(x)$ 在 $\mathbb{Q}$ 上不可约 | 不可约性判定 | idx 8 |
+| **塔定理** | 若 $F \subseteq K \subseteq E$，则 $[E:F] = [E:K] \cdot [K:F]$ | 逐次扩张次数计算 |
+| **单扩张次数** | 若 $\alpha$ 在 $F$ 上代数，则 $[F(\alpha):F] = \deg(m_\alpha(x))$，其中 $m_\alpha(x)$ 是极小多项式 | 扩张次数的计算 |
+| **有限域存在唯一性** | 对任意素数幂 $q = p^n$，存在唯一的 $q$ 元有限域 | 有限域结构 |
+| **乘法群结构** | $\mathbb{F}_q^\times$ 是 $q-1$ 阶循环群 | 元素阶的计算 |
+| **分圆多项式不可约性** | $\Phi_n(x)$ 在 $\mathbb{Q}$ 上不可约 | 不可约性判定 |
 
 ### 对称群定理
 
 | 定理 | 精确陈述 | 典型应用 | 相关习题 |
 |------|---------|---------|---------|
-| **共轭类=轮换型** | $S_n$ 中两个置换共轭 $\Leftrightarrow$ 它们具有相同的轮换型 | 共轭类的分类 | idx 10 |
-| **共轭类大小公式** | 轮换型 $1^{c_1}2^{c_2}\cdots n^{c_n}$ 的共轭类大小为 $\frac{n!}{\prod i^{c_i} \cdot c_i!}$ | 类方程的计算 | idx 10 |
-| **类方程** | $|G| = |Z(G)| + \sum_{i=1}^r [G : C_G(g_i)]$，其中 $g_i$ 为非中心共轭类的代表元 | 群结构分析 | idx 10 |
-| **置换的阶=轮换长度的lcm** | $\mathrm{ord}(\sigma) = \mathrm{lcm}(\ell_1, \ldots, \ell_r)$ | 元素阶的计算 | idx 1 |
+| **共轭类=轮换型** | $S_n$ 中两个置换共轭 $\Leftrightarrow$ 它们具有相同的轮换型 | 共轭类的分类 |
+| **共轭类大小公式** | 轮换型 $1^{c_1}2^{c_2}\cdots n^{c_n}$ 的共轭类大小为 $\frac{n!}{\prod i^{c_i} \cdot c_i!}$ | 类方程的计算 |
+| **类方程** | $|G| = |Z(G)| + \sum_{i=1}^r [G : C_G(g_i)]$，其中 $g_i$ 为非中心共轭类的代表元 | 群结构分析 |
+| **置换的阶=轮换长度的lcm** | $\mathrm{ord}(\sigma) = \mathrm{lcm}(\ell_1, \ldots, \ell_r)$ | 元素阶的计算 |
 
 ---
 
@@ -974,32 +936,32 @@ from sympy.polys.galoistools import gf_irreducible
 ## 证明题标准策略速查
 
 ### 策略1：直接代数推导
-**适用**：群的基本性质（idx 14）
+**适用**：群的基本性质（）
 
 模式：从已知条件出发，通过代数恒等式变形得到结论。
 
 ### 策略2：带余除法 + 极小性
-**适用**：循环群结构（idx 15）
+**适用**：循环群结构（）
 
 模式：取最小正指数为候选生成元，用带余除法证明任意元素都是它的幂。
 
 ### 策略3：陪集覆盖 + 分类讨论
-**适用**：正规子群判定（idx 16）
+**适用**：正规子群判定（）
 
 模式：区分 $g \in H$（显然）和 $g \notin H$（利用指数条件及陪集覆盖）。
 
 ### 策略4：双向推导（充要条件）
-**适用**：环的性质判定（idx 17）
+**适用**：环的性质判定（）
 
 模式：分别证明必要性（反证法）和充分性（构造法/Bezout恒等式）。
 
 ### 策略5：数学归纳法
-**适用**：Cauchy定理（idx 18）
+**适用**：Cauchy定理（）
 
 模式：对 $|G|$ 归纳。基础情形 $|G|=p$；归纳步骤中选取 $a \neq e$，分 $p \mid \mathrm{ord}(a)$ 和 $p \nmid \mathrm{ord}(a)$ 两种情况。
 
 ### 策略6：映射构造四步法
-**适用**：第一同构定理（idx 19）
+**适用**：第一同构定理（）
 
 模式：(1) 良定性；(2) 同态性；(3) 单射；(4) 满射。四步依次证明。
 

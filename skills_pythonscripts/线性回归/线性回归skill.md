@@ -47,7 +47,6 @@
 
 **统计含义：** $\hat{\beta}_1$ 表示 $x$ 每变化1单位，$y$ 的平均变化量。
 
-**对应习题：** idx 0
 
 ---
 
@@ -60,7 +59,6 @@
 4. $\hat{\beta}_0=\bar{y}-\hat{\beta}_1\bar{x}$
 5. 写出回归方程 $\hat{y}=\hat{\beta}_0+\hat{\beta}_1 x$
 
-**对应习题：** idx 1（数据：(1,3),(2,5),(3,6),(4,8),(5,11)）
 
 ---
 
@@ -72,7 +70,6 @@
 
 **性质：** $\frac{(n-2)\hat{\sigma}^2}{\sigma^2}\sim\chi^2(n-2)$，$E(\hat{\sigma}^2)=\sigma^2$（无偏）。
 
-**对应习题：** idx 2
 
 ---
 
@@ -90,7 +87,6 @@
 5. $t=\hat{\beta}_1/\operatorname{se}(\hat{\beta}_1)$，与 $t_{\alpha/2}(n-2)$ 比较
 6. 若 $|t|>t_{\alpha/2}$，拒绝 $H_0$（$x$ 对 $y$ 影响显著）
 
-**对应习题：** idx 3
 
 ---
 
@@ -101,7 +97,6 @@
 - $(n-2)\hat{\sigma}^2/\sigma^2\sim\chi^2(n-2)$，且与 $\hat{\beta}_1$ 独立
 - 标准化并用 $\hat{\sigma}$ 代替 $\sigma$ 即得 $t(n-2)$
 
-**对应习题：** idx 4
 
 ---
 
@@ -111,7 +106,6 @@
 
 **判断显著性的快捷方法：** 区间不包含0 $\iff$ 在 $\alpha$ 水平下显著。
 
-**对应习题：** idx 5
 
 ---
 
@@ -123,7 +117,6 @@
 
 **$X^TX$ 可逆条件：** $X$ 列满秩（$\operatorname{rank}(X)=p$），即自变量间无完全多重共线性。
 
-**对应习题：** idx 6
 
 ---
 
@@ -134,7 +127,6 @@
 2. 计算 $X^TX$ 和 $X^TY$
 3. 解 $(X^TX)\hat{\beta}=X^TY$ 或用逆矩阵
 
-**对应习题：** idx 7
 
 ---
 
@@ -146,7 +138,6 @@
 
 **含义：** $y$ 的变异中被 $x$ 解释的比例，范围 $[0,1]$。
 
-**对应习题：** idx 8
 
 ---
 
@@ -156,7 +147,6 @@
 - $F=\frac{MSR}{MSE}=\frac{SSR/1}{SSE/(n-2)}\sim F(1,n-2)$
 - 一元情形：$F=t^2$（F检验与t检验等价）
 
-**对应习题：** idx 9
 
 ---
 
@@ -167,7 +157,6 @@ $\hat{y}_0\pm t_{\alpha/2}(n-2)\cdot\hat{\sigma}\sqrt{1+\frac{1}{n}+\frac{(x_0-\
 
 **三项来源：** $\sigma^2$（新观测噪声）+ $\operatorname{Var}(\hat{\beta}_0)$ + $\operatorname{Var}(\hat{\beta}_1)$
 
-**对应习题：** idx 10
 
 ---
 
@@ -178,7 +167,6 @@ $\hat{y}_0\pm t_{\alpha/2}(n-2)\cdot\hat{\sigma}\sqrt{\frac{1}{n}+\frac{(x_0-\ba
 
 **与预测区间的区别：** 根号内少 '+1'，均值区间更窄。
 
-**对应习题：** idx 11
 
 ---
 
@@ -192,7 +180,6 @@ $\hat{y}_0\pm t_{\alpha/2}(n-2)\cdot\hat{\sigma}\sqrt{\frac{1}{n}+\frac{(x_0-\ba
 - $\operatorname{VIF}>5$：存在共线性
 - $\operatorname{VIF}>10$：严重共线性
 
-**对应习题：** idx 12（$r_{12}=0.95$，$VIF=10.26>10$）
 
 ---
 
@@ -204,7 +191,6 @@ $\hat{y}_0\pm t_{\alpha/2}(n-2)\cdot\hat{\sigma}\sqrt{\frac{1}{n}+\frac{(x_0-\ba
 
 **变换后模型：** $y_i/x_i=\beta_0/x_i+\beta_1+\varepsilon_i'$（同方差）
 
-**对应习题：** idx 13
 
 ---
 
@@ -219,7 +205,6 @@ $\hat{y}_0\pm t_{\alpha/2}(n-2)\cdot\hat{\sigma}\sqrt{\frac{1}{n}+\frac{(x_0-\ba
 
 **异方差影响：** OLS仍无偏但不再是BLUE，GLS/WLS更有效。
 
-**对应习题：** idx 14
 
 #### 异方差性的系统后果
 
@@ -265,7 +250,6 @@ $\hat{y}_0\pm t_{\alpha/2}(n-2)\cdot\hat{\sigma}\sqrt{\frac{1}{n}+\frac{(x_0-\ba
   2. 加权最小二乘（WLS）
   3. 异方差稳健标准误（White/Huber-White）
 
-**对应习题：** idx 15
 
 ---
 
@@ -275,7 +259,6 @@ $\hat{y}_0\pm t_{\alpha/2}(n-2)\cdot\hat{\sigma}\sqrt{\frac{1}{n}+\frac{(x_0-\ba
 
 **用途：** 检验嵌套模型中后 $q$ 个变量是否联合显著。
 
-**对应习题：** idx 16
 
 ---
 
@@ -286,10 +269,7 @@ $\hat{y}_0\pm t_{\alpha/2}(n-2)\cdot\hat{\sigma}\sqrt{\frac{1}{n}+\frac{(x_0-\ba
 | 来源 | df | SS | MS | F |
 |------|-----|-----|-----|-----|
 | 回归 | 1 | SSR | MSR=SSR/1 | MSR/MSE |
-| 残差 | n-2 | SSE | MSE=SSE/(n-2) | |
-| 总计 | n-1 | SST | | |
-
-**对应习题：** idx 17
+| 残差 | n-2 | SSE | MSE=SSE/(n-2) || 总计 | n-1 | SST | |
 
 ---
 
@@ -308,7 +288,6 @@ $\hat{y}_0\pm t_{\alpha/2}(n-2)\cdot\hat{\sigma}\sqrt{\frac{1}{n}+\frac{(x_0-\ba
 
 **补救方法：** Cochrane-Orcutt迭代、GLS（AR(1)误差）、Newey-West HAC标准误。
 
-**对应习题：** idx 18
 
 ---
 
@@ -322,7 +301,6 @@ $\hat{y}_0\pm t_{\alpha/2}(n-2)\cdot\hat{\sigma}\sqrt{\frac{1}{n}+\frac{(x_0-\ba
 
 **本题：** AIC相等（无法区分），BIC选 $M_1$（更简洁）。
 
-**对应习题：** idx 19
 
 ---
 
@@ -520,7 +498,7 @@ $$\theta^{(k+1)} = \theta^{(k)} - H^{-1}(\theta^{(k)}) \nabla S(\theta^{(k)})$$
 
 ## 第三部分：习题索引表
 
-| idx | 题目关键词 | 知识点 | 难度 |
+| 题目关键词 | 知识点 | 难度 |
 |-----|-----------|--------|------|
 | 0 | OLS估计表达式 | 一元OLS | 简单 |
 | 1 | 最小二乘计算 | 回归系数计算 | 简单 |

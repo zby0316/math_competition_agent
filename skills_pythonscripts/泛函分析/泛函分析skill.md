@@ -31,7 +31,6 @@
 3. 验证该序列是Cauchy列
 4. 验证极限不在该空间内
 
-**对应习题：** idx 0
 
 ---
 
@@ -47,7 +46,6 @@
 3. 若最大值 < 1，则为压缩映射
 4. 不动点：解方程 $x=f(x)$
 
-**对应习题：** idx 1
 
 ---
 
@@ -63,7 +61,6 @@
 1. 先找一般不等式关系
 2. 再构造极端向量使等式成立（确定最优性）
 
-**对应习题：** idx 2
 
 ---
 
@@ -77,7 +74,6 @@
 3. Gram-Schmidt正交化（若需要）
 4. 单位化得标准正交基
 
-**对应习题：** idx 3
 
 ---
 
@@ -87,7 +83,6 @@
 
 **步骤：** 计算 $A^TA$ → 求特征值 → 最大特征值的平方根 = 算子范数
 
-**对应习题：** idx 4
 
 ---
 
@@ -99,7 +94,6 @@
 
 **范数：** $\|K\|=\|k\|_{L^2}=\sqrt{\iint|k(x,y)|^2dxdy}$
 
-**对应习题：** idx 5
 
 ---
 
@@ -110,7 +104,6 @@
 **右移算子 $T$：** $(x_1,x_2,\ldots)\mapsto(0,x_1,x_2,\ldots)$
 **$T^*$（左移）：** $(y_1,y_2,\ldots)\mapsto(y_2,y_3,\ldots)$
 
-**对应习题：** idx 6
 
 ---
 
@@ -120,7 +113,6 @@
 
 **有限维：** 若 $W$ 有标准正交基 $\{e_i\}$，则 $P_W v=\sum\langle v,e_i\rangle e_i$
 
-**对应习题：** idx 7
 
 ---
 
@@ -128,7 +120,6 @@
 
 **核心概念：** $T$ 自伴 $\iff$ $T=T^*$。在 $\mathbb{R}^n$ 标准内积下 $\iff$ 矩阵对称。
 
-**对应习题：** idx 8
 
 ### 模块9.1：微分算子的形式伴随
 
@@ -163,7 +154,6 @@ $$L^* g = -\sum_{i,j} \partial_j (a_{ij} \partial_i g) - \sum_i \partial_i (b_i 
 2. Hilbert-Schmidt算子（$\sum\|Te_n\|^2<\infty$）
 3. 紧算子的极限（在算子范数下）
 
-**对应习题：** idx 9
 
 ---
 
@@ -173,7 +163,6 @@ $$L^* g = -\sum_{i,j} \partial_j (a_{ij} \partial_i g) - \sum_i \partial_i (b_i 
 
 有限维：谱半径 = 特征值绝对值的最大值。上三角矩阵特征值即对角线元素。
 
-**对应习题：** idx 10
 
 ---
 
@@ -183,7 +172,6 @@ $$L^* g = -\sum_{i,j} \partial_j (a_{ij} \partial_i g) - \sum_i \partial_i (b_i 
 
 **步骤：** 从 $f(x)=\sum a_ix_i$ 直接读出 $u=(a_1,a_2,\ldots)$
 
-**对应习题：** idx 11
 
 ---
 
@@ -193,7 +181,6 @@ $$L^* g = -\sum_{i,j} \partial_j (a_{ij} \partial_i g) - \sum_i \partial_i (b_i 
 
 **结论：** 要么齐次方程仅有零解（则非齐次对任意 $f$ 唯一可解），要么齐次有非零解（特征值）。
 
-**对应习题：** idx 12
 
 ---
 
@@ -205,7 +192,6 @@ $$L^* g = -\sum_{i,j} \partial_j (a_{ij} \partial_i g) - \sum_i \partial_i (b_i 
 
 **注意：** 此处 $T$ 无界（$Te_n=n e_n$），所以 $D(T)\neq\ell^2$。
 
-**对应习题：** idx 13
 
 ---
 
@@ -221,7 +207,6 @@ $$L^* g = -\sum_{i,j} \partial_j (a_{ij} \partial_i g) - \sum_i \partial_i (b_i 
 - $C[0,1]$ 配 $\|\cdot\|_2$：非Banach，非Hilbert（不完备）
 - $\mathbb{R}^n$ 配 $\|\cdot\|_1$：Banach，非Hilbert
 
-**对应习题：** idx 14
 
 ---
 
@@ -234,7 +219,6 @@ $$L^* g = -\sum_{i,j} \partial_j (a_{ij} \partial_i g) - \sum_i \partial_i (b_i 
 
 **经典反例：** 在 $c_{00}$（不完备）上定义 $T_nx=nx_n$，逐点有界但 $\|T_n\|=n\to\infty$。
 
-**对应习题：** idx 15
 
 ---
 
@@ -248,7 +232,6 @@ $$L^* g = -\sum_{i,j} \partial_j (a_{ij} \partial_i g) - \sum_i \partial_i (b_i 
 
 **经典例子：** $\ell^2$ 的标准正交基 $e_n$：弱收敛于0但不强收敛。
 
-**对应习题：** idx 16
 
 ---
 
@@ -261,7 +244,6 @@ $$L^* g = -\sum_{i,j} \partial_j (a_{ij} \partial_i g) - \sum_i \partial_i (b_i 
 2. 验证等度连续：$\forall\varepsilon>0,\exists\delta>0,\forall f\in F,|x-y|<\delta\Rightarrow|f(x)-f(y)|<\varepsilon$
    - 充分条件：导数一致有界
 
-**对应习题：** idx 17
 
 ---
 
@@ -273,7 +255,6 @@ $$L^* g = -\sum_{i,j} \partial_j (a_{ij} \partial_i g) - \sum_i \partial_i (b_i 
 1. 纯代数延拓：总是存在（线性代数）
 2. 保范延拓：需要Hahn-Banach定理（无穷维依赖Zorn引理）
 
-**对应习题：** idx 18
 
 ---
 
@@ -286,7 +267,6 @@ $$L^* g = -\sum_{i,j} \partial_j (a_{ij} \partial_i g) - \sum_i \partial_i (b_i 
 - 0必在谱中（无穷维时）
 - 除0外谱点只能聚于0
 
-**对应习题：** idx 19
 
 ---
 
@@ -310,7 +290,7 @@ $$L^* g = -\sum_{i,j} \partial_j (a_{ij} \partial_i g) - \sum_i \partial_i (b_i 
 
 ## 第三部分：习题索引表
 
-| idx | 题目关键词 | 知识点 | 难度 |
+| 题目关键词 | 知识点 | 难度 |
 |-----|-----------|--------|------|
 | 0 | $\mathbb{Q}$完备性 | 完备性判定 | 简单 |
 | 1 | $f(x)=(x+2/x)/2$不动点 | 压缩映射原理 | 简单 |

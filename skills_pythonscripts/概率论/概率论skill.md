@@ -49,9 +49,6 @@ description: Use when verifying probability theory problems with sympy — class
 - 组合数计算错误：注意 $\binom{n}{k}$ 的分母是 $k!(n-k)!$，不是 $k!$ 或 $(n-k)!$
 - 未注意"恰好"与"至少"的区别
 
-#### 对应习题
-
-- **idx 0**: 袋中红球白球不放回抽取，超几何分布直接计算
 
 ---
 
@@ -119,12 +116,6 @@ description: Use when verifying probability theory problems with sympy — class
 - 连续型随机变量单点概率为零：$P(X=c)=0$
 - 对于 $X \sim U(0,1)$，$Y = -\ln X$ 服从 $\mathrm{Exp}(1)$ 是经典变换
 
-#### 对应习题
-
-- **idx 2**: 二项分布 pmf 直接代入计算
-- **idx 9**: 泊松分布 $P(X=2)$ 和 $P(X \ge 1)$ 计算
-- **idx 6**: 随机变量函数的分布 — $X \sim U(0,1)$，$Y=-\ln X$，通过分布函数法推导 $Y \sim \mathrm{Exp}(1)$
-- **idx 10**: 指数分布高阶矩 — 利用 $\Gamma$ 积分 $E[X^n] = n! / \lambda^n$
 
 ---
 
@@ -184,12 +175,6 @@ description: Use when verifying probability theory problems with sympy — class
 - 条件期望是 $y$ 的函数，书写时不要漏掉变量
 - 协方差计算：$E[XY] - E[X]E[Y]$ 是最常用公式，不要直接用定义展开
 
-#### 对应习题
-
-- **idx 4**: 二维连续联合密度 $f(x,y)=8xy, 0<x<y<1$，计算 $E[XY]$ 和 $\mathrm{Cov}(X,Y)$
-- **idx 5**: 二维离散联合分布律，计算 $\mathrm{Cov}(X,Y)$ 和 $\rho(X,Y)$
-- **idx 7**: 二维正态分布条件期望与条件方差
-- **idx 8**: 条件期望与条件方差 — $f(x,y)=2, 0<x<y<1$，求 $E[X\mid Y=y]$ 和 $\mathrm{Var}(X\mid Y=y)$
 
 ---
 
@@ -255,12 +240,6 @@ description: Use when verifying probability theory problems with sympy — class
 - 特征函数反演积分的积分常数：前面有 $1/(2\pi)$
 - Gamma 分布的 MGF：注意参数化方式（rate $\beta$ vs scale $\theta$）
 
-#### 对应习题
-
-- **idx 1**: 给定密度 $f(x)=2x, x\in[0,1]$，直接积分求期望 $E[X]$ 和方差 $\mathrm{Var}(X)$
-- **idx 11**: 给定 MGF $M(t)=(1-2t)^{-3}$，求 $E[X]$ 和 $\mathrm{Var}(X)$
-- **idx 13**: 给定 CF $\varphi(t)=1/(1+t^2)$，反演求得 Laplace 分布 $f(x)=\frac{1}{2}e^{-|x|}$
-- **idx 14**: 证明 $\mathrm{Var}(aX+b) = a^2\mathrm{Var}(X)$
 
 ---
 
@@ -318,11 +297,6 @@ description: Use when verifying probability theory problems with sympy — class
 - 依概率收敛不保证依分布收敛的反向：$X_n \xrightarrow{D} X \not\Rightarrow X_n \xrightarrow{P} X$（除非 $X$ 是常数）
 - 区分各种收敛记号：$P$、$D$、$a.s.$ 不要混淆
 
-#### 对应习题
-
-- **idx 18**: 证明：$X_n \xrightarrow{P} X \Rightarrow X_n \xrightarrow{D} X$
-- **idx 19**: 证明 Slutsky 定理特例：$X_n \xrightarrow{D} X$ 且 $Y_n \xrightarrow{P} 0 \Rightarrow X_n+Y_n \xrightarrow{D} X$
-- **idx 12**: 两独立 $U(0,1)$ 之和的分布（卷积，设问涉及极限定理的铺垫）
 
 ---
 
@@ -355,10 +329,6 @@ description: Use when verifying probability theory problems with sympy — class
 - Chebyshev 不等式给出的是上界，不一定紧
 - 方差公式 $\mathrm{Var}(aX+b) = a^2 \mathrm{Var}(X)$ 中不要忘记平方
 
-#### 对应习题
-
-- **idx 15**: 证明 Markov 不等式：$P(X \ge \varepsilon) \le E[X]/\varepsilon$（$X \ge 0$）
-- **idx 14**: 证明 $\mathrm{Var}(aX+b) = a^2 \mathrm{Var}(X)$
 
 ---
 
@@ -385,9 +355,6 @@ description: Use when verifying probability theory problems with sympy — class
 - 计算 $P(+ \mid \neg D)$ 时注意：假阳性率是 $P(+ \mid \neg D)$，不是 $P(\neg D \mid +)$
 - 全概率公式分母中不要遗漏任何划分
 
-#### 对应习题
-
-- **idx 3**: 疾病检测贝叶斯问题 — 给定 $P(D)=0.01$，$P(+\mid D)=0.99$，$P(+\mid \neg D)=0.02$，求 $P(D\mid +) = 1/3$
 
 ---
 
@@ -413,10 +380,6 @@ description: Use when verifying probability theory problems with sympy — class
 - 漏掉 $z$ 在某些区间密度为 $0$ 的情况
 - 卷积积分的图形直观：$z$ 的范围是 $[a_X+b_X, a_Y+b_Y]$（$a,b$ 为分布支撑区间端点）
 
-#### 对应习题
-
-- **idx 12**: $X,Y \stackrel{i.i.d.}{\sim} U(0,1)$，$Z=X+Y$ 密度为三角分布：$f_Z(z)=z\,(0<z<1),\,2-z\,(1<z<2)$
-- **idx 16**: 泊松分布可加性 — 离散卷积，或特征函数法证明
 
 ---
 
@@ -577,7 +540,7 @@ f2 = sp.integrate(1, (x, z-1, 1))        # = 2-z
 
 ## 习题索引
 
-| idx | 题型 | 难度 | 主题 | 关键知识点 | 核心公式/方法 | 验证方法 |
+| 题型 | 难度 | 主题 | 关键知识点 | 核心公式/方法 | 验证方法 |
 |-----|------|------|------|-----------|-------------|---------|
 | 0 | 计算 | 简单 | 古典概型 | 超几何分布 | $P = \frac{C_5^2 C_3^1}{C_8^3} = \frac{15}{28}$ | 组合数直接计算 |
 | 1 | 计算 | 简单 | 期望与方差 | 连续密度积分 | $E[X]=\int x f(x)dx$, $\mathrm{Var}(X)=E[X^2]-(E[X])^2$ | sympy积分 |

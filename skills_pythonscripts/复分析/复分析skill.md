@@ -49,9 +49,6 @@ description: Use when verifying complex analysis problems with sympy — complex
 3. 将结果化回代数形式 $x + yi$（利用 $e^{i\theta} = \cos\theta + i\sin\theta$）。
 4. 化简三角函数值。
 
-#### 对应习题
-
-- **idx 0**: 求 $(\sqrt{3}+i)^{6}$ 的值 — 极坐标 + de Moivre公式
 
 ---
 
@@ -94,11 +91,6 @@ description: Use when verifying complex analysis problems with sympy — complex
 4. 利用附加条件（如 $f(0) = 1$）确定积分常数。
 5. 将 $u + iv$ 整合为仅含 $z$ 的表达式。
 
-#### 对应习题
-
-- **idx 1**: 判断 $f(z) = |z|^2$ 的解析性 — C-R方程仅在 $z=0$ 成立，故处处不解析
-- **idx 7**: 验证 $u = e^x\cos y$ 是调和函数并求共轭调和函数 — $v = e^x\sin y$，$f(z) = e^z$
-- **idx 14**: 证明C-R方程是解析的必要条件 — 沿实轴和虚轴方向求导
 
 ---
 
@@ -135,11 +127,6 @@ description: Use when verifying complex analysis problems with sympy — complex
 4. 应用Cauchy积分公式或高阶导数公式：直接代入 $f^{(n)}(a)$。
 5. 将结果乘以 $2\pi i$（或 $\frac{2\pi i}{n!}$）。
 
-#### 对应习题
-
-- **idx 2**: $\oint_{|z|=1} \frac{e^z}{z}\,dz$ — Cauchy积分公式，$f(a)=f(0)=1$，结果为 $2\pi i$
-- **idx 3**: $\oint_{|z|=2} \frac{e^z}{(z-1)^3}\,dz$ — 高阶Cauchy公式，$n=2$，$f''(1)=e$，结果为 $\pi i e$
-- **idx 15**: 用Cauchy估计证明Liouville定理 — $|f'(z_0)| \leq M/R \to 0$ 当 $R \to \infty$
 
 ---
 
@@ -182,10 +169,6 @@ description: Use when verifying complex analysis problems with sympy — complex
 2. 使用比值法 $R = \lim |a_n/a_{n+1}|$ 或识别几何级数结构。
 3. 特殊情况下使用根值法。
 
-#### 对应习题
-
-- **idx 4**: $f(z) = \frac{1}{z(z-1)}$ 在 $0 < |z| < 1$ 内的Laurent展开 — 部分分式 + 几何级数
-- **idx 8**: 求 $\sum_{n=0}^{\infty} \frac{z^n}{2^n}$ 的收敛半径 — $R = 2$（几何级数或比值法）
 
 ---
 
@@ -224,9 +207,6 @@ description: Use when verifying complex analysis problems with sympy — complex
 4. 对本性奇点：通过Laurent展开直接读取 $c_{-1}$ 系数。
 5. 验证：所有孤立奇点留数之和等于无穷远点留数的相反数。
 
-#### 对应习题
-
-- **idx 5**: 求 $f(z) = \frac{1}{z(z-1)^2}$ 在各孤立奇点处的留数 — $z=0$ 为简单极点，$z=1$ 为二阶极点
 
 ---
 
@@ -278,12 +258,6 @@ description: Use when verifying complex analysis problems with sympy — complex
 3. 应用Jordan引理验证大半圆弧积分为0。
 4. 取实部（或虚部）得到最终结果。
 
-#### 对应习题
-
-- **idx 6**: $\int_{-\infty}^{\infty} \frac{dx}{x^4+1}$ — 上半平面两个简单极点，结果 $\pi/\sqrt{2}$
-- **idx 11**: $\int_0^{2\pi} \frac{d\theta}{5+4\cos\theta}$ — $z = e^{i\theta}$ 代换，结果 $2\pi/3$
-- **idx 12**: $\int_0^{\infty} \frac{\cos x}{x^2+1}\,dx$ — 上半平面 $z=i$ 极点 + Jordan引理，结果 $\pi/(2e)$
-- **idx 13**: $\int_0^{2\pi} e^{\cos\theta} \cos(\sin\theta - \theta)\,d\theta$ — 改写为 $\operatorname{Re}[e^{e^{i\theta}} e^{-i\theta}]$，结果 $2\pi$
 
 ---
 
@@ -320,9 +294,6 @@ description: Use when verifying complex analysis problems with sympy — complex
 3. 取一个内部测试点（如上本平面的 $z = i$），计算其像，验证其落在目标区域内。
 4. 由边界对应原理得出完整区域映射结论。
 
-#### 对应习题
-
-- **idx 10**: 验证 $w = \frac{z-i}{z+i}$ 将上半平面映为单位圆盘 — 实轴 $|w|=1$，$z=i \to w=0$
 
 ---
 
@@ -374,11 +345,6 @@ description: Use when verifying complex analysis problems with sympy — complex
 4. $N(0) = N(1)$，即 $f$ 和 $f+g$ 零点数相同。
 5. 或使用辐角论证：$|g/f| < 1$ 在 $C$ 上，$1 + g/f$ 在以1为心的单位圆盘内，辐角变化为0。
 
-#### 对应习题
-
-- **idx 9**: 用Rouché定理求 $z^8 + 3z^3 + 1 = 0$ 在 $|z| < 1$ 内的零点数 — 取 $f(z) = 3z^3$，$g(z) = z^8 + 1$，结果为3
-- **idx 18**: 证明辐角原理 — 对数导数留数 + 留数定理
-- **idx 19**: 用辐角原理证明Rouché定理 — 同伦论证或辐角论证
 
 ---
 
@@ -425,13 +391,6 @@ $$\frac{1}{2\pi i} \oint_C \frac{f'(z)}{f(z)}\,dz = N - P$$
 
 **定理陈述**：设 $f$ 和 $g$ 在简单闭围道 $C$ 及其内部解析，且在 $C$ 上满足 $|f(z)| > |g(z)|$，则 $f$ 和 $f+g$ 在 $C$ 内部具有相同个数的零点（计重数）。
 
-#### 对应习题
-
-- **idx 15**: 用Cauchy估计证明Liouville定理 — $|f'(z_0)| \leq M/R \to 0$
-- **idx 16**: 证明最大模原理 — 平均值性质 + 反证法
-- **idx 17**: 用Liouville定理证明代数学基本定理 — $1/P(z)$ 有界整函数
-- **idx 18**: 证明辐角原理 — 对数导数的留数分析
-- **idx 19**: 用辐角原理证明Rouché定理 — 同伦族 + 连续整数值函数
 
 ---
 
@@ -526,7 +485,7 @@ assert Abs(z)**2 == expand(z * conjugate(z))
 ```python
 from sympy import I, expand, sqrt, pi, cos, sin, simplify
 
-# 例：idx 0 - 求 (sqrt(3) + i)^6
+# 例： 求 (sqrt(3) + i)^6
 z = sqrt(3) + I
 
 # 方法1：直接计算
@@ -561,7 +520,7 @@ from sympy import I, symbols, diff, expand
 
 x, y = symbols('x y', real=True)
 
-# 例：idx 1 - 验证 f(z) = |z|^2 的C-R条件
+# 例： 验证 f(z) = |z|^2 的C-R条件
 u = x**2 + y**2
 v = 0
 
@@ -575,7 +534,7 @@ cr1 = simplify(ux - vy)        # 2x == 0 => x=0
 cr2 = simplify(uy + vx)        # 2y == 0 => y=0
 # 仅在 (x,y) = (0,0) 处满足C-R方程，但不是开集内每一点都满足
 
-# 例：idx 7 - 验证 u = e^x cos y 是调和函数
+# 例： 验证 u = e^x cos y 是调和函数
 u_harm = exp(x) * cos(y)
 uxx = diff(u_harm, x, 2)       # e^x cos y
 uyy = diff(u_harm, y, 2)       # -e^x cos y
@@ -599,13 +558,13 @@ from sympy import I, pi, exp, diff, symbols
 
 z, a = symbols('z a')
 
-# 例：idx 2 - ∮ e^z/z dz 沿 |z|=1
+# 例： ∮ e^z/z dz 沿 |z|=1
 # Cauchy积分公式: ∮ f(z)/(z-a) dz = 2πi f(a)
 # 取 f(z) = e^z, a = 0
 f_z = exp(z)
 result = 2*pi*I * f_z.subs(z, 0)  # 2πi * e^0 = 2πi
 
-# 例：idx 3 - ∮ e^z/(z-1)^3 dz 沿 |z|=2
+# 例： ∮ e^z/(z-1)^3 dz 沿 |z|=2
 # 高阶Cauchy: ∮ f(z)/(z-a)^{n+1} dz = (2πi/n!) f^{(n)}(a)
 # n = 2, a = 1, f(z) = e^z
 n = 2
@@ -629,7 +588,7 @@ from sympy import symbols, series, oo, limit_seq, summation
 
 z = symbols('z')
 
-# 例：idx 4 - Laurent展开: 1/(z(z-1)) 在 0<|z|<1
+# 例： Laurent展开: 1/(z(z-1)) 在 0<|z|<1
 f = 1/(z*(z-1))
 
 # 部分分式分解
@@ -645,7 +604,7 @@ from sympy import series as sp_series
 laurent = sp_series(f, z, n=6)  # 返回带O(z^5)的级数
 # 应该得到 -1/z - 1 - z - z^2 - z^3 - z^4 + O(z^5)
 
-# 例：idx 8 - 收敛半径: Σ z^n/2^n
+# 例： 收敛半径: Σ z^n/2^n
 # 使用比值法
 n = symbols('n', integer=True, positive=True)
 a_n = 1 / (2**n)
@@ -663,7 +622,7 @@ from sympy import I, oo, limit, diff, symbols
 
 z = symbols('z')
 
-# 例：idx 5 - 求 f(z) = 1/(z*(z-1)^2) 的留数
+# 例： 求 f(z) = 1/(z*(z-1)^2) 的留数
 f = 1 / (z * (z-1)**2)
 
 # z=0 是简单极点
@@ -697,7 +656,7 @@ from sympy import I, pi, oo, limit, diff, cos, sin, symbols, expand, simplify, f
 
 z, theta, x = symbols('z theta x')
 
-# 例：idx 6 - ∫_{-∞}^{∞} dx/(x^4+1)
+# 例： ∫_{-∞}^{∞} dx/(x^4+1)
 # 上半平面极点: z_k = e^{iπ(2k+1)/4}, k = 0, 1 (在第一、二象限)
 # z_0 = e^{iπ/4} = (1+i)/√2, z_1 = e^{i3π/4} = (-1+i)/√2
 # 对简单极点 z_k: Res(P/Q, z_k) = P(z_k)/Q'(z_k) = 1/(4z_k^3)
@@ -716,7 +675,7 @@ res_z1 = simplify(1 / Q_prime.subs(z, z1))
 sum_res = simplify(res_z0 + res_z1)  # -i/(2√2) = -I/(2*sqrt(2))
 result_6 = simplify(2 * pi * I * sum_res)  # π/√2
 
-# 例：idx 11 - ∫_0^{2π} dθ/(5+4cos θ)
+# 例： ∫_0^{2π} dθ/(5+4cos θ)
 # 代换: z = e^{iθ}, cosθ = (z+z^{-1})/2, dθ = dz/(iz)
 z = symbols('z')
 cos_theta = (z + 1/z) / 2
@@ -732,7 +691,7 @@ denom = 2*z**2 + 5*z + 2  # = (2z+1)(z+2)
 # Res = 1/(I*(2*(z+2))) 在 z = -1/2 处 = 1/(I*2*(-1/2+2)) = 1/(3I)
 # 积分 = 2πi * (1/(3i)) = 2π/3
 
-# 例：idx 12 - ∫_0^∞ cos x/(x^2+1) dx
+# 例： ∫_0^∞ cos x/(x^2+1) dx
 # 考虑 ∮ e^{iz}/(z^2+1) dz 沿上半平面大半圆
 # 在上半平面仅 z = i 是极点
 res_i = limit((z - I) * sp.exp(I*z) / (z**2 + 1), z, I)
@@ -748,23 +707,23 @@ from sympy import I, pi, oo, limit, diff, cos, sin, symbols, expand, simplify, A
 
 z, x, y, theta = symbols('z x y theta', real=False)
 
-# ============ 验证 idx 0：复数高次幂 ============
+# ============ 验证 ：复数高次幂 ============
 result_0 = expand((sp.sqrt(3) + I)**6)
 assert simplify(result_0) == -64
 
-# ============ 验证 idx 2：Cauchy积分公式 ============
+# ============ 验证 ：Cauchy积分公式 ============
 # ∮ e^z/z dz = 2πi
 result_2 = 2 * pi * I * sp.exp(0)
 assert simplify(result_2) == 2*pi*I
 
-# ============ 验证 idx 4：Laurent 展开 ============
+# ============ 验证 ：Laurent 展开 ============
 from sympy import apart
 f4 = 1/(z*(z-1))
 partial = apart(f4, z)  # 1/(z-1) - 1/z
 # 在 0<|z|<1 内: 1/(z-1) = -1/(1-z) = -(1+z+z^2+...)
 # f4 = -1/z - 1 - z - z^2 - ... = -Σ_{n=-1}^{∞} z^n
 
-# ============ 验证 idx 5：留数 ============
+# ============ 验证 ：留数 ============
 f5 = 1 / (z * (z-1)**2)
 res5_0 = limit(z * f5, z, 0)  # 1
 # z=1是二阶极点
@@ -772,7 +731,7 @@ g5 = (z-1)**2 * f5  # 1/z
 res5_1 = limit(diff(g5, z), z, 1)  # -1
 assert res5_0 == 1 and res5_1 == -1
 
-# ============ 验证 idx 8：收敛半径 ============
+# ============ 验证 ：收敛半径 ============
 # Σ z^n/2^n, a_n = 1/2^n
 n_sym = symbols('n', integer=True, positive=True)
 R8 = sp.limit(1/(2**n_sym) / (1/(2**(n_sym+1))), n_sym, oo)
@@ -783,7 +742,7 @@ assert R8 == 2
 
 ## 习题索引
 
-| idx | 题型 | 难度 | 主题 | 关键公式/定理 | 核心方法 | 验证方法 |
+| 题型 | 难度 | 主题 | 关键公式/定理 | 核心方法 | 验证方法 |
 |-----|------|------|------|-------------|---------|---------|
 | 0 | 计算 | 简单 | 复数运算与de Moivre公式 | $(re^{i\theta})^n = r^n e^{in\theta}$ | 化为极坐标 + de Moivre | `expand(z**6)` 直接计算 |
 | 1 | 计算 | 简单 | Cauchy-Riemann方程 | $u_x = v_y$, $u_y = -v_x$ | 分离实虚部 + 验证C-R方程 | sympy `diff` 验证偏导 |
@@ -903,14 +862,14 @@ assert R8 == 2
 
 | 定理 | 精确陈述 | 典型应用 | 相关习题 |
 |------|---------|---------|---------|
-| **Liouville定理** | 有界整函数必为常数 | 证明代数学基本定理 | idx 15, 17 |
-| **最大模原理** | 非常数解析函数的模不能在区域内取最大值 | 解析函数模的上下界估计 | idx 16 |
-| **代数学基本定理** | $n$ 次（$n \geq 1$）复系数多项式在复数域中恰有 $n$ 个根（计重数） | 多项式根的分布 | idx 17 |
-| **辐角原理** | $\frac{1}{2\pi i} \oint_C \frac{f'}{f} = N - P$ | 计算区域内零点与极点个数之差 | idx 18 |
-| **Rouché定理** | 若在 $C$ 上 $\|f\| > \|g\|$，则 $f$ 和 $f+g$ 在 $C$ 内零点数相同 | 确定方程在指定区域内的零点数 | idx 9, 19 |
-| **平均值性质** | $f(z_0) = \frac{1}{2\pi} \int_0^{2\pi} f(z_0 + re^{i\theta})\,d\theta$ | 证明最大模原理 | idx 16 |
-| **Cauchy估计** | $\|f^{(n)}(z_0)\| \leq \frac{n! M}{R^n}$（其中 $M$ 为 $f$ 在圆盘上的上界） | 证明Liouville定理 | idx 15 |
-| **Jordan引理** | $\lim_{R\to\infty} \int_{\Gamma_R} e^{i\alpha z}f(z)\,dz = 0$（$\alpha > 0$, $\Gamma_R$ 为上半圆） | 含三角函数的无穷积分 | idx 12 |
+| **Liouville定理** | 有界整函数必为常数 | 证明代数学基本定理 |
+| **最大模原理** | 非常数解析函数的模不能在区域内取最大值 | 解析函数模的上下界估计 |
+| **代数学基本定理** | $n$ 次（$n \geq 1$）复系数多项式在复数域中恰有 $n$ 个根（计重数） | 多项式根的分布 |
+| **辐角原理** | $\frac{1}{2\pi i} \oint_C \frac{f'}{f} = N - P$ | 计算区域内零点与极点个数之差 |
+| **Rouché定理** | 若在 $C$ 上 $\|f\| > \|g\|$，则 $f$ 和 $f+g$ 在 $C$ 内零点数相同 | 确定方程在指定区域内的零点数 |
+| **平均值性质** | $f(z_0) = \frac{1}{2\pi} \int_0^{2\pi} f(z_0 + re^{i\theta})\,d\theta$ | 证明最大模原理 |
+| **Cauchy估计** | $\|f^{(n)}(z_0)\| \leq \frac{n! M}{R^n}$（其中 $M$ 为 $f$ 在圆盘上的上界） | 证明Liouville定理 |
+| **Jordan引理** | $\lim_{R\to\infty} \int_{\Gamma_R} e^{i\alpha z}f(z)\,dz = 0$（$\alpha > 0$, $\Gamma_R$ 为上半圆） | 含三角函数的无穷积分 |
 
 ### 保形映射
 
@@ -979,32 +938,32 @@ assert R8 == 2
 ## 证明题标准策略速查
 
 ### 策略1：双方向极限法
-**适用**：C-R方程必要性（idx 14）
+**适用**：C-R方程必要性（）
 
 模式：令 $h$ 沿实轴和虚轴分别趋于0，两个极限必须相等，比较实部和虚部得出C-R方程。
 
 ### 策略2：不等式估计 + 极限法
-**适用**：Liouville定理（idx 15）
+**适用**：Liouville定理（）
 
 模式：利用Cauchy导数公式写出 $f'$ 的积分表示 $\to$ ML估计得 $|f'| \leq M/R$ $\to$ 令 $R \to \infty$ 得 $f'=0$ $\to$ $f$ 为常数。
 
 ### 策略3：反证法 + 平均值性质
-**适用**：最大模原理（idx 16）
+**适用**：最大模原理（）
 
 模式：假设在某内点取最大模 $\to$ 取小圆周应用平均值性质 $\to$ 不等式链迫使模在圆周上恒为常数 $\to$ 唯一性定理推出矛盾。
 
 ### 策略4：反证法 + Liouville定理
-**适用**：代数学基本定理（idx 17）
+**适用**：代数学基本定理（）
 
 模式：假设多项式无根 $\to$ $1/P$ 是整函数 $\to$ 证明 $1/P$ 有界 $\to$ Liouville定理 $\to$ 矛盾。
 
 ### 策略5：留数分析 + 留数定理
-**适用**：辐角原理（idx 18）
+**适用**：辐角原理（）
 
 模式：考察 $f'/f$ 的奇点（恰为 $f$ 的零点和极点）$\to$ 在零点和极点处分别计算留数（$m$ 和 $-k$）$\to$ 用留数定理求和。
 
 ### 策略6：同伦族 + 辐角原理
-**适用**：Rouché定理（idx 19）
+**适用**：Rouché定理（）
 
 模式：构造 $F_t = f + tg$ 的同伦族 $\to$ $N(t) = \frac{1}{2\pi i} \oint F_t'/F_t$ 是连续整数值函数故为常数 $\to$ $N(0) = N(1)$ 得证。
 
