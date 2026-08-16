@@ -533,4 +533,10 @@
 - 解题路线：情景选择题——给定数据规模与分析目的，选择最合适的统计图形。
 - 易错点：把箱线图当作能全面描述分布形态的图形；对单变量横截面数据误用散点图或折线图。
 
+## 模块速查：统计推断：充分统计量、Cramer-Rao 下界与 Neyman-Pearson 引理（研究生级）
+- 检索词：充分统计量 sufficient statistic 因子分解 factorization Cramer-Rao 下界 lower bound Fisher 信息 Fisher information 无偏估计 unbiased Neyman-Pearson 似然比 likelihood ratio 假设检验 hypothesis test 功效 power
+- 核心内容：① 充分统计量（因子分解定理）：T(X) 是参数 θ 的充分统计量 ⟺ 联合密度可分解 f(x;θ)=g(T(x);θ)·h(x)。② Cramer-Rao 下界：无偏估计 T 的方差 Var(T) ≥ 1/(n I(θ))，其中 I(θ)=−E[∂²ln f(X;θ)/∂θ²] 为 Fisher 信息量；达到下界的估计为有效估计（UMVUE 的候选）。③ Neyman-Pearson 引理：简单假设 H0:θ=θ0 vs H1:θ=θ1 的显著性水平 α 下，最大功效检验的拒绝域为似然比 L(x;θ1)/L(x;θ0) > c（c 由 P(拒绝|H0)=α 定）。
+- 解题路线：找充分统计量 → 因子分解定理拆出 g(T;θ)；求无偏估计方差下界 → 先算 Fisher 信息 I(θ)，再套 1/(nI)；构造最优检验 → Neyman-Pearson 用似然比定拒绝域。
+- 易错点：Cramer-Rao 下界只对"正则族 + 无偏估计"成立（有偏估计不适用）；达到下界的估计不一定存在；Neyman-Pearson 只适用于"简单 vs 简单"假设（复合假设用 UMP/广义似然比）；Fisher 信息是"单观测"的，样本量 n 要乘。
+- 分步收尾：X~N(θ,1)，n 个样本，θ 的无偏估计方差下界：I(θ)=1，下界=1/n；样本均值 X̄ 是有效估计（Var=1/n 达到下界）。
 <!-- AUTO-KNOWLEDGE-END -->

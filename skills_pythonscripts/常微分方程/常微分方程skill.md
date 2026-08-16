@@ -658,3 +658,10 @@
 - 利用对称性证明周期轨道存在（如 Liénard 方程 $\ddot{x} + f(x)\dot{x} + g(x) = 0$）
 
 **对应验证点：** Van der Pol方程 $\ddot{x} + \mu(x^2-1)\dot{x} + x = 0$（$\mu>0$）在 $\mu$ 适当时存在唯一稳定极限环。
+
+## 模块速查：常微分方程：Sturm-Liouville 理论与稳定性（研究生级）
+- 检索词：Sturm-Liouville 特征值 eigenvalue 边值问题 boundary value 正交 orthogonal 稳定性 stability Lyapunov 相平面 phase plane 平衡点 equilibrium
+- 核心内容：① Sturm-Liouville 问题：(p(x)y')'+q(x)y+λw(x)y=0 配齐次边值条件，特征值 λ1<λ2<…→∞，对应特征函数 {y_n} 关于权 w(x) 正交：∫ y_m y_n w dx = 0（m≠n）；任意函数可展成特征函数级数（广义 Fourier 级数）。② Lyapunov 稳定性：平衡点 x* 稳定 ⟺ 线性化系统 ẋ=Ax 的所有特征值 Re(λ)≤0（Re<0 渐近稳定，Re=0 需进一步判定）。
+- 解题路线：求特征值/特征函数 → 解 Sturm-Liouville 方程（二阶线性 ODE + 边值）；判断平衡点稳定性 → 求 Jacobi 矩阵特征值看实部符号；相平面分析 → 画轨线、判节点/鞍点/焦点/中心。
+- 易错点：Sturm-Liouville 的正交是"带权 w(x)"，不是普通内积；特征值从最小开始编号（λ1 最小）；线性化判定只对"双曲平衡点"（Re≠0）完全可靠，中心（纯虚特征值）需高阶判定；自伴性要求边值条件齐次。
+- 分步收尾：y''+λy=0，y(0)=y(π)=0：特征值 λ_n=n²，特征函数 y_n=sin(nx)（n=1,2,…），正交 ∫₀^π sin(mx)sin(nx)dx=0（m≠n）。

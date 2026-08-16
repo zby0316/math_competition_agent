@@ -631,4 +631,10 @@ $$\int_0^\infty \left|\frac{\sin x}{x}\right| \, dx = \sum_{k=0}^{\infty} \int_{
 - 解题路线：选择题逐项辨析：可积性等价于「可测」加「|f| 积分有限」；用无界反例与不可测反例排除错误项。
 - 易错点：把「不连续点零测」当作可积的充分条件（漏掉有界性）；认为有界必可积（漏掉可测性）；不会用正负部分把 |f| 可积推进到 f 可积。
 
+## 模块速查：测度积分：Lp 对偶与 Riesz 表示定理（研究生级）
+- 检索词：Lp 空间 Lp space 对偶 dual 共轭指数 conjugate exponent Riesz 表示 representation 泛函 functional 范数 norm 1<p<∞
+- 核心内容：① Lp 对偶：设 1<p<∞，1/p+1/q=1，则 (Lp)* 等距同构于 Lq，即每个连续线性泛函 φ∈(Lp)* 唯一表示为 φ(f)=∫ f g dμ，其中 g∈Lq，且 ‖φ‖=‖g‖_q；特别 (L2)*=L2（Hilbert 自对偶）。(L1)*=L∞，但 (L∞)* ⊋ L1。② Riesz 表示定理（Hilbert 空间）：H 上每个连续线性泛函 φ 唯一存在 y∈H 使 φ(x)=⟨x,y⟩，且 ‖φ‖=‖y‖。
+- 解题路线：求 (Lp)* 中的泛函 → 找 g∈Lq 使 φ(f)=∫fg；证明泛函可表示 → 用 Riesz 定理（Hilbert）或 Radon-Nikodym（Lp）；求对偶范数 → ‖φ‖=‖g‖_q。
+- 易错点：p=1 时对偶是 L∞，但 (L∞)*≠L1（L∞ 的对偶更大）；Riesz 表示要求 Hilbert 空间（完备内积空间）；共轭指数 1/p+1/q=1 别算错（p=3 时 q=3/2）。
+- 分步收尾：求 (L³[0,1])* 中泛函 φ(f)=∫₀¹ f(x)·x dx 的范数：g(x)=x∈L^{3/2}，‖φ‖=‖x‖_{3/2}=(∫₀¹|x|^{3/2}dx)^{2/3}=(2/5)^{2/3}。
 <!-- AUTO-KNOWLEDGE-END -->

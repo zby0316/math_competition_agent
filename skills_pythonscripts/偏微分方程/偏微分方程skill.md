@@ -402,4 +402,10 @@ $$L^* v = -\sum_{i,j}\frac{\partial}{\partial x_i}\left(a_{ji}(x)\frac{\partial 
 - 解题路线：先写出伴随应满足的内积等式再逐项分部积分；注意系数为实值光滑函数时，其位置（求导符号内或外）在转移中如何处理。
 - 易错点：一阶项漏负号或导数转移方向写错；二阶项只分部积分一次；把系数错误移出导数；混淆形式伴随与转置的符号约定。
 
+## 模块速查：偏微分方程：热方程、Laplace 方程与分离变量法（研究生级）
+- 检索词：热方程 heat equation 热传导 heat conduction Laplace 方程 Laplace equation 调和 harmonic 分离变量 separation of variables 特征值 eigenvalue 波动方程 wave equation Green 函数 Green function
+- 核心内容：① 热方程 u_t=α²u_xx：分离变量 u=X(x)T(t) 得 X''+λX=0、T'+α²λT=0；齐次边值（如 u(0,t)=u(L,t)=0）给出特征值 λ_n=(nπ/L)²、特征函数 X_n=sin(nπx/L)，通解 u=Σ B_n e^{−α²λ_n t} sin(nπx/L)。② Laplace 方程 ∇²u=0：解为调和函数，满足最大值原理（内部无严格极值）与均值性质；圆域/矩形域用分离变量或 Poisson 积分公式。③ 波动方程 u_tt=c²u_xx：分离变量得 u=Σ[A_n cos(nπct/L)+B_n sin(nπct/L)]sin(nπx/L)。
+- 解题路线：解热方程/波动方程 → 分离变量 → 解特征值问题得 λ_n、X_n → 由初值 Fourier 展开定系数 B_n（用正交性 ∫X_m X_n=0）；解 Laplace 方程 → 边界条件选分离变量（直角/极坐标）或 Poisson 公式（圆）。
+- 易错点：分离变量法要求"齐次边值条件"（非齐次先化齐次）；热方程系数是 e^{−λt}（衰减），波动方程是 sin/cos（振荡）；特征函数按权正交，定系数要用带权内积；Laplace 方程最大值原理别用反。
+- 分步收尾：u_t=u_xx，u(0,t)=u(π,t)=0，u(x,0)=sin x：λ_n=n²，通解 ΣB_n e^{−n²t} sin(nx)，初值 sin x 即 B₁=1 其余 0，故 u=e^{−t}sin x。
 <!-- AUTO-KNOWLEDGE-END -->

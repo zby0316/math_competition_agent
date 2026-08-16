@@ -454,4 +454,10 @@ description: 系统求解与核验数学分析中的极限、连续与可导、�
 - 易错点：漏乘符号反转与循环置换生成的轨道大小；把 Bézout 上界直接当作解数；消元时混入不在原系统中的分量导致计数偏大。
 - 分步收尾：消元得单变量 8 次方程后必须完成实根计数：全对称解 2 个 + 非对称轨道（3-循环×符号反转）6 个=8；报『存在额外解』时把剩余预算投给计数收尾，最终必须报出实根个数的数值（8 型），不得输出描述性短语。
 
+## 模块速查：数学分析：Stone-Weierstrass 与隐函数定理（研究生级）
+- 检索词：Stone-Weierstrass 一致逼近 uniform approximation 连续函数 continuous 多项式 polynomial 隐函数定理 implicit function theorem Jacobi 反函数 inverse function 一致收敛 uniform convergence
+- 核心内容：① Stone-Weierstrass 定理：闭区间 [a,b] 上任意连续函数 f 可用多项式一致逼近（存在多项式列 p_n 使 ‖p_n−f‖∞→0）；等价地多项式在 C[a,b] 中稠密。② 隐函数定理：F(x,y)=0 在点 (x0,y0) 处若 F 连续可微且 ∂F/∂y(x0,y0)≠0，则局部唯一存在隐函数 y=f(x)，且 f'(x0)=−F_x/F_y。③ 反函数定理：若 f'(x0)≠0（或 Jacobi 可逆），则 f 在 x0 附近有可微反函数。
+- 解题路线：证函数可用多项式逼近 → 引 Stone-Weierstrass（或对具体函数构造 Bernstein 多项式）；隐函数求导 → f'(x)=−F_x/F_y 直接代；证局部反函数存在 → 用反函数定理（Jacobi 行列式非零）。
+- 易错点：Stone-Weierstrass 要求区间紧（闭区间），开区间不成立；隐函数定理是"局部"存在（只在 (x0,y0) 邻域）；隐函数求导用 −F_x/F_y，符号别反；多元隐函数用 Jacobi 矩阵判可解。
+- 分步收尾：F(x,y)=x²+y²−1=0 在 (0,1) 处 ∂F/∂y=2≠0，故局部 y=√(1−x²)，y'(0)=−F_x/F_y=−0/2=0。
 <!-- AUTO-KNOWLEDGE-END -->

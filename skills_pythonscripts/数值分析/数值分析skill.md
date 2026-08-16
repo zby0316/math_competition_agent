@@ -752,4 +752,10 @@ $$\frac{-u_{i-1} + 2u_i - u_{i+1}}{h^2} = f_i \quad \text{（均匀网格上与F
 - 解题路线：给函数、求导点与步长，要求计算数值导数并与精确值比较；或判断各差分公式的精度阶与误差量级。
 - 易错点：误用前向差分替代中心差分导致精度阶下降；步长选取失衡；中间函数值计算精度不足。
 
+## 模块速查：数值分析：QR 迭代、Gauss 求积与 GMRES（研究生级）
+- 检索词：特征值 eigenvalue 特征向量 eigenvector QR 迭代 QR iteration 高斯求积 Gauss quadrature Legendre GMRES Krylov 大规模稀疏 large sparse 迭代法 iterative method
+- 核心内容：① QR 迭代求特征值：A=Q0R0，令 Ak=R(k-1)Q(k-1)=QkRk 迭代，Ak 相似于 A，收敛到（块）上三角，对角元即特征值；实对称矩阵收敛到对角阵。② Gauss-Legendre 求积：n 点高斯求积 ∫[-1,1]f(x)dx≈Σ w_i f(x_i)，节点 x_i 为 Legendre 多项式 P_n 的零点，权重 w_i=2/((1-x_i²)[P'_n(x_i)]²)；n 点公式精确积分任意 ≤2n-1 次多项式（最高代数精度）。③ GMRES：在第 m 个 Krylov 子空间 K_m(A,b)=span{b,Ab,…,A^{m-1}b} 中求 x_m 使 ‖b−Ax_m‖₂ 最小（最小残差），用于大规模非对称稀疏线性方程组。
+- 解题路线：求特征值选 QR 迭代（先 Hessenberg/三对角化再 QR）；求定积分高精度选 Gauss 求积（注意区间变换 x∈[a,b]→t∈[-1,1]）；大规模稀疏 Ax=b 选 GMRES/共轭梯度（对称正定才用 CG）。
+- 易错点：QR 迭代的 A_k 收敛是"块上三角"，复数特征值以 2×2 块出现；Gauss 求积节点不在等距点上（勿用等距节点冒充）；GMRES 需重启（restart）控制存储；积分区间必须变换到 [-1,1] 才能套标准权重。
+- 分步收尾：∫[-1,1]x⁴dx 用 2 点 Gauss-Legendre：节点 ±1/√3，权重 1,1 → 1·(1/√3)⁴+1·(−1/√3)⁴=2/9≈0.2222（精确 2/5=0.4 需 3 点，2 点只精确到 3 次）。
 <!-- AUTO-KNOWLEDGE-END -->
