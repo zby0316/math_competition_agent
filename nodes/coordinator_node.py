@@ -40,6 +40,16 @@ def _evidence_override(state: dict, validated: str) -> tuple[str, str]:
         return validated, ""
     if (po.get("authenticity") or {}).get("fabricated"):
         return validated, ""
+    # V2.8 修复：contradict 有两种来源，需区分谁对谁错——
+    #   1) Python 代回验证"主推理答案"发现误差（主推理错，Python 对）→ 应覆盖；
+    #   2) Python 自己的 answer 字符串代回发现误差（Python 错，主推理对）→ 不应覆盖。
+    # 洛朗展开题实证：LLM 生成代码时 SymPy 算出 -Σ（正确），但 answer 字符串和
+    # approx 部分写成 +Σ（符号错），代回误差 2.21 → contradict。此时 stdout 里的
+    # "数值验证失败/最大误差"说明"被验证的答案代回不成立"，Python 的 answer 字符串
+    # 本身可疑，用它覆盖主推理会把对的改成错的。
+    evidence_summary = str(po.get("evidence_summary") or "")
+    if any(k in evidence_summary for k in ("验证失败", "最大误差", "误差", "err=", "FAIL")):
+        return validated, ""
     python_answer = str(po.get("answer") or "").strip()
     reasoning_answer = str(rr.get("answer") or "").strip()
     if not python_answer or is_placeholder_answer(python_answer) \
