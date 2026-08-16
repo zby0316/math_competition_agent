@@ -99,7 +99,7 @@ class TestDeAnchor(unittest.TestCase):
 class TestReflectionNodeRouting(unittest.TestCase):
     """路由：correct→critic；wrong 且可重算→reconciliation；无答案→critic。"""
 
-    def _run(self, state, mock_verdict):
+    def _run(self, state, mock_verdict, sympy_verify=None):
         from nodes import reflection_node
         # 构造 config 以注入 deps（TimeBudget 可负担、非 fast_path）
         deps = mock.MagicMock()
@@ -112,7 +112,9 @@ class TestReflectionNodeRouting(unittest.TestCase):
         deps.client = mock.MagicMock()
         config = {"configurable": {"deps": deps}}
         with mock.patch("nodes.reflection_node._llm_reflect",
-                        return_value=mock_verdict):
+                        return_value=mock_verdict), \
+             mock.patch("nodes.reflection_node._sympy_verify",
+                        return_value=sympy_verify):
             return reflection_node(state, config)
 
     def _state(self):
@@ -131,6 +133,23 @@ class TestReflectionNodeRouting(unittest.TestCase):
                          "fix_hint": "", "reason": "ok"})
         self.assertEqual(out["next_node"], "coordinator")
         self.assertEqual(out["reflection_status"], "correct")
+
+    def test_sympy_verify_fail_triggers_retry(self):
+        """V2.7：LLM 反思判 correct，但 SymPy 代回 FAIL → 触发重算（抓漏判）。"""
+        out = self._run(self._state(),
+                        {"verdict": "correct", "error_step": "",
+                         "fix_hint": "", "reason": "ok"},
+                        sympy_verify="FAIL")
+        self.assertEqual(out["next_node"], "reconciliation")
+        self.assertEqual(out["reflection_status"], "wrong")
+
+    def test_sympy_verify_pass_still_coordinator(self):
+        """SymPy 代回 PASS → 正常放行。"""
+        out = self._run(self._state(),
+                        {"verdict": "correct", "error_step": "",
+                         "fix_hint": "", "reason": "ok"},
+                        sympy_verify="PASS")
+        self.assertEqual(out["next_node"], "coordinator")
 
     def test_wrong_routes_to_reconciliation(self):
         state = self._state()

@@ -345,9 +345,13 @@ def _reasoning_agent_impl(state, config):
     # document's opening modules, so after 非基础及进阶课程 grew to 8949 chars its
     # number-theory (offset 3404) and game-theory (offset 5369) modules could never
     # reach the model — a game problem got Lebesgue measure instead.
+    # V2.7：官方题是科研级（有限域原根计数等），考的是"知不知道定理"。skill 文档
+    # 已含完整定理链+公式+解题步骤，注入量从 3000 提到 12000 字符（覆盖 4-5 个
+    # 相关模块），让模型"开卷查定理"而非"闭卷空想"。上下文 32K，12000 字符≈8k
+    # token，仍留 20k+ 给 CoT 与答案（官方明确不限制 token 数量）。
     base_prompt = REASONING_PROMPT.format(
         category=category,
-        skill_document=select_skill_excerpt(skill_doc, problem, 3000),
+        skill_document=select_skill_excerpt(skill_doc, problem, 12000),
         problem=problem)
     base_prompt += mode_instruction(question_mode)
     base_prompt += structure_instruction(problem)
@@ -437,7 +441,7 @@ def _reasoning_agent_impl(state, config):
             f"{domain_guard}"
             f"{contract}\n\n"
             f"题型：{question_mode}\n学科：{category}\n技能参考：\n"
-            f"{select_skill_excerpt(skill_doc, problem, 2200)}\n\n题目：\n{problem}"
+            f"{select_skill_excerpt(skill_doc, problem, 8000)}\n\n题目：\n{problem}"
         )
         trace = []
         response = ""

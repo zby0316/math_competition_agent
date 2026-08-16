@@ -87,7 +87,14 @@ CONFIG = {
     # easy 提到 16384 与 medium 平齐，彻底消除"难题判 easy 被截断"风险。
     # max_tokens 是上限而非配额：easy 题答案本就短，提高上限不增加实际生成量
     # 与耗时，只防止截断。
-    "reasoning_tokens_by_difficulty": {"easy": 16384, "medium": 16384, "hard": 24576},
+    #
+    # V2.7（官方评测 53.57 分日志驱动）：官方 FAQ 明确"不额外限制单题输入输出
+    # token 数量"+"可以用思考模式"。truncated_count=112（10.2%）的根因是官方
+    # client 可能忽略 assistant prefill 种子（CoT 回来）→ CoT 先计费塞满
+    # max_tokens → 答案没输出就被截断（finish_reason=length）。给足上限让
+    # CoT + 答案都写完：medium 24576、hard 32768（V1 曾用 24576-32768 区间）。
+    # 时间风险由深加工预算门禁兜底（CoT 慢则跳过可选阶段，单题 20min 硬限不破）。
+    "reasoning_tokens_by_difficulty": {"easy": 16384, "medium": 24576, "hard": 32768},
     "reconciliation_max_rounds": 2,
     "token_budget_max": 256000, "token_budget_warn_ratio": 0.9,
     # Wall-clock budget per problem. The platform's hard limit is 20 min; the

@@ -19,7 +19,10 @@
 
 from __future__ import annotations
 
+import re as _re
+
 from config import CONFIG
+from nodes.python_agent_node import _extract_code
 from utils.cot_stripper import is_placeholder_answer
 from utils.critic_audit import _parse_json_object
 from utils.deps import get_deps
@@ -29,6 +32,8 @@ from utils.prompt_templates import (
     REFLECTION_PREFILL,
     REFLECTION_PROMPT,
     REFLECTION_SYSTEM_PROMPT,
+    REFLECTION_VERIFY_PREFILL,
+    REFLECTION_VERIFY_PROMPT,
 )
 from utils.reconciliation_policy import reconciliation_retry_available
 from utils.token_budget import estimate_tokens
@@ -173,6 +178,63 @@ def _build_fix_hint(verdict: dict, answer: str) -> str:
     return "\n".join(parts)
 
 
+#: 代回验证结果标记（代码最后 print 的一行）。
+_VERIFY_RE = _re.compile(r"VERIFY_(PASS|FAIL|NA)")
+#: 代回验证的代码生成估时 + 预留余量。
+_VERIFY_GEN_ESTIMATE_S = 20
+_VERIFY_CALL_ESTIMATE_S = 30
+
+
+def _sympy_verify(state: dict, deps, answer: str) -> str | None:
+    """SymPy 代回硬验证：把答案代回原题，机器执行给出确定性结论。
+
+    这是 V2.7 对"LLM 反思同源漏判（retry=0）"的硬验证兜底——反思 LLM 与主模型
+    是同一个模型，模型错的题反思也判 correct；但"代回代码"是结构化的机械操作
+    （代入→sympy 化简残差/独立重算），执行是确定的，能抓到 LLM 心算抓不到的
+    算术错误。返回 PASS / FAIL / NA，失败或不可用返回 None（不阻塞主链路）。
+    """
+    clock = getattr(deps, "time_budget", None)
+    margin = CONFIG.get("reflection_reserve_margin_s", 60)
+    if clock and clock.remaining_hard() - margin < _VERIFY_CALL_ESTIMATE_S:
+        return None
+    if getattr(deps, "mcp_client", None) is None:
+        return None
+    prompt = REFLECTION_VERIFY_PROMPT.format(
+        problem=_bounded(state.get("problem", ""), 8000),
+        answer=_bounded(answer, 4000),
+    )
+    try:
+        resp = chat_prefilled(
+            deps.client,
+            messages=[{"role": "user", "content": prompt}],
+            prefix=REFLECTION_VERIFY_PREFILL,
+            temperature=CONFIG["temperatures"]["python"],
+            max_tokens=CONFIG["max_tokens"]["python_compressed"],
+            logger=deps.logger,
+            time_budget=clock,
+            expected_call_seconds=_VERIFY_GEN_ESTIMATE_S,
+            label="reflection_verify",
+            reserve_margin_s=margin,
+        )
+    except Exception as exc:  # noqa: BLE001 - 代回失败不阻塞出答案
+        deps.logger.warning("Reflection verify generation failed: %s", exc)
+        return None
+    if deps.token_budget:
+        deps.token_budget.consume(estimate_tokens(prompt), estimate_tokens(resp))
+    code = _extract_code(resp)
+    if not code:
+        return None
+    try:
+        output = deps.mcp_client.execute(
+            code, timeout=CONFIG["node_timeouts"]["python_mcp_execute"])
+    except Exception as exc:  # noqa: BLE001
+        deps.logger.warning("Reflection verify exec failed: %s", exc)
+        return None
+    stdout = str(output.get("stdout") or "")
+    m = _VERIFY_RE.search(stdout)
+    return m.group(1) if m else None
+
+
 def reflection_node(state: dict, config: dict) -> dict:
     """反思节点：Critic 审计之后、coordinator 之前对答案做正确性批判性复核。
 
@@ -216,6 +278,28 @@ def reflection_node(state: dict, config: dict) -> dict:
     })
 
     if verdict["verdict"] == "correct":
+        # V2.7 SymPy 代回硬验证：LLM 反思可能漏判（同源模型），机器代回兜底。
+        verify = _sympy_verify(state, deps, answer)
+        if verify == "FAIL":
+            trace.append({"round": rounds, "status": "wrong",
+                          "reason": "sympy_verify_fail"})
+            can_repair = reconciliation_retry_available(state, config)
+            if can_repair:
+                hint = ("上一次解答经代回验证不成立（把答案代回原题/独立重算后残差非零"
+                        "或数值不一致）。请重新独立推理并修正，"
+                        "最终答案前用代码独立验证新结论。")
+                return {
+                    "reflection_status": "wrong",
+                    "reflection_trace": trace,
+                    "reflection_round": rounds + 1,
+                    "reasoning_retry_hint": hint,
+                    "python_retry_hint": hint + "\n请用代码独立验证修正后的结论。",
+                    "repair_hint_source": "reflection",
+                    "next_node": "reconciliation",
+                }
+        elif verify:
+            trace.append({"round": rounds, "status": "sympy_verify",
+                          "verify": verify})
         return {"reflection_status": "correct", "reflection_trace": trace,
                 "reflection_round": rounds, "next_node": "coordinator"}
 
