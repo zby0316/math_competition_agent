@@ -26,7 +26,7 @@ from nodes.python_agent_node import _extract_code
 from utils.cot_stripper import is_placeholder_answer
 from utils.critic_audit import _parse_json_object
 from utils.deps import get_deps
-from utils.llm_retry import chat_prefilled
+from utils.llm_retry import chat_prefilled, chat_with_retry
 from utils.problem_profile import is_objective_mode
 from utils.prompt_templates import (
     REFLECTION_PREFILL,
@@ -39,7 +39,10 @@ from utils.reconciliation_policy import reconciliation_retry_available
 from utils.token_budget import estimate_tokens
 
 #: 反思是轻量判断，prefill 后输出 ~200-400 token；给 1024 防截断。
-_REFLECTION_MAX_TOKENS = 1024
+#: V2.8 thinking_mode 下 reasoning_content 也计入 max_tokens，1024 会让思考
+#: 吞掉预算、content 混入思考文本（真机实测 parse 失败）；提到 2048 后
+#: content 恢复纯 JSON（实测 137 字符）。
+_REFLECTION_MAX_TOKENS = 2048
 _REFLECTION_CALL_ESTIMATE_S = 25
 #: 每道题最多反思 1 次。
 _MAX_REFLECTION_ROUNDS = 1
@@ -122,21 +125,41 @@ def _llm_reflect(state: dict, deps, answer: str) -> dict | None:
         answer=_bounded(answer, 6000),
     )
     try:
-        raw = chat_prefilled(
-            deps.client,
-            messages=[
-                {"role": "system", "content": REFLECTION_SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
-            prefix=REFLECTION_PREFILL,
-            temperature=0.1,
-            max_tokens=_REFLECTION_MAX_TOKENS,
-            logger=deps.logger,
-            time_budget=clock,
-            expected_call_seconds=_REFLECTION_CALL_ESTIMATE_S,
-            label="reflection_prefill",
-            reserve_margin_s=margin,
-        )
+        if CONFIG.get("enable_reflection_thinking", True):
+            # V2.8 反思深度思考：主推理已开 thinking_mode，反思作为第二道把关
+            # 若仍 prefill 浅思考会漏判（官方 retry_count=0）。开 thinking_mode
+            # 让反思深度复核"答案对不对"，抓更多错误触发重算。content 仍为 JSON
+            # （REFLECTION_PROMPT 要求），reasoning_content 由官方 client 丢弃。
+            raw = chat_with_retry(
+                deps.client,
+                messages=[
+                    {"role": "system", "content": REFLECTION_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.1,
+                max_tokens=_REFLECTION_MAX_TOKENS,
+                logger=deps.logger,
+                time_budget=clock,
+                expected_call_seconds=70,
+                label="reflection_thinking",
+                thinking_mode=True,
+            )
+        else:
+            raw = chat_prefilled(
+                deps.client,
+                messages=[
+                    {"role": "system", "content": REFLECTION_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                prefix=REFLECTION_PREFILL,
+                temperature=0.1,
+                max_tokens=_REFLECTION_MAX_TOKENS,
+                logger=deps.logger,
+                time_budget=clock,
+                expected_call_seconds=_REFLECTION_CALL_ESTIMATE_S,
+                label="reflection_prefill",
+                reserve_margin_s=margin,
+            )
     except Exception as exc:  # noqa: BLE001 - 反思失败不阻塞出答案
         deps.logger.warning("Reflection unavailable: %s", exc)
         return None

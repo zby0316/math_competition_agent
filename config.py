@@ -149,6 +149,11 @@ CONFIG = {
     # 判错则复用 reconciliation 定向重算回路（非简单 rollout，合规）。
     "enable_reflection": True,
     "reflection_reserve_margin_s": 60,
+    # 反思环深度思考（V2.8）：主推理已开 thinking_mode，反思环作为"第二道把关"
+    # 若仍用 prefill 浅思考，会漏判（官方 V2.6 retry_count=0 实证：反思从未判
+    # wrong，答案错了也放行）。开 thinking_mode 让反思深度复核"答案对不对"，
+    # 抓更多错误触发重算。代价 ~40-80s/题。关闭则回退 prefill JSON 快速反思。
+    "enable_reflection_thinking": True,
     # 确定性复算季后赛：两路数值冲突时把候选代回原题复算/小规模枚举对照，
     # 替代"只能二选一"的仲裁。一次 playoff ≈ 一次 LLM 生成 + 一次代码执行，
     # 远低于整轮 solving 子图重跑。
