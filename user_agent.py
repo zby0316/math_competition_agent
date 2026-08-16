@@ -133,19 +133,16 @@ if _BACKEND == "graph":
                 trace.append({
                     "step": "reasoning",
                     "attempts": state.get("reasoning_attempts", 0),
-                    "answer": rr.get("answer", ""),
+                    # V2.8 trace 脱敏：官方禁止在 trace 记录"候选解答、最终答案、
+                    # 模型输入输出"正文，只保留结构化元数据（步骤名/状态/编号/
+                    # 耗时/长度）。答案正文一律改为长度，供 judger 理解"有候选、
+                    # 有多少步骤"即可，不泄露答案。
+                    "answer_length": len(str(rr.get("answer", ""))),
                     "steps_count": len(rr.get("steps", [])),
+                    "answer_source": rr.get("answer_source", "parsed_sections"),
                     "thinking": {
-                        "analysis": rr.get("analysis", ""),
-                        "steps": rr.get("steps", []),
-                        "final_answer": rr.get("answer", ""),
-                        "validation_points": rr.get("validation_points", []),
-                        # 评审证据（2026-08-10 评委建议 9）：答案来源（四章节解析 /
-                        # 显式标记回退 / 散文捞回 / 压缩重试）与原始响应节选，让
-                        # "模型答错"与"解析器漏掉"在 trace 里可区分。
-                        "answer_source": rr.get("answer_source", "parsed_sections"),
-                        "raw_response_excerpt": self._excerpt(
-                            state.get("reasoning_raw_response", "")),
+                        "analysis_length": len(str(rr.get("analysis", ""))),
+                        "validation_points_count": len(rr.get("validation_points", [])),
                     },
                     "tools": [
                         {
@@ -155,8 +152,7 @@ if _BACKEND == "graph":
                         },
                         {
                             "name": "reasoning_llm",
-                            "attempts": state.get("reasoning_trace", []),
-                            "max_attempts_used": state.get("reasoning_attempts", 0),
+                            "attempts_count": state.get("reasoning_attempts", 0),
                             "output_schema": ["analysis", "steps", "answer", "validation_points"],
                         },
                     ],
@@ -168,24 +164,19 @@ if _BACKEND == "graph":
                     "step": "python_verification",
                     "attempts": state.get("python_attempts", 0),
                     "success": po.get("success", False),
-                    "answer": po.get("answer", ""),
+                    "answer_length": len(str(po.get("answer", ""))),
                     "thinking": {
                         "purpose": "用生成的 Python/SymPy 代码独立复核答案。",
-                        "code_summary": self._truncate(python_code, 1600),
-                        "expected_output_marker": "最终答案:",
-                        "extracted_answer": po.get("answer", ""),
                         "evidence_status": po.get("evidence_status",
                                                    state.get("python_evidence_status", "")),
-                        "evidence_summary": self._truncate(
-                            po.get("evidence_summary",
-                                   state.get("python_evidence_summary", "")), 1000),
-                        "contradictions": state.get("python_contradictions",
-                                                     po.get("contradictions", [])),
+                        "contradiction_count": len(
+                            state.get("python_contradictions",
+                                     po.get("contradictions", [])) or []),
                     },
                     "tools": [
                         {
                             "name": "python_code_generation",
-                            "attempts": state.get("python_trace", []),
+                            "attempts_count": state.get("python_attempts", 0),
                             "code_length": len(python_code),
                         },
                         {
@@ -193,8 +184,8 @@ if _BACKEND == "graph":
                             "backend": po.get("execution_backend", ""),
                             "success": po.get("success", False),
                             "execution_time": po.get("execution_time", 0.0),
-                            "stdout": self._truncate((po.get("stdout") or "").strip(), 1000),
-                            "stderr": self._truncate((po.get("stderr") or "").strip(), 1000),
+                            "stdout_length": len(str(po.get("stdout") or "")),
+                            "stderr_length": len(str(po.get("stderr") or "")),
                         },
                     ],
                 })
@@ -202,24 +193,18 @@ if _BACKEND == "graph":
                 trace.append({
                     "step": "validation",
                     "status": state.get("validation_status"),
-                    "validated_answer": state.get("validated_answer", ""),
+                    "validated_length": len(str(state.get("validated_answer", ""))),
                     "thinking": {
                         "problem_type": state["validation_details"].get("problem_type", ""),
-                        "reason": state["validation_details"].get("reason", ""),
+                        "reason_length": len(str(state["validation_details"].get("reason", ""))),
                         "confidence": state["validation_details"].get("confidence", 0.0),
                         "python_evidence_status": state["validation_details"].get(
                             "python_evidence_status", state.get("python_evidence_status", "")),
-                        "python_evidence_summary": self._truncate(
-                            state["validation_details"].get(
-                                "python_evidence_summary",
-                                state.get("python_evidence_summary", "")), 1000),
-                        "python_contradictions": state["validation_details"].get(
-                            "python_contradictions", state.get("python_contradictions", [])),
                     },
                     "tools": [
                         {
                             "name": "answer_matcher",
-                            "details": state.get("validation_details", {}),
+                            "status": state.get("validation_status", ""),
                         }
                     ],
                 })
@@ -244,16 +229,16 @@ if _BACKEND == "graph":
                 alt = state["reasoning_result_alt"] or {}
                 trace.append({
                     "step": "diverse_reasoning",
-                    "answer": alt.get("answer", ""),
+                    "answer_length": len(str(alt.get("answer", ""))),
                     "thinking": {
                         "purpose": "异构方法（构造/枚举/不变量/反向）独立第二解法，打破单样本系统性偏差。",
-                        "analysis": self._truncate(alt.get("analysis", ""), 1200),
+                        "analysis_length": len(str(alt.get("analysis", ""))),
                         "steps_count": len(alt.get("steps", [])),
                     },
                     "tools": [
                         {
                             "name": "reasoning_llm_diverse",
-                            "attempts": state.get("reasoning_trace_alt", []),
+                            "attempts_count": len(state.get("reasoning_trace_alt", [])),
                         }
                     ],
                 })
@@ -262,14 +247,14 @@ if _BACKEND == "graph":
                 trace.append({
                     "step": "deterministic_playoff",
                     "status": state.get("playoff_status", ""),
-                    "answer": state.get("playoff_answer", ""),
+                    "answer_length": len(str(state.get("playoff_answer", ""))),
                     "thinking": {
                         "purpose": "候选冲突时不重解题、只做代回复算裁决：方程回代/目标值实测/小规模枚举对照。",
                     },
                     "tools": [
                         {
                             "name": "playoff_executor",
-                            "rounds": state.get("playoff_trace", []),
+                            "rounds_count": len(state.get("playoff_trace", [])),
                         }
                     ],
                 })
@@ -359,7 +344,6 @@ if _BACKEND == "graph":
             if state.get("final_response"):
                 trace.append({
                     "step": "coordination",
-                    "content": state.get("coordination_detail", ""),
                     "response_length": len(state["final_response"]),
                     "thinking": {
                         "purpose": "将推理步骤、验证结果与最终答案整理为面向读者的输出。",

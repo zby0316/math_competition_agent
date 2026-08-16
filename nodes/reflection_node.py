@@ -295,9 +295,11 @@ def reflection_node(state: dict, config: dict) -> dict:
     trace.append({
         "round": rounds,
         "status": verdict["verdict"],
-        "error_step": verdict.get("error_step", ""),
-        "fix_hint": verdict.get("fix_hint", ""),
-        "reason": verdict.get("reason", ""),
+        # V2.8 trace 脱敏：error_step/fix_hint/reason 含答案相关正文（如"应排除
+        # GF(9)"），官方禁止 trace 记录答案正文，只保留长度供诊断。
+        "error_step_length": len(str(verdict.get("error_step", ""))),
+        "fix_hint_length": len(str(verdict.get("fix_hint", ""))),
+        "reason_length": len(str(verdict.get("reason", ""))),
     })
 
     if verdict["verdict"] == "correct":

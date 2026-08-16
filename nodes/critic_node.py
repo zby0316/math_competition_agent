@@ -151,11 +151,13 @@ def critic_node(state, config):
     trace.append({
         "round": rounds,
         "status": verdict,
-        "missing": merged.get("missing", []),
-        "calc_checks": merged.get("calc_checks", []),
+        # V2.8 trace 脱敏：missing/calc_checks/derivation_conflict 含题面缺失项
+        # 与答案相关正文，官方禁止 trace 记录，只保留数量/布尔供诊断。
+        "missing_count": len(merged.get("missing", []) or []),
+        "calc_checks_count": len(merged.get("calc_checks", []) or []),
         "llm_available": merged.get("llm_available", False),
-        "deterministic_missing": list(deterministic_missing or []),
-        "derivation_conflict": conflict or "",
+        "deterministic_missing_count": len(list(deterministic_missing or [])),
+        "derivation_conflict": bool(conflict),
     })
 
     if verdict == "pass":

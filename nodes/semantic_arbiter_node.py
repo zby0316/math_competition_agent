@@ -370,7 +370,8 @@ def semantic_arbiter_node(state, config):
         "candidate_count": len(candidates),
         "selected_source": selected.source,
         "prefill": prefill_used,
-        **({"contract_override": override} if override else {}),
+        # V2.8 trace 脱敏：contract_override 含答案正文，只保留布尔。
+        **({"contract_override": bool(override)} if override else {}),
     })
     details = dict(state.get("validation_details") or {})
     details["semantic_arbitration"] = {

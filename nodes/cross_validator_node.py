@@ -221,7 +221,8 @@ def cross_validator_node(state, config):
                     revote_trace.append({
                         "round": state.get("reconciliation_round", 0),
                         "agree": vote.get("agree"),
-                        "revote_answer": vote.get("revote_answer", ""),
+                        # V2.8 trace 脱敏：revote_answer 含答案正文，只保留长度。
+                        "revote_answer_length": len(str(vote.get("revote_answer", ""))),
                     })
             # VeritasMath 移植（启元实证 P0）：判断题双向确认。Intern-S2 对
             # "是否"题存在系统性"否"偏向（启元实测 90% 判断错题同根因），单轮
@@ -326,8 +327,10 @@ def cross_validator_node(state, config):
         "round": state.get("reconciliation_round", 0),
         "status": status,
         "evidence_status": evidence_status,
-        "evidence_summary": evidence_summary[:1000],
-        "contradictions": contradictions[:10],
+        # V2.8 trace 脱敏：evidence_summary/contradictions 含答案相关正文，
+        # 官方禁止 trace 记录，只保留长度/数量。
+        "evidence_summary_length": len(str(evidence_summary or "")),
+        "contradiction_count": len(contradictions or []),
     }
 
     # Explicit evidence of a counterexample outranks textual/symbolic agreement.
