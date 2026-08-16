@@ -92,17 +92,28 @@ def normalize_chat_response(resp) -> str:
         return ""
 
 
-def chat_compatible(client, messages, temperature, max_tokens):
+def chat_compatible(client, messages, temperature, max_tokens, thinking_mode=None):
     """签名探测调用（VeritasMath 平台防线）。
 
     平台 client 的 chat 签名未知：可能只接受 messages，或不接受关键字参数。
     按 关键字三参 → 位置三参 → 仅 messages 三级降级探测；探测结果缓存在
     client 对象上（`_veritas_chat_mode`），避免每次调用都付一次 TypeError。
+
+    V2.8 thinking_mode：官方 client 的 chat 是 keyword-only 的 thinking_mode
+    参数。当 thinking_mode 非 None 时并入 kwargs 档；若 client 不支持该参数
+    （TypeError），自动降级到不带 thinking_mode 的 kwargs/positional——
+    宁可"退回到非思考模式"也不因一个可选参数让整题失败。
     """
     mode = getattr(client, "_veritas_chat_mode", None)
+
+    def kwargs_call():
+        kwargs = dict(messages=messages, temperature=temperature, max_tokens=max_tokens)
+        if thinking_mode is not None:
+            kwargs["thinking_mode"] = thinking_mode
+        return client.chat(**kwargs)
+
     attempts = {
-        "kwargs": lambda: client.chat(
-            messages=messages, temperature=temperature, max_tokens=max_tokens),
+        "kwargs": kwargs_call,
         "positional": lambda: client.chat(messages, temperature, max_tokens),
         "messages_only": lambda: client.chat(messages),
     }

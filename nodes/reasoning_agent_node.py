@@ -582,26 +582,41 @@ def _reasoning_agent_impl(state, config):
         # exception propagated out of the node and the wrapper substituted an empty
         # result, so cross-validation saw a placeholder and had one candidate left.
         try:
-            # V2.4 token 分级：按难度给足推理空间（难题 24576，简单/中等 16384），
-            # 恢复 V2.1 一刀切 8192 砍掉的难题推理深度。V2.6 方向1：easy 提到
-            # 16384（分类器难度画像不可靠，防"难题判 easy 被截断"）。
+            # V2.4 token 分级：按难度给足推理空间（难题 32768，中等 24576，
+            # 简单 16384），恢复 V2.1 一刀切 8192 砍掉的难题推理深度。V2.6 方向1：
+            # easy 提到 16384（分类器难度画像不可靠，防"难题判 easy 被截断"）。
             _diff = str(state.get("difficulty") or "medium").lower()
             _mt = CONFIG.get("reasoning_tokens_by_difficulty", {}).get(
                 _diff, CONFIG["max_tokens"]["reasoning"])
-            # V2.4 prefill 抑制 CoT：intern-s2 的私有思维链（reasoning_content）
-            # 计入 max_tokens 且慢 API 下生成极慢（16384 token ≈ 811s，真机实测）。
-            # 用 prefill 让模型从"## 问题分析"直接作答、跳过 CoT——思考引导已由
-            # 提示词内化七点承担（结构/覆盖/逻辑/自洽验证），不再依赖 CoT 空想。
-            resp = chat_prefilled(
-                client,
-                messages=[{"role": "user", "content": prompt}],
-                prefix="## 问题分析\n",
-                temperature=CONFIG["temperatures"]["reasoning"],
-                max_tokens=_mt,
-                logger=deps.logger,
-                time_budget=deps.time_budget,
-                label="reasoning",
-            )
+            # V2.8 思考模式：主推理开启 thinking_mode=True，让模型生成私有推理链
+            # （reasoning_content）深度思考后再按四章节作答。此前 V2.4 用 prefill
+            # 强制跳过 reasoning_content 提速——但推理链正是解科研级难题的核心，
+            # 跳过 = 让最强模型"不思考硬答"，是 V2.4→V2.6 掉分的疑点之一。
+            # 真机实测 thinking_mode=True 44.7s（非当年无控制 CoT 的 811s），
+            # max_tokens 已给足，CoT+答案都能写完，finish_reason=stop。
+            # enable_thinking_mode=False 时回退 prefill（A/B 对照 / 降级）。
+            if CONFIG.get("enable_thinking_mode", True):
+                resp = chat_with_retry(
+                    client,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=CONFIG["temperatures"]["reasoning"],
+                    max_tokens=_mt,
+                    logger=deps.logger,
+                    time_budget=deps.time_budget,
+                    label="reasoning",
+                    thinking_mode=True,
+                )
+            else:
+                resp = chat_prefilled(
+                    client,
+                    messages=[{"role": "user", "content": prompt}],
+                    prefix="## 问题分析\n",
+                    temperature=CONFIG["temperatures"]["reasoning"],
+                    max_tokens=_mt,
+                    logger=deps.logger,
+                    time_budget=deps.time_budget,
+                    label="reasoning",
+                )
         except Exception as exc:  # noqa: BLE001 - keep whatever we already parsed.
             deps.logger.warning("Reasoning attempt %s failed: %s", attempts, exc)
             trace.append({"attempt": attempts, "status": "failed", "error": str(exc)[:200]})

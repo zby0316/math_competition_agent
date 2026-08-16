@@ -131,6 +131,13 @@ CONFIG = {
     # "换方法"提示触发第二路径，不在 happy path 上增加成本。
     "enable_diverse_reasoning": True,
     "high_risk_domains": ["离散数学", "非基础及进阶课程", "微分几何", "测度积分"],
+    # 思考模式（V2.8）：主推理开启 thinking_mode=True，让 intern-s2 生成私有
+    # reasoning_content（深度推理链）再输出答案。此前一直用 prefill（assistant
+    # 种子）强制跳过 reasoning_content 提速——但 reasoning_content 正是解科研级
+    # 难题的核心能力，跳过 = 让最强模型"不思考硬答"。真机实测 thinking_mode=True
+    # 解有限域 F81 题 44.7s（不是当年无控制 CoT 的 811s），finish_reason=stop。
+    # 关闭则回退到 prefill 直答（保留旧行为，供 A/B 对照）。
+    "enable_thinking_mode": True,
     # 过程审计智能体：对已定候选做题面契约完整性 + 关键计算抽核。
     # prefill JSON 判定 ~10-20s；不完整且可负担时回调解做定向补算。
     "enable_critic": True,
