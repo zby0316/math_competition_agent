@@ -44,6 +44,8 @@ from utils.token_budget import estimate_tokens
 #: content 恢复纯 JSON（实测 137 字符）。
 _REFLECTION_MAX_TOKENS = 2048
 _REFLECTION_CALL_ESTIMATE_S = 25
+# V2.8 深度反思估值：thinking_mode 下 reasoning_content 计入，实测 ~40-80s。
+_REFLECTION_THINKING_ESTIMATE_S = 70
 #: 每道题最多反思 1 次。
 _MAX_REFLECTION_ROUNDS = 1
 
@@ -117,7 +119,13 @@ def _llm_reflect(state: dict, deps, answer: str) -> dict | None:
     """prefill 反思调用；失败/超时/解析失败返回 None（放行，不阻塞）。"""
     clock = deps.time_budget
     margin = CONFIG.get("reflection_reserve_margin_s", 60)
-    if clock and clock.remaining_hard() - margin < _REFLECTION_CALL_ESTIMATE_S:
+    # V2.8 估值修正：thinking_mode 深度反思 ~70s，prefill 反思 ~25s。门槛必须
+    # 用实际模式的估值，否则预算边缘（剩余 25-70s）时 thinking_mode 会被误放行
+    # 而后超时。
+    estimate = (_REFLECTION_THINKING_ESTIMATE_S
+                if CONFIG.get("enable_reflection_thinking", True)
+                else _REFLECTION_CALL_ESTIMATE_S)
+    if clock and clock.remaining_hard() - margin < estimate:
         return None
     prompt = REFLECTION_PROMPT.format(
         problem=_bounded(state.get("problem", ""), 8000),
@@ -140,7 +148,7 @@ def _llm_reflect(state: dict, deps, answer: str) -> dict | None:
                 max_tokens=_REFLECTION_MAX_TOKENS,
                 logger=deps.logger,
                 time_budget=clock,
-                expected_call_seconds=70,
+                expected_call_seconds=_REFLECTION_THINKING_ESTIMATE_S,
                 label="reflection_thinking",
                 thinking_mode=True,
             )

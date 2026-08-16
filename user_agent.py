@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import os as _os
 import sys as _sys
-from typing import Any, Dict
 
 # ── 防线 1：sys.path 自举（任何加载形态不抛异常）──
 _HERE = ""
@@ -380,24 +379,6 @@ if _BACKEND == "graph":
                     ],
                 })
             return trace
-
-        @staticmethod
-        def _truncate(value: str, limit: int) -> str:
-            if not isinstance(value, str):
-                value = str(value or "")
-            if len(value) <= limit:
-                return value
-            return value[:limit].rstrip() + "...[truncated]"
-
-        @staticmethod
-        def _excerpt(value: str, head: int = 600, tail: int = 1400) -> str:
-            """头 + 尾节选：截断响应的结论区在尾部，只截头会丢掉最有证据价值的部分。"""
-            if not isinstance(value, str):
-                value = str(value or "")
-            if len(value) <= head + tail + 40:
-                return value
-            omitted = len(value) - head - tail
-            return f"{value[:head]}\n……[中略 {omitted} 字符]……\n{value[-tail:]}"
 
         def _validate_output(self, result: dict) -> None:
             import json

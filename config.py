@@ -34,7 +34,6 @@ CONFIG = {
     # failed/unparseable LLM classification; it no longer narrows the LLM's
     # candidate list (all 18 domains go in one prefilled call).
     "classifier_top_k": 3,
-    "computation_tolerance": 1e-6, "proof_confidence_threshold": 0.7,
     "temperatures": {"classifier": 0.1, "reasoning": 0.8, "objective_reasoning": 0.2,
                      "python": 0.6,
                      "reconciliation": 0.2, "semantic_arbiter": 0.1, "coordinator": 0.4},
@@ -158,7 +157,6 @@ CONFIG = {
     # 替代"只能二选一"的仲裁。一次 playoff ≈ 一次 LLM 生成 + 一次代码执行，
     # 远低于整轮 solving 子图重跑。
     "enable_playoff": True,
-    "playoff_max_seconds": 240,
     # 客观题低置信复核投票：仅当首次抽取置信不足（空位数不足/来源为兜底）时
     # 追加一次独立短采样比对；一致则提置信，不一致则携带双候选交仲裁。
     "enable_objective_revote": True,
