@@ -130,8 +130,17 @@ class TimeBudget:
         return self.remaining() >= float(seconds)
 
     def fast_path(self) -> bool:
-        """True when there is no longer room for a full extra LLM round trip."""
-        return self.remaining() < self.fast_path_threshold
+        """True when there is no longer room for a full extra LLM round trip.
+
+        V2.9 方法差距修复：基于硬预算（remaining_hard）而非软预算（remaining）。
+        软预算按难度收紧（easy 480s），减去 reserve 300s 后 remaining 仅 ~180s，
+        恒小于 fast_path_threshold 300s → easy 题从求解第一秒就 fast_path=True，
+        必要重试（格式修复/代码重试/仲裁重试）全被跳过。而被分类器判 easy 的
+        科研级题恰是 retry=0 的重灾区——软预算信号在这里是错的。
+        可选工作的"购买"仍由 can_afford（软预算）把关，fast_path 只回答
+        "硬上限内还能不能跑一次完整调用"。
+        """
+        return self.remaining_hard() < self.fast_path_threshold
 
     def timeout_for(self, ceiling: float | None) -> float | None:
         """Clamp a node's configured ceiling to what the deadline actually allows.

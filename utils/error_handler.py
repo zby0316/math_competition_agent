@@ -135,7 +135,7 @@ def _fallback_for_node(node: str, state: dict, error: dict, config: dict | None 
             if raw:
                 final = f"未能完成完整推导，以下为已获得的部分结果：\n{raw[-2000:]}"
             else:
-                final = "解题过程中出现错误，无法给出完整答案。"
+                final = "最终答案：未能求解"
         else:
             ptype = (state.get("validation_details") or {}).get("problem_type", "computation")
             final = f"结论：{answer}" if ptype == "proof" else f"最终答案：{answer}"

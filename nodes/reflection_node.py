@@ -123,7 +123,7 @@ def _llm_reflect(state: dict, deps, answer: str) -> dict | None:
     # 用实际模式的估值，否则预算边缘（剩余 25-70s）时 thinking_mode 会被误放行
     # 而后超时。
     estimate = (_REFLECTION_THINKING_ESTIMATE_S
-                if CONFIG.get("enable_reflection_thinking", True)
+                if CONFIG.get("enable_reflection_thinking", False)
                 else _REFLECTION_CALL_ESTIMATE_S)
     if clock and clock.remaining_hard() - margin < estimate:
         return None
@@ -133,7 +133,7 @@ def _llm_reflect(state: dict, deps, answer: str) -> dict | None:
         answer=_bounded(answer, 6000),
     )
     try:
-        if CONFIG.get("enable_reflection_thinking", True):
+        if CONFIG.get("enable_reflection_thinking", False):
             # V2.8 反思深度思考：主推理已开 thinking_mode，反思作为第二道把关
             # 若仍 prefill 浅思考会漏判（官方 retry_count=0）。开 thinking_mode
             # 让反思深度复核"答案对不对"，抓更多错误触发重算。content 仍为 JSON
@@ -334,8 +334,17 @@ def reflection_node(state: dict, config: dict) -> dict:
         return {"reflection_status": "correct", "reflection_trace": trace,
                 "reflection_round": rounds, "next_node": "coordinator"}
 
-    # 发现实质错误：可负担且未超修复轮次时回调解做定向重算；否则带着
-    # 反思标记进 coordinator（不阻断，反思是锦上添花的救回通道）。
+    # 发现实质错误：先做 SymPy 代回确认，避免 LLM 反思误判导致无谓重算。
+    # idx=28 实证：反思 LLM 与主模型同源，会误判（反思说"应为 198"实际 748），
+    # 且 fix_hint 给的也是错值。代回 PASS（原答案代回成立）说明反思误判，
+    # 放行原答案而非重算——既省一次重算，也避免被错误 fix_hint 带偏。
+    verify = _sympy_verify(state, deps, answer)
+    if verify == "PASS":
+        trace.append({"round": rounds, "status": "sympy_override_wrong",
+                      "verify": "PASS",
+                      "reason": "反思判 wrong 但代回验证原答案成立，视为误判放行"})
+        return {"reflection_status": "correct", "reflection_trace": trace,
+                "reflection_round": rounds, "next_node": "coordinator"}
     can_repair = reconciliation_retry_available(state, config)
     if can_repair:
         hint = _build_fix_hint(verdict, answer)

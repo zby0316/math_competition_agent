@@ -12,11 +12,13 @@ class TestV24Config(unittest.TestCase):
     def test_token_by_difficulty(self):
         from config import CONFIG
         by_diff = CONFIG["reasoning_tokens_by_difficulty"]
-        self.assertEqual(by_diff["easy"], 16384)
-        self.assertEqual(by_diff["medium"], 24576)
+        self.assertEqual(by_diff["easy"], 32768)
+        self.assertEqual(by_diff["medium"], 32768)
         self.assertEqual(by_diff["hard"], 32768)
-        # 难题 token ≥ 简单题 token（V2.7 给足防 CoT 塞满截断）
-        self.assertGreater(by_diff["hard"], by_diff["easy"])
+        # V2.9 方法差距修复：统一 32768，彻底摆脱分类器难度画像对 token 分级的
+        # 影响（分类器误判 easy 会让 hard 题只拿 16384、长证明截断）。max_tokens
+        # 是上限非配额，"省 token"是虚假的，截断风险是真实的。
+        self.assertGreaterEqual(by_diff["easy"], by_diff["hard"])
 
 
 class TestV24DeepProcessingGate(unittest.TestCase):
@@ -43,10 +45,10 @@ class TestV24DeepProcessingGate(unittest.TestCase):
             return CONFIG.get("reasoning_tokens_by_difficulty", {}).get(
                 str(difficulty or "medium").lower(),
                 CONFIG["max_tokens"]["reasoning"])
-        self.assertEqual(pick("easy"), 16384)
+        self.assertEqual(pick("easy"), 32768)
         self.assertEqual(pick("hard"), 32768)
-        self.assertEqual(pick("medium"), 24576)
-        self.assertEqual(pick(None), 24576)  # None → "medium" 档
+        self.assertEqual(pick("medium"), 32768)
+        self.assertEqual(pick(None), 32768)  # None → "medium" 档
 
 
 if __name__ == "__main__":

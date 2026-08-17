@@ -958,4 +958,11 @@ Gauss-Bonnet 定理是微分几何最深刻的定理之一，它将曲面的曲�
 - 解题路线：给度量 g_{ij} 求 Christoffel → 先算逆矩阵 g^{ij}，再按公式逐分量算 Γ；求测地线 → 写出测地线方程（二阶 ODE 组）求解或验证某曲线满足；判断曲线是否测地线 → 代入方程验证两边为零。
 - 易错点：Christoffel 符号不是张量（变换律非线性，勿当张量分量处理）；Γ^k_ij 关于 i,j 对称（无挠联络）；测地线方程是二阶，需初始位置+初始速度；勿把"最短曲线"与"测地线"完全等同（测地线是局部最短的驻点）。
 - 分步收尾：球面 S² 的度规 ds²=dθ²+sin²θ dφ²：非零 Christoffel Γ^θ_φφ=−sinθcosθ、Γ^φ_θφ=Γ^φ_φθ=cotθ；赤道 θ=π/2 是测地线（代入方程 Γ^θ_φφ=0 时满足 d²θ/dt²=0）。
+## 模块速查：微分几何：Ricci 曲率与平行移动（研究生级）
+- 检索词：Ricci 曲率 Ricci curvature 曲率张量 curvature tensor 迹 trace 平行移动 parallel transport 协变导数 covariant derivative Levi-Civita 和乐 holonomy 测地线 geodesic
+- 核心内容：① Ricci 曲率：曲率张量 R 的迹，Ric(X,Y)=tr(Z↦R(Z,X)Y)；在坐标下 Ric_{ij}=R^k_{ikj}。标量曲率 S=g^{ij}Ric_{ij}。Einstein 度量：Ric=λg（λ 常数）。② 平行移动：沿曲线 γ 的向量场 V 满足 ∇_{γ'}V=0；平行移动是沿曲线在切空间间的线性等距（保持内积与范数）。③ 和乐群：沿闭曲线的平行移动构成的群，刻画曲面的"弯曲"（平坦 ⟺ 和乐平凡）。
+- 解题路线：求 Ricci 曲率 → 由 Christoffel 符号算曲率张量再取迹；证向量场平行 → 解 ∇_{γ'}V=0 的 ODE；用平行移动保内积证"角度/长度沿测地线不变"。
+- 易错点：Ricci 是 (0,2) 张量（对称），标量曲率是它的迹；平行移动依赖路径（曲率非零时沿不同路径结果不同）；协变导数与坐标求导不同（含 Christoffel 修正项）。
+- 分步收尾：半径为 R 的球面 S²，Gauss 曲率 K=1/R²，Ricci 曲率 Ric=K·g=(1/R²)g，标量曲率 S=2/R²（二维 Ricci=Gauss 曲率乘度量）。
+
 <!-- AUTO-KNOWLEDGE-END -->

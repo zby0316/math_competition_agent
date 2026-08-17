@@ -637,4 +637,18 @@ $$\int_0^\infty \left|\frac{\sin x}{x}\right| \, dx = \sum_{k=0}^{\infty} \int_{
 - 解题路线：求 (Lp)* 中的泛函 → 找 g∈Lq 使 φ(f)=∫fg；证明泛函可表示 → 用 Riesz 定理（Hilbert）或 Radon-Nikodym（Lp）；求对偶范数 → ‖φ‖=‖g‖_q。
 - 易错点：p=1 时对偶是 L∞，但 (L∞)*≠L1（L∞ 的对偶更大）；Riesz 表示要求 Hilbert 空间（完备内积空间）；共轭指数 1/p+1/q=1 别算错（p=3 时 q=3/2）。
 - 分步收尾：求 (L³[0,1])* 中泛函 φ(f)=∫₀¹ f(x)·x dx 的范数：g(x)=x∈L^{3/2}，‖φ‖=‖x‖_{3/2}=(∫₀¹|x|^{3/2}dx)^{2/3}=(2/5)^{2/3}。
+## 模块速查：测度积分：有界变差、Hahn 分解与符号测度（研究生级）
+- 检索词：有界变差 bounded variation 全变差 total variation 单调 monotone Jordan 分解 符号测度 signed measure Hahn 分解 正变差 positive variation 负变差 negative variation 几乎处处可微
+- 核心内容：① 有界变差函数：f 在 [a,b] 上总变差 V_a^b(f)=sup Σ|f(x_i)-f(x_{i-1})|<∞。Jordan 分解：f 有界变差 ⟺ f=g-h（g,h 单调增）；由此 BV 函数几乎处处可微、导数可积。② 符号测度与 Hahn 分解：对符号测度 ν，存在正集 P 与负集 N（P∪N=X，P∩N=∅），使 ν(E∩P)≥0、ν(E∩N)≤0 对一切 E 成立。③ Jordan 分解（符号测度版）：ν=ν⁺-ν⁻（ν⁺、ν⁻ 为互奇异正测度），|ν|=ν⁺+ν⁻。
+- 解题路线：证 f 有界变差 → 拆成两单调函数之差或用总变差有界；分解符号测度 → 先 Hahn 分解再取 ν⁺(E)=ν(E∩P)、ν⁻(E)=-ν(E∩N)；证测度绝对连续 → 用 Radon-Nikodym 或 ε-δ 定义。
+- 易错点：有界变差≠连续（单调函数处处有左右极限，有界变差函数几乎处处可微但不必连续）；Hahn 分解不唯一但 Jordan 分解唯一；混淆函数的有界变差与符号测度的 Jordan 分解。
+- 分步收尾：f 单调增 ⇒ 总变差 V_a^b(f)=f(b)-f(a)；反之总变差有界未必单调（如 sin 在 [0,2π] 有界变差但非单调）。
+
+## 模块速查：测度积分：单调类定理与正则测度（研究生级）
+- 检索词：单调类 monotone class 生成 sigma代数 generated 代数 algebra 正则测度 regular measure Radon 测度 紧支 内正则 外正则 Riesz-Markov
+- 核心内容：① 单调类定理：设 A 为代数（对有限并、补封闭），M(A) 为包含 A 的最小单调类，σ(A) 为 A 生成的 σ-代数，则 M(A)=σ(A)。用途：证明某个性质在所有可测集上成立，只需验证它在代数上成立且对单调极限封闭。② 正则测度/Radon 测度：局部紧 Hausdorff 空间 X 上的 Borel 测度 μ 若满足内正则（μ(E)=sup{μ(K):K⊆E 紧}）与外正则（μ(E)=inf{μ(U):U⊇E 开}）称 Radon 测度。③ Riesz-Markov 表示定理：C_0(X) 上每个正线性泛函唯一对应一个正则 Borel 测度。
+- 解题路线：证测度唯一性/性质全成立 → 单调类定理（在代数上验证 + 单调类封闭）；证泛函可表为积分 → Riesz-Markov；证测度正则 → 验证内外正则。
+- 易错点：单调类定理要求从"代数"出发（不是任意集族）；Radon 测度要求局部紧 Hausdorff 空间；Riesz-Markov 的泛函要"正"（非正泛函对应符号测度）。
+- 分步收尾：证两个有限测度在全体 Borel 集上相等：它们在 π-系（如开集/半开区间）上相等，用单调类/π-λ 定理推广到 σ-代数。
+
 <!-- AUTO-KNOWLEDGE-END -->

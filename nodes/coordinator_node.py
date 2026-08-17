@@ -48,7 +48,13 @@ def _evidence_override(state: dict, validated: str) -> tuple[str, str]:
     # "数值验证失败/最大误差"说明"被验证的答案代回不成立"，Python 的 answer 字符串
     # 本身可疑，用它覆盖主推理会把对的改成错的。
     evidence_summary = str(po.get("evidence_summary") or "")
-    if any(k in evidence_summary for k in ("验证失败", "最大误差", "误差", "err=", "FAIL")):
+    # 与 verification_evidence._FAIL_RE 保持一致的"代回发现矛盾"信号：
+    # 反例/矛盾/不一致/失败断言/FAIL/误差/差值。洛朗题实证：stdout 明确
+    # "验证状态: FAIL"+"反例：差值=3.12e-02"，但 evidence_summary 只提取了
+    # "反例/差值"两词，旧列表（仅"验证失败/误差/FAIL"）漏配 → 误覆盖正确答案。
+    if any(k in evidence_summary for k in (
+            "验证失败", "最大误差", "误差", "err=", "FAIL",
+            "反例", "矛盾", "不一致", "失败", "差值", "counterexample", "contradict")):
         return validated, ""
     python_answer = str(po.get("answer") or "").strip()
     reasoning_answer = str(rr.get("answer") or "").strip()
@@ -113,7 +119,7 @@ def _partial_response(state: dict) -> tuple[str, str]:
         text = (candidate or "").strip()
         if text and not is_placeholder_answer(text) and not is_noise_answer(text):
             return f"{_PARTIAL_HEADER}{text}", source
-    return "解题过程中出现错误，无法给出完整答案。", "generic_error"
+    return "最终答案：未能求解", "generic_error"
 
 
 def _emergency_direct_answer(state: dict, deps) -> str:
@@ -446,7 +452,7 @@ def coordinator_node(state, config):
     cleaned_raw = strip_cot_prefix(raw)
     final = post_process_final_response(cleaned_raw, validated, ptype, problem=state["problem"])
     if not isinstance(final, str) or not final.strip():
-        final = f"最终答案：{validated}" if validated else "无法生成完整答案。"
+        final = f"最终答案：{validated}" if validated else "最终答案：未能求解"
     # Proof answers already carry their full derivation as the answer body; only
     # computation problems that require working get an appended outline.
     if ptype != "proof":

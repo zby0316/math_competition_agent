@@ -588,18 +588,41 @@ def _reasoning_agent_impl(state, config):
             _diff = str(state.get("difficulty") or "medium").lower()
             _mt = CONFIG.get("reasoning_tokens_by_difficulty", {}).get(
                 _diff, CONFIG["max_tokens"]["reasoning"])
+            # V2.9 分层温度采样：sample_temperature 由多温度采样投票的调度入口
+            # 覆盖（不同样本不同温度），默认用主推理温度 0.8。
+            _sample_temp = state.get("sample_temperature")
+            if _sample_temp is None:
+                _sample_temp = CONFIG["temperatures"]["reasoning"]
             # V2.8 思考模式：主推理开启 thinking_mode=True，让模型生成私有推理链
             # （reasoning_content）深度思考后再按四章节作答。此前 V2.4 用 prefill
             # 强制跳过 reasoning_content 提速——但推理链正是解科研级难题的核心，
             # 跳过 = 让最强模型"不思考硬答"，是 V2.4→V2.6 掉分的疑点之一。
             # 真机实测 thinking_mode=True 44.7s（非当年无控制 CoT 的 811s），
             # max_tokens 已给足，CoT+答案都能写完，finish_reason=stop。
-            # enable_thinking_mode=False 时回退 prefill（A/B 对照 / 降级）。
-            if CONFIG.get("enable_thinking_mode", True):
+            # V2.9 分级思考：easy 题 prefill 直答（简单题不需要深度思考，快且不
+            # 截断），medium/hard 开 thinking_mode（保留 V2.8 提分来源）。总开关
+            # enable_thinking_mode=False 时全部回退 prefill（A/B 对照 / 降级）。
+            _use_thinking = CONFIG.get("thinking_by_difficulty", {}).get(_diff, True)
+            # V2.9 多温度采样：采样样本强制 prefill（快，~30s/次），深度思考留给
+            # 投票不自洽时的最终重解。
+            if state.get("sample_force_prefill"):
+                _use_thinking = False
+            if state.get("sample_force_thinking"):
+                _use_thinking = True
+            # V2.9 矛盾升级复核：真正的"矛盾重算"（来自 reconciliation 的矛盾/
+            # 审计/反思触发）时，easy 题也升级 thinking_mode——prefill 答案已被
+            # 判可疑才触发重算，重算必须深度思考而非"再浅答一次"（洛朗题实证）。
+            # 但 B 路径（method_variant="B"）也传了 branch_hint（DIVERSE_METHOD_HINT
+            # 异构方法提示），若一并强制 thinking，B 路径成本 200-400s，全量扇出
+            # 后墙钟失控。B 路径是"第二视角异构验证"，跟随 difficulty 分级即可。
+            if state.get("branch_hint") \
+                    and str(state.get("method_variant") or "").strip().upper() != "B":
+                _use_thinking = True
+            if _use_thinking and CONFIG.get("enable_thinking_mode", True):
                 resp = chat_with_retry(
                     client,
                     messages=[{"role": "user", "content": prompt}],
-                    temperature=CONFIG["temperatures"]["reasoning"],
+                    temperature=_sample_temp,
                     max_tokens=_mt,
                     logger=deps.logger,
                     time_budget=deps.time_budget,
@@ -611,7 +634,7 @@ def _reasoning_agent_impl(state, config):
                     client,
                     messages=[{"role": "user", "content": prompt}],
                     prefix="## 问题分析\n",
-                    temperature=CONFIG["temperatures"]["reasoning"],
+                    temperature=_sample_temp,
                     max_tokens=_mt,
                     logger=deps.logger,
                     time_budget=deps.time_budget,
@@ -701,6 +724,80 @@ def _reasoning_agent_impl(state, config):
             "reasoning_attempts": attempts, "reasoning_raw_response": resp}
 
 
+def _should_sample_vote(state) -> bool:
+    """难题/低置信时触发多温度采样投票（V2.9 多候选 N≥8 的落地）。
+
+    分类器把科研题判 easy+高置信不可靠，所以用两个独立信号触发：
+    - difficulty == hard（分类器自己承认难）；
+    - 分类置信 < sample_vote_min_confidence（分类器拿不准）。
+    客观题、重算轮（reconciliation 已触发的重算）不再采样。
+    """
+    if not CONFIG.get("sample_temperatures"):
+        return False
+    if is_objective_mode(state.get("question_mode", "")):
+        return False
+    if state.get("reconciliation_round", 0) >= 1:
+        return False
+    diff = str(state.get("difficulty") or "").strip().lower()
+    if diff in ("hard", "very_hard", "extremely_hard"):
+        return True
+    conf = state.get("category_confidence")
+    if conf is not None and conf < CONFIG.get("sample_vote_min_confidence", 0.85):
+        return True
+    return False
+
+
+def _sample_vote_reasoning(state, config):
+    """多温度采样 + 自洽性投票；不自洽时升级 thinking_mode 深度重解。
+
+    - 每个 sample_temperatures 温度做一次 prefill 快速采样（sample_force_prefill），
+      产生多样性答案；
+    - 归一化后投票（多数票），胜出答案得票占比 ≥ consensus_threshold 视为自洽，
+      直接采用胜出答案（附 sample_vote 元数据）；
+    - 不自洽（多数票占比不足）说明采样无法定论，升级 thinking_mode 深度重解
+      （sample_force_thinking），深度思考比浅采样更可能解对。
+    """
+    temps = list(CONFIG.get("sample_temperatures") or [])
+    results = []
+    deps = get_deps(config)
+    clock = getattr(deps, "time_budget", None)
+    for t in temps:
+        # 时间保护：剩余硬预算不足以再做一次采样（~60s）就停止，避免采样循环
+        # 在慢 API 下逼近单题 20min 硬限。
+        if clock is not None and clock.remaining_hard() < 60:
+            break
+        out = _reasoning_agent_impl(
+            {**state, "sample_temperature": t, "sample_force_prefill": True}, config)
+        rr = out.get("reasoning_result") or {}
+        ans = str(rr.get("answer") or "").strip()
+        if ans and not is_placeholder_answer(ans):
+            results.append((ans, out))
+    if not results:
+        return _reasoning_agent_impl(state, config)
+    from collections import Counter
+    norm = [re.sub(r"[\s。．.,，;；]+", "", r[0]) for r in results]
+    vote = Counter(norm)
+    winner_norm, count = vote.most_common(1)[0]
+    consensus = count / len(norm)
+    if consensus >= CONFIG.get("sample_vote_consensus_threshold", 0.5):
+        winner_out = results[norm.index(winner_norm)][1]
+        rr = winner_out.get("reasoning_result") or {}
+        rr = {**rr, "sample_vote": {"samples": len(results),
+                                    "consensus": round(consensus, 3)}}
+        winner_out["reasoning_result"] = rr
+        return winner_out
+    # 不自洽：升级 thinking_mode 深度重解
+    out = _reasoning_agent_impl(
+        {**state, "sample_force_thinking": True}, config)
+    rr = out.get("reasoning_result") or {}
+    if rr.get("answer"):
+        rr = {**rr, "sample_vote": {"samples": len(results),
+                                    "consensus": round(consensus, 3),
+                                    "upgraded_thinking": True}}
+        out["reasoning_result"] = rr
+    return out
+
+
 def reasoning_agent_node(state, config):
     """调度入口：主路径直走实现；method_variant="B" 时跑异构第二解法。
 
@@ -713,6 +810,8 @@ def reasoning_agent_node(state, config):
     不复制实现、不引入第二条代码路径。
     """
     variant = str(state.get("method_variant") or "").strip().upper()
+    if variant == "" and _should_sample_vote(state):
+        return _sample_vote_reasoning(state, config)
     if variant != "B":
         return _reasoning_agent_impl(state, config)
     if is_objective_mode(state.get("question_mode", "")):

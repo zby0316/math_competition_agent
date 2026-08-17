@@ -291,8 +291,22 @@ def cross_validator_node(state, config):
         # 这是方法论独立的双证据，强于任何单路径。
         alt = state.get("reasoning_result_alt") or {}
         alt_answer = _clean_answer(alt.get("answer", ""))
-        if match_result.get("status") != "match" and alt_answer \
-                and not looks_incomplete_answer(alt_answer):
+        has_alt = bool(alt_answer and not looks_incomplete_answer(alt_answer))
+        # V2.9 三路投票补全：A=Python 一致（match）但 B（异构）不同意时，不能
+        # 简单放行——A、Python 同源（都是 S2），"一致"可能只是"一致地错"（如
+        # 符号一起写反）。B 用不同方法论，它的反对是唯一能戳破"同源一致"的信号。
+        # 此时把 status 降为 mismatch 触发确定性裁决，并标记让 playoff 裁决
+        # A vs B（异构），而非 A vs Python（同源一致，裁决无意义）。
+        if match_result.get("status") == "match" and has_alt:
+            b_agrees = AnswerMatcher._match_computation_detailed(
+                alt_answer, reasoning_result.get("answer", "")).get("verdict")
+            if b_agrees is not True:
+                match_result["status"] = "mismatch"
+                match_result["verdict"] = False
+                match_result["reason"] = "A/Python 一致但异构 B 路径不同意"
+                match_result["routing_reason"] = "alt_branch_disagrees"
+                match_result["prefer_alt_in_playoff"] = True
+        if match_result.get("status") != "match" and has_alt:
             alt_match = dict(AnswerMatcher.match_answers(
                 problem=state["problem"],
                 reasoning_result=alt,
@@ -428,6 +442,9 @@ def cross_validator_node(state, config):
                     "python_evidence_summary": evidence_summary,
                     "python_contradictions": contradictions,
                     "validation_history": [history_entry],
+                    # V2.9 三路投票：A=Python 一致但 B 不同意时，让 playoff 裁决
+                    # A vs B（异构），而非 A vs Python（同源一致无意义）。
+                    "playoff_prefer_alt": bool(match_result.get("prefer_alt_in_playoff")),
                 }
                 if revote_trace:
                     result["objective_revote_trace"] = revote_trace

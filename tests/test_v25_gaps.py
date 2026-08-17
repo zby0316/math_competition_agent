@@ -36,11 +36,16 @@ class TestDiverseBranchExpansion(unittest.TestCase):
                  "category_confidence": 0.5, "category": "离散数学", "difficulty": "hard"}
         self.assertFalse(self._want(state))
 
-    def test_fast_confidence_still_skips(self):
-        """fast 档（≥0.90）仍不扇出（最少资源原则不变）。"""
+    def test_fast_confidence_now_fires(self):
+        """V2.9 方法差距修复：fast 档（≥0.90）也扇出 B 路径。
+
+        分类器把科研级题判成 easy+0.98 高置信（实证），fast 档短路会让这些题
+        只有单路径 A、答错就错（官方 retry=0 根因）。置信度信号不可靠，异构
+        互验不能拿它当门槛——只保留「时间 fast path」这一硬护栏。
+        """
         state = {"question_mode": "computation", "reconciliation_round": 0,
                  "category_confidence": 0.95, "category": "复分析", "difficulty": "hard"}
-        self.assertFalse(self._want(state))
+        self.assertTrue(self._want(state))
 
 
 class TestEvidenceOverrideLocked(unittest.TestCase):
