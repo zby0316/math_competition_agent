@@ -758,4 +758,11 @@ $$\frac{-u_{i-1} + 2u_i - u_{i+1}}{h^2} = f_i \quad \text{（均匀网格上与F
 - 解题路线：求特征值选 QR 迭代（先 Hessenberg/三对角化再 QR）；求定积分高精度选 Gauss 求积（注意区间变换 x∈[a,b]→t∈[-1,1]）；大规模稀疏 Ax=b 选 GMRES/共轭梯度（对称正定才用 CG）。
 - 易错点：QR 迭代的 A_k 收敛是"块上三角"，复数特征值以 2×2 块出现；Gauss 求积节点不在等距点上（勿用等距节点冒充）；GMRES 需重启（restart）控制存储；积分区间必须变换到 [-1,1] 才能套标准权重。
 - 分步收尾：∫[-1,1]x⁴dx 用 2 点 Gauss-Legendre：节点 ±1/√3，权重 1,1 → 1·(1/√3)⁴+1·(−1/√3)⁴=2/9≈0.2222（精确 2/5=0.4 需 3 点，2 点只精确到 3 次）。
+## 模块速查：数值分析：特征值扰动与 Bauer-Fike 定理
+- 检索词：特征值扰动 eigenvalue perturbation Bauer-Fike 条件数 condition number 对角化 diagonalizable 扰动 sensitivity 稳定性 stability
+- 核心内容：设 $A\in\mathbb C^{n\times n}$ 可对角化 $A=V\Lambda V^{-1}$，$\Lambda=\operatorname{diag}(\lambda_1,\dots,\lambda_n)$。Bauer-Fike 定理：对 $A+E$ 的任意特征值 $\mu$，存在 $A$ 的特征值 $\lambda$ 使 $|\mu-\lambda|\le\kappa_2(V)\|E\|_2$，其中 $\kappa_2(V)=\|V\|_2\|V^{-1}\|_2$ 是特征向量矩阵的条件数。即特征值对扰动的敏感性由 $\kappa_2(V)$ 控制——正规矩阵（$V$ 可酉，$\kappa_2=1$）特征值最稳定。
+- 解题路线：① 先判 $A$ 是否可对角化、求 $V$ 与 $\kappa_2(V)$；② 正规矩阵（$AA^*=A^*A$）特征值对扰动最不敏感；③ 非正规矩阵（如 Jordan 块、上三角）特征值可能对扰动极其敏感；④ 需要"最接近的 $A$ 特征值"时对每个 $\lambda_i$ 比较 $|\mu-\lambda_i|$。
+- 易错点：$\kappa_2(V)$ 用特征向量矩阵（不是 $A$ 本身的条件数 $\kappa(A)$）；正规性才保证 $\kappa_2(V)=1$；Bauer-Fike 给的是"存在某个 $\lambda$"而非"每个都近"；结论用 $\|\cdot\|_2$ 范数。
+- 分步收尾：$A=\begin{pmatrix}2&1000\\0&2\end{pmatrix}$，$E=\begin{pmatrix}0&0\\10^{-6}&0\end{pmatrix}$。$A$ 特征值 $\lambda=2$（二重，Jordan 块，非正规）。$A+E$ 特征值 $2\pm\sqrt{10^{-3}}\approx 2\pm0.0316$，扰动 $10^{-6}$ 引起特征值移动 $0.03$（放大 $\sim31600$ 倍）——非正规矩阵特征值病态，$\kappa_2(V)$ 巨大。
+
 <!-- AUTO-KNOWLEDGE-END -->

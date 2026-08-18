@@ -788,4 +788,18 @@ $$Q(x) = \lambda_1 y_1^2 + \lambda_2 y_2^2 + \cdots + \lambda_n y_n^2$$
 - 解题路线：先由「每列元素互异」推出行数上界并论证可达性；固定第一行消去整行置换的对称性后再计数；检查差分约束与拉丁方循环构造是否兼容。
 - 易错点：忘记每列互异带来的行数上界；把「至少一列差达阈值」误当成逐列都要满足；计数时漏除以行的置换对称性。
 
+## 模块速查：图论与组合计数：Burnside 引理与 Pólya 计数定理
+- 检索词：Burnside 引理 Burnside lemma 轨道 orbit 群作用 group action 稳定子 stabilizer 不动点 fixed point Pólya 计数定理 Pólya enumeration theorem 轮换指标 cycle index 染色 coloring 对称 symmetry 项链 necklace 环 cycle 欧拉函数 Euler totient 二面体群 dihedral
+- 核心内容：群 $G$ 作用在集合 $X$：$x$ 的轨道 $\operatorname{Orb}(x)=\{gx:g\in G\}$，稳定子 $\operatorname{Stab}(x)=\{g:gx=x\}$，$|\operatorname{Orb}(x)|=|G|/|\operatorname{Stab}(x)|$。Burnside 引理：轨道数 $=\frac1{|G|}\sum_{g\in G}|\operatorname{Fix}(g)|$，其中 $\operatorname{Fix}(g)=\{x:gx=x\}$ 为 $g$ 的不动点集。Pólya 计数定理：$G$ 作用在 $n$ 个位置、用 $m$ 种颜色染色，本质不同染色数 $=\frac1{|G|}\sum_{g\in G}m^{c(g)}$，$c(g)$ 为 $g$（作为位置置换）的轮换个数。带权 Pólya：轮换指标 $Z_G(t_1,\dots,t_n)=\frac1{|G|}\sum_{g\in G}t_1^{c_1(g)}t_2^{c_2(g)}\cdots$，代入 $t_i=x_1^i+\cdots+x_m^i$ 得生成函数。项链计数：$n$ 珠 $m$ 色允许旋转（循环群 $C_n$）：$N=\frac1n\sum_{d\mid n}\varphi(d)m^{n/d}$（$\varphi$ 欧拉函数）；再加翻转（二面体群 $D_n$）除 $2n$。
+- 解题路线：① 明确对称群 $G$（旋转 $C_n$ / 旋转+翻转 $D_n$ / 全置换 $S_n$）；② 对每个 $g$ 算不动点数（Pólya 用 $m^{c(g)}$，$c(g)$ 为轮换数）；③ 套 Burnside/Pólya 求平均得轨道数；④ 带权/分色计数用轮换指标代换。
+- 易错点：Burnside 求「轨道数」（本质不同对象数）不是不动点总数；Pólya 中 $c(g)$ 是 $g$ 的轮换个数不是群阶；允许旋转+翻转用二面体群 $D_n$（$2n$ 个对称）、只旋转用 $C_n$（$n$ 个）；$C_n$ 中阶为 $d$ 的旋转恰有 $\varphi(d)$ 个，别忘欧拉函数；翻转下的不动点计数要分 $n$ 奇偶。
+- 分步收尾：用 3 色染 4 珠项链、只允许旋转（$C_4=\{e,r,r^2,r^3\}$）。轮换数：$c(e)=4$（恒等）、$c(r)=1$（4-循环）、$c(r^2)=2$（两个 2-循环 $(1\,3)(2\,4)$）、$c(r^3)=1$（4-循环）。Pólya：$N=\frac14(3^4+3^1+3^2+3^1)=\frac14(81+3+9+3)=\frac{96}{4}=24$。Burnside 交叉验证：不动点数 $e$ 固定 $3^4=81$、$r$ 固定全同色 $3$、$r^2$ 固定位置 $1{=}3,2{=}4$ 共 $3^2=9$、$r^3$ 固定 $3$，和 $96$，除以 $|G|=4$ 得 $24$，一致。
+
+## 模块速查：数论基础：欧拉定理、费马小定理、中国剩余定理、二次剩余
+- 检索词：欧拉定理 Euler theorem 费马小定理 Fermat little theorem 中国剩余定理 Chinese remainder theorem CRT 二次剩余 quadratic residue Legendre 符号 Legendre symbol 同余 congruence 欧拉函数 Euler totient 互素 coprime 模运算 modular 逆元 inverse 扩展欧几里得 extended Euclidean
+- 核心内容：欧拉定理：$\gcd(a,n)=1$ ⟹ $a^{\varphi(n)}\equiv1\pmod n$，$\varphi(n)=n\prod_{p\mid n}(1-\frac1p)$。费马小定理：$p$ 素数、$\gcd(a,p)=1$ ⟹ $a^{p-1}\equiv1\pmod p$；等价地 $a^p\equiv a\pmod p$（任意 $a$）。中国剩余定理（CRT）：$m_1,\dots,m_k$ 两两互素，同余组 $x\equiv a_i\pmod{m_i}$ 有唯一解模 $M=\prod m_i$：$x\equiv\sum a_i M_i(M_i^{-1}\bmod m_i)\pmod M$，$M_i=M/m_i$。二次剩余：$p$ 奇素数、$\gcd(a,p)=1$，$a$ 是模 $p$ 二次剩余 ⟺ 存在 $x$ 使 $x^2\equiv a\pmod p$；Legendre 符号 $\left(\frac{a}{p}\right)=a^{(p-1)/2}\bmod p$（Euler 判别法），取 $1$（剩余）、$-1$（非剩余）、$0$（$p\mid a$）。性质：$\left(\frac{ab}{p}\right)=\left(\frac ap\right)\left(\frac bp\right)$；模 $p$ 的二次剩余恰有 $\frac{p-1}{2}$ 个（$1^2,2^2,\dots,(\frac{p-1}{2})^2$）。
+- 解题路线：① 化简 $a^k\bmod n$：若 $\gcd(a,n)=1$ 用欧拉定理把指数降到 $k\bmod\varphi(n)$；② 解同余组用 CRT 逐步合并；③ 判二次剩余用 Euler 判别法 $a^{(p-1)/2}\equiv\pm1$ 或直接算 Legendre 符号；④ 求逆元用扩展欧几里得或费马小定理（$a^{-1}\equiv a^{p-2}\bmod p$）。
+- 易错点：费马小定理要求 $p$ 素数且 $p\nmid a$，欧拉定理要求 $\gcd(a,n)=1$，否则不能直接用；欧拉定理降指数是 $k\bmod\varphi(n)$ 不是 $k\bmod n$；CRT 要求模两两互素，不互素先分解统一；二次剩余的 Legendre 符号用指数 $(p-1)/2$ 不是 $p-1$；「二次剩余/非剩余」都要求 $\gcd(a,p)=1$，$a\equiv0$ 单独记 $\left(\frac ap\right)=0$。
+- 分步收尾：求 $7^{100}\bmod13$。$\gcd(7,13)=1$，$\varphi(13)=12$，欧拉定理 $7^{12}\equiv1\pmod{13}$。$100=12\cdot8+4$，故 $7^{100}=(7^{12})^8\cdot7^4\equiv7^4\pmod{13}$。$7^2=49\equiv10\pmod{13}$，$7^4\equiv10^2=100\equiv9\pmod{13}$。故 $7^{100}\equiv9\pmod{13}$。（CRT 附验：$x\equiv2\pmod3,\ x\equiv3\pmod5$，$M=15$，$x\equiv2\cdot5\cdot2+3\cdot3\cdot2=38\equiv8\pmod{15}$，$8\equiv2\pmod3,\ 8\equiv3\pmod5$，正确。）
+
 <!-- AUTO-KNOWLEDGE-END -->

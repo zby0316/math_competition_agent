@@ -958,4 +958,18 @@ Gauss-Bonnet 定理是微分几何最深刻的定理之一，它将曲面的曲�
 - 解题路线：给度量 g_{ij} 求 Christoffel → 先算逆矩阵 g^{ij}，再按公式逐分量算 Γ；求测地线 → 写出测地线方程（二阶 ODE 组）求解或验证某曲线满足；判断曲线是否测地线 → 代入方程验证两边为零。
 - 易错点：Christoffel 符号不是张量（变换律非线性，勿当张量分量处理）；Γ^k_ij 关于 i,j 对称（无挠联络）；测地线方程是二阶，需初始位置+初始速度；勿把"最短曲线"与"测地线"完全等同（测地线是局部最短的驻点）。
 - 分步收尾：球面 S² 的度规 ds²=dθ²+sin²θ dφ²：非零 Christoffel Γ^θ_φφ=−sinθcosθ、Γ^φ_θφ=Γ^φ_φθ=cotθ；赤道 θ=π/2 是测地线（代入方程 Γ^θ_φφ=0 时满足 d²θ/dt²=0）。
+## 模块速查：微分几何：Ricci 曲率与数量曲率
+- 检索词：Ricci 曲率 Ricci curvature 数量曲率 scalar curvature 曲率张量 curvature tensor 迹 trace 黎曼 Riemann 体积 volume
+- 核心内容：黎曼流形 $(M,g)$，曲率张量 $R(X,Y)Z=\nabla_X\nabla_Y Z-\nabla_Y\nabla_X Z-\nabla_{[X,Y]}Z$。Ricci 曲率是曲率张量的迹：$\operatorname{Ric}(X,Y)=\sum_i g(R(e_i,X)Y,e_i)$，$\{e_i\}$ 是正交基。Ricci 张量对称 $(0,2)$。数量曲率 $S=\operatorname{tr}_g\operatorname{Ric}=\sum_{i,j}g^{ij}\operatorname{Ric}_{ij}$。Ricci 曲率衡量沿测地线的体积元形变率：$\operatorname{Ric}(v,v)>0$ 表示体积沿 $v$ 收缩。
+- 解题路线：① 给出曲面（二维）时用 Gauss 曲率 $K$，此时 $\operatorname{Ric}=K\cdot g$，$S=2K$；② 三维以上需用 Christoffel 符号逐项算 $R_{ijkl}$ 再收缩；③ 利用对称性 $R_{ijkl}=-R_{ijlk}=-R_{jikl}=R_{klij}$ 减少计算量；④ 特殊几何（常曲率空间 $\operatorname{Ric}=(n-1)Kg$）。
+- 易错点：Ricci 是曲率张量的迹但不是 Gauss 曲率（二维才 $\operatorname{Ric}=Kg$）；收缩方向写错（$R^l_{ilk}$ 对 $l,i$ 收缩得 $R_{ik}$）；把数量曲率 $S$ 与截面曲率 $K$ 混淆。
+- 分步收尾：半径 $r$ 的球面 $S^2$，Gauss 曲率 $K=1/r^2$。$\operatorname{Ric}=(1/r^2)g$，数量曲率 $S=2/r^2$。半径 $r$ 的球 $S^n$（常曲率 $1/r^2$）：$\operatorname{Ric}=(n-1)/r^2\cdot g$，$S=n(n-1)/r^2$。
+
+## 模块速查：微分几何：平行移动与和乐群
+- 检索词：平行移动 parallel transport 和乐群 holonomy group 联络 connection Levi-Civita 协变导数 covariant derivative 测地线 geodesic
+- 核心内容：Levi-Civita 联络 $\nabla$（唯一满足无挠 $\nabla_XY-\nabla_YX=[X,Y]$ 且度量相容 $Zg(X,Y)=g(\nabla_ZX,Y)+g(X,\nabla_ZY)$）。向量场 $X$ 沿曲线 $\gamma$ 平行当且仅当 $\nabla_{\gamma'}X=0$。平行移动给出 $P_\gamma:T_{\gamma(0)}M\to T_{\gamma(1)}M$ 的线性等距同构。和乐群 $\operatorname{Hol}_p(M)=\{P_\gamma:\gamma$ 是以 $p$ 为基点的分段光滑闭曲线$\}\subseteq O(T_pM)$（约化和乐群用零伦闭曲线）。
+- 解题路线：① 求平行移动：解沿曲线的 ODE $\frac{dX^k}{dt}+\Gamma^k_{ij}\frac{d\gamma^i}{dt}X^j=0$；② 和乐群用闭曲线平行移动的复合生成；③ 平坦（曲率 $R\equiv0$）$\iff$ 和乐群平凡（局部）；④ 曲率是无穷小和乐（Ambrose-Singer 定理联系和乐李代数与曲率）。
+- 易错点：平行移动依赖路径（曲率非零时）；平行向量场沿闭曲线一圈后一般不等（差一个和乐变换）；Levi-Civita 联络的"无挠+度量相容"两条件要同时记。
+- 分步收尾：$\mathbb R^2$（欧氏平坦），联络平凡（$\Gamma=0$），平行移动即普通平移，和乐群平凡。球面 $S^2$：沿大圆闭曲线平行移动切向量会旋转（角度=围成球面区域面积=闭曲线转过的和乐角），和乐群 $=\operatorname{SO}(2)$。
+
 <!-- AUTO-KNOWLEDGE-END -->

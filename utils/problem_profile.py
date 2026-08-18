@@ -98,6 +98,39 @@ def is_objective_mode(mode: str) -> bool:
 
 _BLANK_MARK_RE = re.compile(r"_{3,}|＿{2,}|—{3,}|[（(]\s*(?:\\\s*)?[）)]")
 
+#: 对错判断题标志：明确问"正确/成立/对错/正误"，或问"说法/命题/结论"的真假。
+_FALSITY_JUDGE_RE = re.compile(
+    r"是否(?:正确|成立)|正误|对错|(?:命题|说法|结论)",
+    re.I,
+)
+#: 性质名词：判断题若问这些性质（稳定性/收敛性…），答案须给具体结论而非"正确/错误"。
+_PROPERTY_NOUN_RE = re.compile(
+    r"稳定|收敛|发散|可导|可微|连续|有界|可积|可逆|可交换|可对角化|正定|"
+    r"连通|道路连通|紧|完备|正规|可分|同胚|同伦|交换|幂等|幂零",
+    re.I,
+)
+
+
+def is_property_judge(problem: str) -> bool:
+    """判断题是否属于"性质判断题"（答案不是 正确/错误）。
+
+    官方题集判断题分两种子类型：
+    - 对错判断题："判断下列说法是否正确"、"命题是否成立" → 答案 正确/错误。
+    - 性质判断题："判断系统是否稳定"、"判断函数列是否一致收敛" → 答案须给
+      具体结论（稳定/不稳定、一致收敛/不一致收敛），笼统答"正确/错误"判错。
+      （U-02 基准实测实证：idx=9 "判断系统稳定性" 模型答"正确"、idx=14
+      "判断是否一致收敛" 模型答"错误"，数学对但格式错，judger 判错。）
+
+    判别：题面含"判断/是否/判定"且含性质名词，同时不含对错判断标志。
+    """
+    text = str(problem or "").strip()
+    if not text:
+        return False
+    if _FALSITY_JUDGE_RE.search(text):
+        return False
+    return bool(re.search(r"(?:判断|是否|判定)", text, re.I)
+                and _PROPERTY_NOUN_RE.search(text))
+
 #: "求所有/找出全部" 型题：解空间可能含多个分支，单一构造不可作答。
 _ALL_SOLUTIONS_RE = re.compile(
     r"(?i)find\s+all|determine\s+all|all\s+possible|every\s+possible|"
@@ -201,7 +234,7 @@ def has_mod2_valued_sum(problem: str) -> bool:
     return bool(_MOD_CODOMAIN_RE.search(text)) and bool(_FUNC_SUM_RE.search(text))
 
 
-def mode_instruction(mode: str) -> str:
+def mode_instruction(mode: str, problem: str = "") -> str:
     """Prompt suffix shared by reasoning/Python nodes.
 
     The instruction deliberately asks for the exact deliverable, not a guessed
@@ -218,6 +251,13 @@ def mode_instruction(mode: str) -> str:
             "（如 A、C），不要把选项说明误当成答案。最多 3 个短步骤。"
         )
     if mode == "true_false":
+        if is_property_judge(problem):
+            return (
+                "\n\n[题型画像：判断题快速路径]\n"
+                "对着题面所问的性质给出具体判断结论（例如问'是否稳定'答 稳定/不稳定，"
+                "问'是否一致收敛'答 一致收敛/不一致收敛），再用一个定理或反例说明理由；"
+                "禁止笼统答'正确/错误'，不要把条件句当作最终判断。"
+            )
         return (
             "\n\n[题型画像：判断题快速路径]\n"
             "先给出‘正确’或‘错误/不正确’，再用一个反例或定理说明理由；不要把条件句当作最终判断。"
@@ -388,12 +428,15 @@ def normalize_objective_answer(answer: str, mode: str) -> str:
     if mode == "true_false":
         # Prefer the two-character negative phrase before the bare ``正确``.
         matches = list(re.finditer(r"不正确|错误|正确|不对|对|错|×|√", text, flags=re.I))
-        if not matches:
-            return ""
-        # The first judgement token is the answer; later occurrences usually
-        # belong to the explanatory sentence (e.g. ``错误，因为...正确``).
-        value = matches[0].group(0)
-        return "正确" if value in {"正确", "对", "√"} else "错误"
+        if matches:
+            # The first judgement token is the answer; later occurrences usually
+            # belong to the explanatory sentence (e.g. ``错误，因为...正确``).
+            value = matches[0].group(0)
+            return "正确" if value in {"正确", "对", "√"} else "错误"
+        # 性质判断题（"判断是否一致收敛"）：答案是对具体性质的结论（"不一致收敛"、
+        # "稳定"），不含判断词。找不到判断词时保留清洗后的原文，绝不能返回空——
+        # 否则答案被丢弃，退到 emergency 兜底答"是/否"（U-02 实证 idx=1 因此丢分）。
+        return text
     return text
 
 
@@ -404,7 +447,10 @@ def objective_answer_is_usable(answer: str, mode: str) -> bool:
     if mode == "choice":
         return bool(re.fullmatch(r"[A-E](?:、[A-E])*", normalized))
     if mode == "true_false":
-        return normalized in {"正确", "错误"}
+        # 判断词（正确/错误）或性质判断结论（不一致收敛/稳定等具体表述）均可用。
+        # normalize_objective_answer 对判断词归一到"正确/错误"，对性质判断结论保留
+        # 原文；这里非空即接受（包装与噪声已由 _strip_answer_wrappers 清洗）。
+        return bool(normalized)
     if mode == "fill":
         # A section-less long CoT can be mistaken for a fill answer by the prose
         # salvage fallback (e.g. an English sentence ending in a formula).  Reject

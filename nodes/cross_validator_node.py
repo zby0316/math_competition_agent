@@ -383,6 +383,39 @@ def cross_validator_node(state, config):
             "validation_history": [history_entry],
         }
 
+    # V2.5 三路投票补全：A 与 Python 一致（match）时，若 B（异构第二路径）
+    # 不同意 A，说明可能"同源一致地错"——A、Python 都是主模型 S2，符号/方向
+    # 可能一起错。B 用异构方法（DIVERSE_METHOD_HINT），它的反对票不能忽略。
+    # 触发 deterministic playoff 裁决 A vs B（异构），而非 A vs Python（两者
+    # 一致无意义）。纯字符串比对，零 LLM 成本。
+    _alt_ans = _clean_answer((state.get("reasoning_result_alt") or {}).get("answer", ""))
+    _a_ans = _clean_answer(reasoning_result.get("answer", ""))
+    if status == "match" and _alt_ans and _a_ans \
+            and not looks_incomplete_answer(_alt_ans) \
+            and not _same_scalar_or_text(_alt_ans, _a_ans):
+        already_played = bool(state.get("playoff_trace"))
+        if problem_type == "computation" and CONFIG.get("enable_playoff", True) \
+                and not already_played:
+            status = "mismatch_playoff"
+            match_result["routing_reason"] = "same_source_agree_but_alt_disagrees"
+            match_result["playoff_prefer_alt"] = True
+            history_entry["status"] = status
+            result = {
+                "validation_status": status,
+                "validation_details": match_result,
+                "validated_answer": validated_answer,
+                "next_node": "playoff",
+                "python_output": python_output,
+                "python_evidence_status": evidence_status,
+                "python_evidence_summary": evidence_summary,
+                "python_contradictions": contradictions,
+                "playoff_prefer_alt": True,
+                "validation_history": [history_entry],
+            }
+            if revote_trace:
+                result["objective_revote_trace"] = revote_trace
+            return result
+
     if status == "match":
         if problem_type == "computation" and python_output.get("success") \
                 and match_result.get("method") in {"symbolic", "structured_symbolic"}:

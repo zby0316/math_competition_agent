@@ -103,7 +103,7 @@ def _partial_response(state: dict) -> tuple[str, str]:
         text = (candidate or "").strip()
         if text and not is_placeholder_answer(text) and not is_noise_answer(text):
             return f"{_PARTIAL_HEADER}{text}", source
-    return "解题过程中出现错误，无法给出完整答案。", "generic_error"
+    return "最终答案：未能求解", "generic_error"
 
 
 def _emergency_direct_answer(state: dict, deps) -> str:
@@ -432,7 +432,7 @@ def coordinator_node(state, config):
     cleaned_raw = strip_cot_prefix(raw)
     final = post_process_final_response(cleaned_raw, validated, ptype, problem=state["problem"])
     if not isinstance(final, str) or not final.strip():
-        final = f"最终答案：{validated}" if validated else "无法生成完整答案。"
+        final = f"最终答案：{validated}" if validated else "最终答案：未能求解"
     # Proof answers already carry their full derivation as the answer body; only
     # computation problems that require working get an appended outline.
     if ptype != "proof":

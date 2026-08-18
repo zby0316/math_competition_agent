@@ -15,6 +15,7 @@ from utils.retry_affordability import can_afford_retry, last_attempt_cost
 from utils.problem_profile import (
     answer_coverage_clause,
     is_objective_mode,
+    is_property_judge,
     mode_instruction,
     normalize_objective_answer,
     objective_answer_is_usable,
@@ -349,7 +350,7 @@ def _reasoning_agent_impl(state, config):
         category=category,
         skill_document=select_skill_excerpt(skill_doc, problem, 3000),
         problem=problem)
-    base_prompt += mode_instruction(question_mode)
+    base_prompt += mode_instruction(question_mode, problem)
     base_prompt += structure_instruction(problem)
     # V2.3 初解质量强化：超难题"计划先行"（目标锚定→路径规划→逐步求解），
     # 单次调用内完成，不增加额外 API 调用（串行重解在慢 API 下必然超时）。
@@ -403,7 +404,14 @@ def _reasoning_agent_impl(state, config):
                 "禁止填'不确定'，禁止输出任何操作说明文字"
             )
         elif question_mode == "true_false":
-            answer_shape = "答案行只写：正确 或 错误"
+            if is_property_judge(problem):
+                answer_shape = (
+                    "答案行对着题面所问的性质给出具体判断结论（例如问'是否稳定'就答"
+                    "稳定/不稳定，问'是否一致收敛'就答一致收敛/不一致收敛），"
+                    "禁止笼统答'正确/错误'"
+                )
+            else:
+                answer_shape = "答案行只写：正确 或 错误"
         else:
             answer_shape = (
                 "先判断单选/多选（题面注明多选或多个选项独立成立才多选），"
@@ -591,7 +599,8 @@ def _reasoning_agent_impl(state, config):
                 client,
                 messages=[{"role": "user", "content": prompt}],
                 prefix="## 问题分析\n",
-                temperature=CONFIG["temperatures"]["reasoning"],
+                temperature=state.get("sample_temperature")
+                or CONFIG["temperatures"]["reasoning"],
                 max_tokens=_mt,
                 logger=deps.logger,
                 time_budget=deps.time_budget,
@@ -681,6 +690,67 @@ def _reasoning_agent_impl(state, config):
             "reasoning_attempts": attempts, "reasoning_raw_response": resp}
 
 
+def _should_sample_vote(state: dict) -> bool:
+    """V2.5 小 N 自洽投票触发：hard 难度或分类低置信的计算题首轮。
+
+    只在分类器"拿不准"的场景触发——单次 prefill 采样可能"碰巧错"，
+    3 次多温度采样 + 多数票能捕获"正确答案是众数"的情况。客观题有 revote、
+    重算轮再采样会拖慢，均不触发。
+    """
+    if state.get("reconciliation_round", 0) > 0:
+        return False
+    if is_objective_mode(state.get("question_mode", "computation")):
+        return False
+    diff = str(state.get("difficulty") or "").lower()
+    conf = state.get("category_confidence", 1.0)
+    try:
+        low_conf = float(conf) < float(CONFIG.get("sample_vote_min_confidence", 0.85))
+    except (TypeError, ValueError):
+        low_conf = False
+    return diff == "hard" or low_conf
+
+
+def _sample_vote_reasoning(state: dict, config) -> dict:
+    """小 N 自洽投票：N=3 次 prefill 多温度采样 + 多数票，不自洽则回退主路径。
+
+    克制设计（区别于 V2.9 truncated 91→302 反噬）：
+    - N=3（非 6~8），温度 [0.4, 0.8, 1.0]
+    - prefill 抑制 CoT（非 thinking），token 沿用难度分级（非 32768 统一）
+    - 预算护栏：remaining_hard < 60s 停止采样
+    - 多数票（≥2/3）一致才采用，否则回退单次主路径（不放大系统性错误）
+    """
+    deps = get_deps(config)
+    clock = deps.time_budget
+    temps = list(CONFIG.get("sample_temperatures") or [0.8])
+    samples = []  # (temperature, answer, out)
+    for t in temps:
+        if clock and clock.remaining_hard() < 60:
+            break
+        out = _reasoning_agent_impl({**state, "sample_temperature": t}, config)
+        rr = out.get("reasoning_result") or {}
+        ans = str(rr.get("answer") or "").strip()
+        if ans and not is_placeholder_answer(ans):
+            samples.append((t, ans, out))
+    if len(samples) < 2:
+        return samples[0][2] if samples else _reasoning_agent_impl(state, config)
+    from collections import Counter
+    counter = Counter(a for _, a, _ in samples)
+    top_ans, top_count = counter.most_common(1)[0]
+    if top_count >= CONFIG.get("sample_vote_consensus", 2):
+        for _, a, out in samples:
+            if a == top_ans:
+                rr = out.get("reasoning_result") or {}
+                rr["answer_source"] = "sample_vote"
+                rr["sample_vote"] = dict(counter)
+                out["reasoning_result"] = rr
+                return out
+    # 不自洽：回退温度 0.8（=主路径默认温度）那次
+    for t, a, out in samples:
+        if abs(t - CONFIG["temperatures"]["reasoning"]) < 1e-9:
+            return out
+    return samples[0][2]
+
+
 def reasoning_agent_node(state, config):
     """调度入口：主路径直走实现；method_variant="B" 时跑异构第二解法。
 
@@ -694,6 +764,9 @@ def reasoning_agent_node(state, config):
     """
     variant = str(state.get("method_variant") or "").strip().upper()
     if variant != "B":
+        # V2.5 小 N 自洽投票：hard/低置信计算题首轮，先多温度采样投票
+        if _should_sample_vote(state):
+            return _sample_vote_reasoning(state, config)
         return _reasoning_agent_impl(state, config)
     if is_objective_mode(state.get("question_mode", "")):
         # 客观题快速路径自带两段式复核（plain+prefill），第三票由

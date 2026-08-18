@@ -637,4 +637,25 @@ $$\int_0^\infty \left|\frac{\sin x}{x}\right| \, dx = \sum_{k=0}^{\infty} \int_{
 - 解题路线：求 (Lp)* 中的泛函 → 找 g∈Lq 使 φ(f)=∫fg；证明泛函可表示 → 用 Riesz 定理（Hilbert）或 Radon-Nikodym（Lp）；求对偶范数 → ‖φ‖=‖g‖_q。
 - 易错点：p=1 时对偶是 L∞，但 (L∞)*≠L1（L∞ 的对偶更大）；Riesz 表示要求 Hilbert 空间（完备内积空间）；共轭指数 1/p+1/q=1 别算错（p=3 时 q=3/2）。
 - 分步收尾：求 (L³[0,1])* 中泛函 φ(f)=∫₀¹ f(x)·x dx 的范数：g(x)=x∈L^{3/2}，‖φ‖=‖x‖_{3/2}=(∫₀¹|x|^{3/2}dx)^{2/3}=(2/5)^{2/3}。
+## 模块速查：测度积分：符号测度的 Hahn 分解与 Jordan 分解
+- 检索词：符号测度 signed measure Hahn 分解 Hahn decomposition 正集 positive set 负集 negative set Jordan 分解 Jordan decomposition 变差 variation
+- 核心内容：设 $\mu$ 是 $(X,\Sigma)$ 上的符号测度。Hahn 分解：存在 $P,N\in\Sigma$，$P\cup N=X$，$P\cap N=\emptyset$，使 $P$ 是正集（对任意 $E\in\Sigma$，$\mu(E\cap P)\ge 0$）、$N$ 是负集（$\mu(E\cap N)\le 0$）。Jordan 分解：$\mu=\mu^+-\mu^-$，其中 $\mu^+(E)=\mu(E\cap P)$，$\mu^-(E)=-\mu(E\cap N)$；变差测度 $|\mu|=\mu^++\mu^-$。分解在 $|\mu|$-零集意义下唯一。
+- 解题路线：① 求符号测度的 Hahn 分解，先找极大正集（用正集族的可数并上确界逼近 $\mu$ 的全变差）；② 令 $N=X\setminus P$ 证其为负集；③ Jordan 分解 $\mu^+,\mu^-$ 由 $P,N$ 直接定义；④ 计算 $\|\mu\|=|\mu|(X)=\mu^+(X)+\mu^-(X)$。
+- 易错点：Hahn 分解不唯一（$|\mu|$-零集上可调整），但 Jordan 分解唯一；把"正集"与"几乎处处非负"混淆；符号测度不能取 $\infty$ 与 $-\infty$ 同时出现（定义要求至多一端无穷）。
+- 分步收尾：设 $\mu(E)=\int_E f\,d\lambda$，$f$ 可测可积。则 $P=\{f\ge 0\}$、$N=\{f<0\}$ 是 Hahn 分解；$\mu^+(E)=\int_E f^+\,d\lambda$、$\mu^-(E)=\int_E f^-\,d\lambda$；$|\mu|(E)=\int_E|f|\,d\lambda$。这给出 Radon-Nikodym 定理的符号测度版本：$\mu\ll\lambda$ 时 $\frac{d\mu}{d\lambda}=f$，$\frac{d|\mu|}{d\lambda}=|f|$。
+
+## 模块速查：测度积分：有界变差函数
+- 检索词：有界变差 bounded variation 全变差 total variation Jordan 分解 单调 monotone 几乎处处可微 a.e. differentiable
+- 核心内容：$f:[a,b]\to\mathbb R$ 的全变差 $V_a^b(f)=\sup\{\sum_i|f(x_i)-f(x_{i-1})|: a=x_0<x_1<\cdots<x_n=b\}$。$f$ 有界变差（$V_a^b(f)<\infty$）当且仅当 $f$ 是两个单调增函数之差（Jordan 分解：$f=\tfrac12(V+g)-\tfrac12(V-g)$，其中 $V(x)=V_a^x(f)$ 是变差函数）。有界变差函数几乎处处可微，且 $f'\in L^1$，$\int_a^b|f'|\le V_a^b(f)$。
+- 解题路线：① 证有界变差：对任意分划求和有界；② 构造 Jordan 分解：$V(x)=V_a^x(f)$ 单调增，$V(x)-f(x)$ 也单调增；③ 利用单调函数几乎处处可微推出 $f$ 几乎处处可微；④ 全变差与 $\int|f'|$ 比较（$f$ 绝对连续时取等号）。
+- 易错点：连续 + 有界变差 $\neq$ 绝对连续（Cantor 函数连续、单调、几乎处处导数为 0 但非绝对连续）；把"有界变差"与"有界"混淆（$\sin(1/x)$ 在 $(0,1]$ 有界但无界变差）；全变差的可加性 $V_a^b=V_a^c+V_c^b$ 需正确使用。
+- 分步收尾：$f(x)=x\sin(\frac1x)$（$x\ne0$），$f(0)=0$ 在 $[0,1]$ 上无界变差：取分划 $x_k=\frac{2}{(2k+1)\pi}$，$\sum|f(x_k)-f(x_{k-1})|$ 发散。而 $g(x)=x^2$ 在 $[0,1]$ 有界变差 $V=1$（单调增）。判断变差用"单调分解存在性"最稳。
+
+## 模块速查：测度积分：单调类定理与正则测度
+- 检索词：单调类 monotone class π系统 pi-system λ系统 lambda-system 正则测度 regular measure Radon 正则性 regularity
+- 核心内容：单调类定理：设 $\mathcal C$ 是 $\pi$-系统（对有限交封闭），$\mathcal M$ 是包含 $\mathcal C$ 的单调类（对递增并、递减交封闭），则 $\mathcal M$ 包含 $\sigma(\mathcal C)$。正则测度：$\mu$ 正则指对每个可测 $E$，$\mu(E)=\sup\{\mu(K):K\subset E\text{ 紧}\}=\inf\{\mu(U):E\subset U\text{ 开}\}$（内正则+外正则）。$\mathbb R^n$ 上局部有限 Borel 测度正则（Radon 测度）。
+- 解题路线：① 证明"某性质对所有可测集成立"时，先用单调类定理把结论从 $\pi$-系统（如区间、矩形）推广到 $\sigma$-代数；② 验证目标集合族构成单调类；③ 正则性证明用紧集逼近（内正则）与开集逼近（外正则）。
+- 易错点：单调类定理的 $\mathcal C$ 必须是 $\pi$-系统（否则结论不成立）；混淆 $\pi$-系统、$\lambda$-系统、单调类三者的封闭性要求；正则测度定义中内正则要求紧集（不是闭集）。
+- 分步收尾：证 $[0,1]$ 上两个 Borel 概率测度若在区间 $[a,b]$ 上相等则处处相等：区间族是 $\pi$-系统且生成 Borel $\sigma$-代数，$\{E:\mu(E)=\nu(E)\}$ 是单调类，由单调类定理两测度相等。
+
 <!-- AUTO-KNOWLEDGE-END -->

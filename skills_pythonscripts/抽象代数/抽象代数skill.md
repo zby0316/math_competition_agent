@@ -993,9 +993,30 @@ from sympy.polys.galoistools import gf_irreducible
 
 ## 模块速查：抽象代数：有限域生成元计数与本原元
 - 检索词：有限域 finite field 生成元 generator 本原元 primitive element 扩张 extension 真子域 subfield 计数 count 元素个数 域扩张 field extension 伽罗瓦 Galois
-- 核心内容：有限域 F_{p^n}（p 素数）中，α 满足 F_{p^n}=F_p(α)（称 α 为生成元/本原元）的充要条件是 α 不属于任何真子域。F_{p^n} 的真子域恰为 F_{p^d}（d 遍历 n 的真因子，即 d|n 且 d<n）。因子域格与因子格反同构（F_{p^a}⊆F_{p^b} ⟺ a|b），所有真子域的并集恰等于最大的那个真子域 F_{p^{n/m}}（m 为 n 的最小素因子）。故生成元个数 = p^n − p^{n/m}。特别地 n 为素数时（真子域只有 F_p）生成元个数 = p^n − p。
-- 解题路线：① 对 n 做素因子分解，取最小素因子 m；② 最大真子域为 F_{p^{n/m}}，含 p^{n/m} 个元素；③ 生成元个数 = p^n − p^{n/m}。判断"α 是否为生成元"：α 是生成元 ⟺ α ∉ 任何真子域（等价地 α 的阶为 p^n−1，或 α 的极小多项式次数为 n）。
-- 易错点：把"域生成元个数"与"乘法群本原元个数 φ(p^n−1)"混淆——前者是 p^n−p^{n/m}，后者是 φ(p^n−1)，考的是两个不同的集合；漏掉"真子域取并集时只需取最大的一个"而重复扣减；n 为素数时误以为没有真子域（其实恒有 F_p）。
-- 分步收尾：F_81=F_{3^4} 的生成元个数：n=4，最小素因子 m=2，最大真子域 F_{3^2}=F_9（9 元），生成元个数 = 81−9 = 72。若问 F_8=F_{2^3}：n=3 素数，生成元个数=8−2=6。
+- 核心内容：有限域 F_{p^n}（p 素数）中，α 满足 F_{p^n}=F_p(α)（称 α 为生成元/本原元）的充要条件是 α 不属于任何真子域。F_{p^n} 的真子域恰为 F_{p^d}（d 遍历 n 的真因子，即 d|n 且 d<n）。因子域格与因子格反同构（F_{p^a}⊆F_{p^b} ⟺ a|b）。生成元个数 = p^n − |极大真子域并集|（容斥：F_{p^a}∩F_{p^b}=F_{p^{gcd(a,b)}}）。当 n 是单个素因子的幂（真子域全序、极大真子域唯一）时并集=最大真子域 F_{p^{n/m}}（m 为最小素因子），个数 = p^n − p^{n/m}；但 n 有多个素因子（如 n=6）时极大真子域互不包含，必须容斥。特别地 n 为素数时（真子域只有 F_p）生成元个数 = p^n − p。
+- 解题路线：① 对 n 做素因子分解，找出所有极大真子域（对应 n 除以各素因子）；② 计算极大真子域并集大小（容斥，交集 F_{p^{gcd}}）；③ 生成元个数 = p^n − |并集|。仅 n 是单素因子幂时简化为 p^n − p^{n/m}。判断"α 是否为生成元"：α 是生成元 ⟺ α ∉ 任何真子域（等价地 α 的阶为 p^n−1，或 α 的极小多项式次数为 n）。
+- 易错点：把"域生成元个数"与"乘法群本原元个数 φ(p^n−1)"混淆——前者是 p^n−|极大真子域并集|，后者是 φ(p^n−1)，考的是两个不同的集合；n 有多个素因子时误以为"并集=最大真子域"（如 n=6 时 F_4∪F_8=10≠8，必须容斥）；漏掉"真子域取并集时只需取极大真子域"而重复扣减；n 为素数时误以为没有真子域（其实恒有 F_p）。
+- 分步收尾：F_81=F_{3^4}：n=4（单素因子幂），极大真子域 F_{3^2}=F_9（9 元），生成元个数 = 81−9 = 72。F_64=F_{2^6}：n=6=2×3（多素因子），极大真子域 F_{2^3}=F_8 与 F_{2^2}=F_4，并集 = 8+4−2=10（容斥，交集 F_2），生成元个数 = 64−10 = 54。F_8=F_{2^3}：n=3 素数，生成元个数=8−2=6。
+
+## 模块速查：抽象代数：Sylow 定理与群作用
+- 检索词：Sylow 定理 Sylow theorem Sylow 子群 Sylow subgroup p-群 p-group 群作用 group action 轨道稳定子 orbit-stabilizer 共轭类 conjugacy class 计数 count counting 正规化子 normalizer 正规 normal 循环群 cyclic group
+- 核心内容：设 $G$ 为有限群，$|G|=p^k m$（$p$ 素数，$p\nmid m$）。Sylow 第一定理（存在性）：对每个 $1\le i\le k$，$G$ 存在 $p^i$ 阶子群，特别地 $p^k$ 阶子群（Sylow $p$-子群）存在。Sylow 第二定理（共轭性）：$G$ 的任意 $p$-子群都包含在某个 Sylow $p$-子群中，且所有 Sylow $p$-子群彼此共轭。Sylow 第三定理（计数）：Sylow $p$-子群个数 $n_p\equiv 1\pmod p$ 且 $n_p\mid m$（且 $n_p=[G:N_G(P)]$，$P$ 为任一 Sylow $p$-子群）。Sylow $p$-子群正规 ⟺ $n_p=1$。轨道-稳定子定理：群 $G$ 作用在集合 $X$，对 $x\in X$ 有 $|\operatorname{Orb}(x)|=[G:\operatorname{Stab}(x)]$，故 $|\operatorname{Orb}(x)|\cdot|\operatorname{Stab}(x)|=|G|$。类方程 $|G|=|Z(G)|+\sum[G:C_G(g_i)]$。
+- 解题路线：① 因式分解 $|G|=p^k m$，列出 $n_p$ 的可能值（$n_p\equiv1\pmod p$ 且 $n_p\mid m$）；② 证 $n_p=1$（从而 Sylow 子群正规）常用反证：若 $n_p>1$，用 $G$ 在 Sylow 子群集上的共轭作用配合群作用计数/嵌入 $S_{n_p}$ 导出矛盾；③ 证某阶群不存在（或必循环/必 Abel）时用 $n_p$ 约束 + Cauchy 定理 + 阶整除性质逐步排除。
+- 易错点：$n_p\mid m$ 而非 $n_p\mid|G|$（$m$ 是去掉 $p$ 幂次后的因子）；Sylow 第二定理只保证「任意 $p$-子群含于某 Sylow $p$-子群」，不保证任意 $p^k$ 阶子群都是 Sylow（还要求 $p^k$ 是 $|G|$ 的最高 $p$ 幂）；$n_p\equiv1\pmod p$ 与 $n_p\mid m$ 只是必要条件、取值可能不唯一，需进一步论证；混淆正规化子 $N_G(P)$ 与中心化子 $C_G(P)$。
+- 分步收尾：证明 15 阶群必循环。$|G|=15=3\cdot5$。$n_5\equiv1\pmod5$ 且 $n_5\mid3$，故 $n_5=1$（$3\not\equiv1\pmod5$），唯一 5 阶 Sylow 子群 $P\triangleleft G$；$n_3\equiv1\pmod3$ 且 $n_3\mid5$，故 $n_3=1$（$5\not\equiv1\pmod3$），唯一 3 阶子群 $Q\triangleleft G$。$P\cap Q=\{e\}$（阶互素），$|PQ|=\frac{15}{1}=15=|G|$ 故 $PQ=G$；又 $P,Q$ 均正规且交平凡，元素可交换，故 $G\cong P\times Q\cong\mathbb Z_5\times\mathbb Z_3\cong\mathbb Z_{15}$ 循环。
+
+## 模块速查：抽象代数：Galois 理论与基本定理
+- 检索词：Galois 理论 Galois theory 域扩张 field extension 正规扩张 normal extension 可分扩张 separable extension 分裂域 splitting field 固定域 fixed field 中间域 intermediate field 基本定理 fundamental theorem 代数扩张 algebraic extension 自同构 automorphism
+- 核心内容：代数扩张 $E/F$：$E$ 中每个元都在 $F$ 上代数，次数 $[E:F]$ 为 $E$ 作为 $F$-向量空间的维数，塔定理 $[E:F]=[E:K][K:F]$。可分扩张：特征 0 域（或有限域、完备域）上不可约多项式无重根，故一切代数扩张可分；$E/F$ 可分 ⟺ 每个元的极小多项式无重根。正规扩张：$E/F$ 正规 ⟺ $E$ 是 $F[x]$ 中某族多项式的分裂域（每个不可约多项式若在 $E$ 中有一根则完全分裂）。Galois 扩张 = 有限 + 正规 + 可分（特征 0 下即有限正规扩张）。设 $E/F$ 为 Galois 扩张，$G=\operatorname{Gal}(E/F)$（保持 $F$ 逐点不动的自同构群），则 $|G|=[E:F]$。Galois 基本定理：中间域 $\{F\subseteq K\subseteq E\}$ 与子群 $\{H\le G\}$ 之间存在反序双射 $K\mapsto\operatorname{Gal}(E/K)$、$H\mapsto\operatorname{Fix}(H)$，且 $[E:K]=|H|$、$[K:F]=[G:H]$；$K/F$ 正规（Galois）⟺ $H\triangleleft G$，此时 $\operatorname{Gal}(K/F)\cong G/H$。
+- 解题路线：① 求分裂域 $E$ 并算次数 $[E:F]$（塔定理 + 逐次扩张）；② 验证正规性（是否分裂域）与可分性（特征 0 自动），得 Galois 性；③ 确定 Galois 群（根上的置换，常为 $S_n,A_n,C_n,D_n$ 等）；④ 用基本定理把「求中间域」化为「求 $G$ 的子群」。
+- 易错点：分裂域次数 ≠ 极小多项式次数（还要乘单位根域部分）；正规性与可分性是两个独立概念，可分非正规（如 $\mathbb Q(\sqrt[3]{2})/\mathbb Q$）与正规不可分（特征 $p$）都存在；基本定理是反序对应（域越小群越大）；固定域 $\operatorname{Fix}(H)$ 与自同构群 $\operatorname{Gal}(E/K)$ 互逆，方向别反。
+- 分步收尾：$f(x)=x^3-2$ 在 $\mathbb Q$ 上的分裂域与 Galois 群。根为 $\sqrt[3]{2},\ \omega\sqrt[3]{2},\ \omega^2\sqrt[3]{2}$（$\omega=e^{2\pi i/3}$）。分裂域 $E=\mathbb Q(\sqrt[3]{2},\omega)$。$[\mathbb Q(\sqrt[3]{2}):\mathbb Q]=3$（Eisenstein $p=2$），$[\mathbb Q(\sqrt[3]{2},\omega):\mathbb Q(\sqrt[3]{2})]=2$（$\omega$ 的极小多项式 $x^2+x+1$，$\omega$ 非实数不含于实域），故 $[E:\mathbb Q]=6$。$E/\mathbb Q$ 是分裂域且特征 0，故 Galois，$\operatorname{Gal}(E/\mathbb Q)\cong S_3$（6 阶）。由基本定理：$\mathbb Q(\omega)$ 对应 $A_3$（正规子群，故 $\mathbb Q(\omega)/\mathbb Q$ 为二次 Galois），$\mathbb Q(\sqrt[3]{2})$ 对应 2 阶子群（非正规，故 $\mathbb Q(\sqrt[3]{2})/\mathbb Q$ 非正规）。
+
+## 模块速查：抽象代数：环与理想（素理想、极大理想、PID、UFD）
+- 检索词：环 ring 理想 ideal 素理想 prime ideal 极大理想 maximal ideal 商环 quotient ring 主理想整环 PID 唯一分解整环 UFD 欧几里得环 Euclidean domain 整环 integral domain 零因子 zero divisor 不可约 irreducible 素元 prime element
+- 核心内容：理想 $I\triangleleft R$ 是加法子群且 $rI\subseteq I,\ Ir\subseteq I$；商环 $R/I$ 元素为陪集。素理想：$P$ 素 ⟺ $R/P$ 是整环 ⟺（$ab\in P\Rightarrow a\in P$ 或 $b\in P$）。极大理想：$M$ 极大 ⟺ $R/M$ 是域 ⟺ 无真理想严格包含 $M$。含幺交换环中极大理想必素，素理想未必极大（如 $\mathbb Z[x]$ 中 $\langle x\rangle$ 素但非极大）。整环 $R$ 是 UFD：每个非零非单位元可唯一（不计次序与单位）分解为不可约元之积。PID：每个理想由单元素生成；欧几里得环（有带余除法的欧几里得函数）⟹ PID ⟹ UFD。$\mathbb Z$、$F[x]$（$F$ 域）是欧几里得环；$\mathbb Z[x]$ 不是 PID（$\langle2,x\rangle$ 非主理想）。PID 中不可约元 ⟺ 素元，非零素理想 = 极大理想。UFD 上多项式环仍 UFD，故 $\mathbb Z[x]$、$F[x_1,\dots,x_n]$ 是 UFD 但非 PID。
+- 解题路线：① 判理想类型先算商环 $R/I$：整环则素、域则极大；② 证非 PID 构造一个非主理想（如 $\langle2,x\rangle\subset\mathbb Z[x]$）；③ 判 UFD/PID/欧几里得环按蕴含链 + 标准反例（UFD 非 PID：$\mathbb Z[x]$、$F[x,y]$）；④ 元素分解用 $\gcd$ 与素因子分解，判别式/范数帮助判不可约。
+- 易错点：极大理想与素理想关系方向（极大⟹素，含幺交换环），反过来不成立；素理想要求 $P\neq R$（真理想），零理想在整环中是素的；$\mathbb Z[x]$ 是 UFD 但非 PID，别混淆；欧几里得环⟹PID⟹UFD 是单向蕴含，UFD 不一定 PID；「$R/I$ 是域 ⟺ $I$ 极大」只在含幺交换环成立。
+- 分步收尾：判定 $\mathbb Z[x]$ 中 $I=\langle2,x\rangle$ 类型并说明 $\mathbb Z[x]$ 非 PID。$I=\{2f(x)+xg(x)\}$ 即常数项为偶数的整系数多项式全体。映射 $\mathbb Z[x]\to\mathbb Z_2,\ x\mapsto0$、系数模 2，核恰为 $I$，故 $R/I\cong\mathbb Z_2$ 是域，$I$ 极大（也是素）。若 $\mathbb Z[x]$ 是 PID 则 $I=\langle d\rangle$：由 $2\in\langle d\rangle$ 得 $d\mid2$（$d=\pm1,\pm2$），由 $x\in\langle d\rangle$ 得 $d\mid x$；能同时整除 2 与 $x$ 的整系数多项式只有 $\pm1$（单位），但 $\langle\pm1\rangle=\mathbb Z[x]\neq I$，矛盾。故 $I$ 非主理想，$\mathbb Z[x]$ 非 PID。
 
 <!-- AUTO-KNOWLEDGE-END -->

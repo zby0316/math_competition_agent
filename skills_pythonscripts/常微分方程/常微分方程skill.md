@@ -645,3 +645,24 @@
 - 解题路线：求特征值/特征函数 → 解 Sturm-Liouville 方程（二阶线性 ODE + 边值）；判断平衡点稳定性 → 求 Jacobi 矩阵特征值看实部符号；相平面分析 → 画轨线、判节点/鞍点/焦点/中心。
 - 易错点：Sturm-Liouville 的正交是"带权 w(x)"，不是普通内积；特征值从最小开始编号（λ1 最小）；线性化判定只对"双曲平衡点"（Re≠0）完全可靠，中心（纯虚特征值）需高阶判定；自伴性要求边值条件齐次。
 - 分步收尾：y''+λy=0，y(0)=y(π)=0：特征值 λ_n=n²，特征函数 y_n=sin(nx)（n=1,2,…），正交 ∫₀^π sin(mx)sin(nx)dx=0（m≠n）。
+
+## 模块速查：常微分方程：解的存在唯一性
+- 检索词：存在唯一性 existence uniqueness Picard 迭代 Picard iteration Lipschitz 条件 Lipschitz condition 连续依赖 continuous dependence 初值问题 initial value problem
+- 核心内容：Picard-Lindelöf 定理：设初值问题 $y'=f(x,y)$，$y(x_0)=y_0$。若 $f$ 在含 $(x_0,y_0)$ 的某矩形区域上连续，且关于 $y$ 满足 Lipschitz 条件 $|f(x,y_1)-f(x,y_2)|\le L|y_1-y_2|$（$L$ 为常数），则在 $x_0$ 的某邻域内存在唯一解。充分条件：$f$ 连续且 $\partial f/\partial y$ 有界（则局部 Lipschitz）。Picard 迭代：$y_0(x)\equiv y_0$，$y_{n+1}(x)=y_0+\int_{x_0}^{x}f(s,y_n(s))\,ds$，迭代列一致收敛到真解。解对初值连续依赖：Lipschitz 条件下解连续依赖于初值 $y_0$（Gronwall 不等式给出 $|y(x;y_0)-y(x;\tilde y_0)|\le e^{L|x-x_0|}|y_0-\tilde y_0|$）。
+- 解题路线：① 从方程识别 $f(x,y)$，验证连续性；② 计算 $\partial f/\partial y$ 判断是否有界（Lipschitz 充分条件）；③ 满足则断言存在唯一，不满足（如 $y'=\sqrt{y}$ 在 $y=0$ 处 $\partial f/\partial y$ 无界）则尝试构造多个解；④ 需要近似解时用 Picard 迭代算前几项并观察其收敛到已知解。
+- 易错点：连续性与 Lipschitz 是两个独立条件，连续但不 Lipschitz 也可能不唯一（经典反例 $y'=y^{\alpha}$，$0<\alpha<1$，在 $y=0$ 处）；Lipschitz 只需对 $y$ 满足，不需对 $x$；存在唯一性只保证局部（$x_0$ 的邻域），未必整体；Picard 迭代是逐次代回定积分，别漏 $y_0$ 常数项。
+- 分步收尾：用 Picard 迭代求 $y'=y$，$y(0)=1$ 的前三次近似。$y_0(x)\equiv1$；$y_1(x)=1+\int_0^x1\,ds=1+x$；$y_2(x)=1+\int_0^x(1+s)\,ds=1+x+\frac{x^2}{2}$；$y_3(x)=1+\int_0^x(1+s+\frac{s^2}{2})\,ds=1+x+\frac{x^2}{2}+\frac{x^3}{6}$。迭代收敛到 $e^x=\sum_{n\ge0}\frac{x^n}{n!}$，即真解 $y=e^x$。
+
+## 模块速查：常微分方程：Sturm-Liouville 问题
+- 检索词：Sturm-Liouville 特征值 eigenvalue 特征函数 eigenfunction 正交性 orthogonality 权函数 weight function Green 函数 Green function 边值问题 boundary value problem
+- 核心内容：正则 Sturm-Liouville 问题：$(p(x)y')'+q(x)y+\lambda w(x)y=0$ 配齐次边值条件（$a<x<b$），其中 $p>0$、$w>0$ 且 $p,p',q,w$ 连续。结论：特征值构成无穷递增列 $\lambda_1<\lambda_2<\cdots\to\infty$；对应特征函数 $\{y_n\}$ 关于权 $w$ 正交，即 $\int_a^b y_m(x)y_n(x)w(x)\,dx=0$（$m\ne n$）；任意满足适当光滑与边界条件的函数可展成特征函数级数 $f(x)=\sum_n c_n y_n(x)$，$c_n=\frac{\int_a^b f y_n w\,dx}{\int_a^b y_n^2 w\,dx}$（广义 Fourier 展开）。Green 函数：$Ly=-(p y')'+q y=f$ 配齐次边界时，解 $y(x)=\int_a^b G(x,\xi)f(\xi)\,d\xi$，其中 $G(x,\xi)$ 在 $x\ne\xi$ 满足 $LG=0$、满足边界条件、在 $x=\xi$ 连续且 $\partial_x G$ 有跳跃 $[\partial_x G]_{\xi^-}^{\xi^+}=-1/p(\xi)$，且 $G(x,\xi)=G(\xi,x)$ 对称。
+- 解题路线：① 解特征值问题：解 $Ly=-\lambda w y$（常为二阶常系数/欧拉方程）+ 齐次边值得特征值 $\lambda_n$ 与特征函数 $y_n$；② 定系数：用带权正交性 $\int y_m y_n w\,dx=0$ 求展开系数 $c_n$；③ Green 函数法：分别在 $x<\xi$、$x>\xi$ 解齐次方程，用边界条件与连接条件（连续 + 导数跳跃 $-1/p$）定出 $G$，再积分得解。
+- 易错点：正交性是"带权 $w(x)$"，即 $\int y_m y_n w\,dx=0$，不是普通内积 $\int y_m y_n\,dx$；特征值从最小开始编号（$\lambda_1$ 最小），别写成从 $\lambda_0$ 开始；Green 函数的导数跳跃量是 $-1/p(\xi)$（由 $-p y''$ 的标准形式决定），漏掉 $1/p$ 或符号都会错；$G$ 满足 $LG=\delta(x-\xi)$，对应解公式 $y=\int G f$，符号须与算子形式自洽。
+- 分步收尾：用 Green 函数解 $-y''=f(x)$，$y(0)=y(1)=0$。Green 函数 $G(x,\xi)=\begin{cases}x(1-\xi),&0\le x\le\xi\\ \xi(1-x),&\xi\le x\le1\end{cases}$（验证：$G(0,\xi)=G(1,\xi)=0$，$x=\xi$ 处连续；导数跳跃 $[\partial_x G]_{\xi^-}^{\xi^+}=-\xi-(1-\xi)=-1$，对应 $-G_{xx}=\delta(x-\xi)$）。取 $f(x)\equiv1$（即 $-y''=1$）：$y(x)=\int_0^1 G(x,\xi)\,d\xi=\int_0^x\xi(1-x)\,d\xi+\int_x^1 x(1-\xi)\,d\xi=(1-x)\frac{x^2}{2}+x\left(\frac12-x+\frac{x^2}{2}\right)=\frac{x(1-x)}{2}$。直接验算 $y''=-1$ 且 $y(0)=y(1)=0$，一致。
+
+## 模块速查：常微分方程：稳定性与相平面分析
+- 检索词：Lyapunov 稳定性 Lyapunov stability 线性化 linearization 平衡点 equilibrium 相平面 phase plane 奇点分类 singularity classification 焦点 focus 结点 node 鞍点 saddle 中心 center
+- 核心内容：① Lyapunov 稳定性：平衡点 $x^*$（$f(x^*)=0$）称为稳定（Lyapunov 稳定）若对任意 $\varepsilon>0$ 存在 $\delta>0$ 使 $|x(0)-x^*|<\delta$ 蕴含 $|x(t)-x^*|<\varepsilon$（对所有 $t\ge0$）；渐近稳定若还满足 $\lim_{t\to\infty}x(t)=x^*$。② 线性化判稳：对 $\dot{x}=f(x)$，$x^*$ 处 Jacobi 矩阵 $A=Df(x^*)$；若 $A$ 的所有特征值满足 $\operatorname{Re}\lambda<0$ 则渐近稳定，若存在 $\operatorname{Re}\lambda>0$ 则不稳定；$\operatorname{Re}\lambda=0$（纯虚根/零根）线性化不足以判定，需高阶项或 Lyapunov 函数。③ 二维线性系统 $\dot{x}=Ax$ 的奇点分类（特征值 $\lambda_1,\lambda_2$）：两负实根→稳定结点，两正实根→不稳定结点，异号实根→鞍点，$\operatorname{Re}<0$ 共轭复根→稳定焦点，$\operatorname{Re}>0$ 共轭复根→不稳定焦点，纯虚根→中心（稳定但不渐近稳定）。
+- 解题路线：① 求平衡点：解 $f(x)=0$；② 线性化：算 Jacobi 矩阵 $A=Df(x^*)$，求特征值看实部符号；③ 分类：按特征值判结点/鞍点/焦点/中心并画相图；④ 纯虚根（中心）或退化情形，构造 Lyapunov 函数 $V$（$V(x^*)=0$，$V>0$ 且 $\dot V\le0$）进一步判定。
+- 易错点：线性化判稳只对"双曲平衡点"（$\operatorname{Re}\lambda\ne0$）可靠，中心（纯虚特征值）的真实稳定性由非线性项决定，不能直接下结论；"稳定"与"渐近稳定"是不同概念，中心是稳定但不渐近稳定；$\dot V\le0$ 只能得稳定，$\dot V<0$ 才得渐近稳定；相平面旋转方向需另取一点算向量场确定。
+- 分步收尾：判断 $\dot{x}=y,\ \dot{y}=-x$ 平衡点 $(0,0)$ 的类型与稳定性。线性化矩阵 $A=\begin{pmatrix}0&1\\-1&0\end{pmatrix}$，特征方程 $\det(A-\lambda I)=\lambda^2+1=0$，$\lambda=\pm i$ 为纯虚根，故 $(0,0)$ 是中心，Lyapunov 稳定但不渐近稳定。取 $V(x,y)=x^2+y^2$，$\dot V=2x\dot x+2y\dot y=2xy+2y(-x)=0$，故 $V$ 沿轨线守恒，相轨迹为同心圆 $x^2+y^2=c$（对应谐振子 $x(t)=A\cos t+B\sin t$）。

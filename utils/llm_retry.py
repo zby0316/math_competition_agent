@@ -10,12 +10,14 @@ ask the clock for permission first.
 """
 
 import logging
+import re
 import time
 from typing import Dict, List
 
 from config import CONFIG
 from utils.prefill import prefill_messages, stitch
-from utils.response_normalize import chat_compatible, normalize_chat_response
+from utils.response_normalize import (
+    chat_compatible, detect_truncation, normalize_chat_response)
 
 
 class DeadlineExceeded(RuntimeError):
@@ -104,6 +106,18 @@ class LLMRetryWrapper:
                 result = normalize_chat_response(raw)
                 if self.time_budget:
                     self.time_budget.record(label, self._now() - started)
+                # 截断补救：finish_reason=length 时答案没写完，用已生成内容
+                # prefill 续写补全（V2.4 官方 truncated=91 的根因是截断答案被
+                # 当作完整答案返回）。只补一次，时间/预算不足则跳过。
+                # 双通道检测：① finish_reason=length（官方 client 返回 dict 时
+                # 可见）；② 启发式（client 只返回字符串时 finish_reason 不可见，
+                # 用"写满 max_tokens + 结尾明显未完成"判定——真机实证本地 client
+                # 返回纯 content 丢弃 finish_reason，仅靠①会漏检）。
+                if result and result.strip() and (
+                        detect_truncation(raw)
+                        or _looks_truncated(result, max_tokens)):
+                    result = self._continue_truncated(
+                        messages, result, temperature, label)
                 return result
             except Exception as exc:  # noqa: BLE001 - retry transient transport failures.
                 last_error = exc
@@ -142,6 +156,60 @@ class LLMRetryWrapper:
                 if delay > 0:
                     time.sleep(delay)
         raise last_error
+
+    def _continue_truncated(self, messages, result, temperature, label):
+        """finish_reason=length 时，用已生成内容 prefill 续写补全（只一次）。
+
+        克制设计（区别于 V2.8 上调 token 反而 truncated 366 的教训）：
+        - 续写用 prefill（assistant 前缀）抑制 CoT，不重新触发思考；
+        - 只用结尾片段作前缀（超长前缀在慢 API 下会拖到 800s+ 逼近单题硬限）；
+        - 预算不足（remaining_hard 或 can_afford 不满足）直接放弃，不冒险。
+        """
+        try:
+            if self.time_budget:
+                # 慢 API 下一次续写估 ~45s，硬上限前留 60s 余量
+                if getattr(self.time_budget, "remaining_hard", lambda: 0)() < 105:
+                    return result
+                if not self._affordable():
+                    return result
+            tail = result[-120:] if len(result) > 120 else result
+            raw2 = chat_compatible(
+                self.client, prefill_messages(messages, tail),
+                temperature, CONFIG.get("truncation_continue_tokens", 2048))
+            completion = normalize_chat_response(raw2)
+            if not completion or not completion.strip():
+                return result
+            stitched = stitch(tail, completion)
+            # 续写产物去掉前缀种子后拼回原答案；若续写异常（空/退化）保守回退
+            if stitched and stitched != tail:
+                return result + stitched[len(tail):] if stitched.startswith(tail) else result + stitched
+            return result
+        except Exception as exc:  # noqa: BLE001 - 续写失败保守返回原答案
+            if self.logger:
+                self.logger.warning("%s: truncation continue failed: %s", label, exc)
+            return result
+
+
+def _looks_truncated(text: str, max_tokens: int) -> bool:
+    """finish_reason 不可见时的截断启发式（真机实证：本地 client 只返回 content
+    字符串，丢弃 finish_reason，仅靠 detect_truncation 会漏检）。
+
+    判据（宁可误判补写——续写从结尾继续、主体答案保留，漏判代价是残缺 0 分）：
+    1. 写满判据：输出长度达到 max_tokens 的量级（中文 ~1.2 字符/token 下界）；
+    2. 未完成判据：结尾是明显未写完的形态（空列表项/冒号/逗号/未闭合括号/等号），
+       或写满 1.5 倍以上（截断点常在句中断开，无标点特征）。
+    """
+    if not isinstance(text, str) or max_tokens <= 0:
+        return False
+    s = text.rstrip()
+    if len(s) < max_tokens * 1.2:
+        return False
+    tail = s[-40:]
+    if re.search(r"[-:：,，、=＝]\s*$", tail):
+        return True
+    if re.search(r"[（(]\s*$", tail):
+        return True
+    return len(s) >= max_tokens * 1.5
 
 
 def chat_with_retry(

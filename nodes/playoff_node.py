@@ -58,6 +58,10 @@ def playoff_candidates(state: dict) -> tuple[str, str]:
     rr = _usable((state.get("reasoning_result") or {}).get("answer"))
     po = _usable((state.get("python_output") or {}).get("answer"))
     alt = _usable((state.get("reasoning_result_alt") or {}).get("answer"))
+    # V2.5 三路投票：A=Python 同源一致但 B（异构）反对时，裁决 A vs B，
+    # 而非 A vs Python（两者一致无意义）。
+    if state.get("playoff_prefer_alt") and rr and alt:
+        return rr, alt
     if rr and po:
         return rr, po
     if rr and alt:

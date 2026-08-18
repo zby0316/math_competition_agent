@@ -4,7 +4,7 @@ CONFIG = {
     # 3 次重试最坏 3×120s=360s 打水漂，是 V2.1 官方评测 19 题 error（单题超时被
     # 强杀）的重要推手。降到 1 次：快失败快降级，用"现有最佳答案成稿"而非死磕。
     "max_retries_per_node": 1, "llm_max_retries": 1, "backoff_factor": 1.5,
-    # Ceilings are a hang detector of LAST resort; TimeBudget.timeout_for() clamps
+    # Ceilings are a hang detector of LAST resort; TimeBudget.timeout_for clamps
     # each to whatever the problem deadline still allows, and that clamp is the real
     # bound. They are near the full budget on purpose.
     #
@@ -34,10 +34,17 @@ CONFIG = {
     # failed/unparseable LLM classification; it no longer narrows the LLM's
     # candidate list (all 18 domains go in one prefilled call).
     "classifier_top_k": 3,
-    "computation_tolerance": 1e-6, "proof_confidence_threshold": 0.7,
     "temperatures": {"classifier": 0.1, "reasoning": 0.8, "objective_reasoning": 0.2,
                      "python": 0.6,
                      "reconciliation": 0.2, "semantic_arbiter": 0.1, "coordinator": 0.4},
+    # V2.5 小 N 自洽投票（克制版）：只在 hard 难度或分类低置信的计算题首轮触发，
+    # 用 prefill 短答案做 N=3 次多温度采样 + 多数投票。与 V2.9 大 N 采样的关键
+    # 区别：N=3（非 6~8）、prefill 抑制 CoT（非 thinking）、token 沿用难度分级
+    # （非 32768 统一）——三者叠加正是 V2.9 truncated 91→302 反噬的根因，这里
+    # 全部规避。仅当多数票（≥2/3）一致时采用，避免"模型系统性错时投票放大错误"。
+    "sample_temperatures": [0.4, 0.8, 1.0],
+    "sample_vote_min_confidence": 0.85,
+    "sample_vote_consensus": 2,
     # Prefilled selection calls (classifier/semantic_arbiter) emit 4-12 completion
     # tokens because the assistant seed suppresses reasoning entirely. The small
     # caps below are safe ONLY with prefill: without it, this reasoning model bills
@@ -64,6 +71,8 @@ CONFIG = {
                    "reconciliation": 32768,
                    "semantic_arbiter": 96, "semantic_arbiter_fallback": 4096,
                    "coordinator": 16384, "emergency_answer": 1280},
+    # finish_reason=length 截断时的续写补全 max_tokens（只续一次，prefill 抑制 CoT）。
+    "truncation_continue_tokens": 2048,
     # V2.4 token 分级恢复：V2.1 把 reasoning 一刀切到 8192 导致难题推理被截断
     # （正确率 60→45）。恢复为按难度分级：简单题省 token（快），难题给足（推理
     # 充分）。hard 恢复到 V1 峰值 24576（V1 正是用 24576 拿到 60 correct），
@@ -117,24 +126,23 @@ CONFIG = {
     # 替代"只能二选一"的仲裁。一次 playoff ≈ 一次 LLM 生成 + 一次代码执行，
     # 远低于整轮 solving 子图重跑。
     "enable_playoff": True,
-    "playoff_max_seconds": 240,
     # 客观题低置信复核投票：仅当首次抽取置信不足（空位数不足/来源为兜底）时
     # 追加一次独立短采样比对；一致则提置信，不一致则携带双候选交仲裁。
     "enable_objective_revote": True,
     # 判断题双向确认（移植启元实证机制）：Intern-S2 对"是否"题系统性偏"否"
     # （90% 判断错题同根因）。结论→温度0独立自证→一致采纳/反向温度0重解。
     "enable_judge_confirm": True,
-    # 计数题枚举对照守护（冲刺满分 M6，ultra_112 idx=40 实证）：组合计数是
+    # 计数题枚举对照守护（冲刺满分 M6 实证）：组合计数是
     # LLM 最弱项。检出计数题则强制小规模枚举对照 + 代码静态核查枚举证据。
     "enable_counting_guard": True,
     # 符号等价判定加固：simplify 限时（秒）、自由符号对齐映射、采样维度上限。
     "matcher_simplify_timeout_s": 8,
     "matcher_max_sample_symbols": 4,
     # 模结构守护：检出 F_2 / Z_m / 模运算语境时向 Python 提示注入"结构内聚合"
-    # 强制条款，并对生成代码做确定性静态核查（评委报告 idx 7：F_2 六值被按
+    # 强制条款，并对生成代码做确定性静态核查（评委报告 ：F_2 六值被按
     # 普通整数相加得 3，应模 2 得 1）。
     "enable_modular_guard": True,
-    # V2 M4 答案形式对齐：数学对但形式不合（idx=94 答区间而非半长）时，
+    # V2 M4 答案形式对齐：数学对但形式不合（答区间而非半长）时，
     # 低成本 LLM 重述修正（~512 token）。关闭即跳过。
     "enable_form_align": True,
     # V2.1 M7 ProofDeepener：证明/推导题结构补强（定理陈述→步骤链→结论），

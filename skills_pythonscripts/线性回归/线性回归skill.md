@@ -555,4 +555,18 @@ $$\theta^{(k+1)} = \theta^{(k)} - H^{-1}(\theta^{(k)}) \nabla S(\theta^{(k)})$$
 - 解题路线：求回归系数 → 数据代入正规方程（或简单回归直接用斜率公式）；求 R² → 先算 SST/SSE/SSR 再套公式；判断拟合优劣 → 看 R² 与残差图；预测 → ŷ=x̂β̂。
 - 易错点：R²=1−SSE/SST（不是 SSE/SST）；简单回归 R²=相关系数 r²（平方）；s² 自由度是 n−p−1（p 为自变量个数）；正规方程 XᵀX 需可逆（否则多重共线，需正则化）。
 - 分步收尾：数据 (1,2)(2,3)(3,5)：x̄=2, ȳ=10/3，β̂₁=[(−1)(−4/3)+0+(1)(5/3)]/(1+0+1)=3/2，β̂₀=10/3−3/2·2=1/3，回归线 y=1.5x+1/3。
+## 模块速查：线性回归：最小二乘估计与 Gauss-Markov 定理
+- 检索词：最小二乘 least squares OLS 正规方程 normal equation 最佳线性无偏估计 BLUE Gauss-Markov 定理 Gauss-Markov theorem 无偏 unbiased 方差 variance 同方差 homoscedastic 设计矩阵 design matrix 估计量 estimator 异方差 heteroscedastic
+- 核心内容：线性模型 $y=X\beta+\varepsilon$，$X$ 为 $n\times p$ 设计矩阵（列满秩）。OLS 最小化 $\|y-X\beta\|^2$，正规方程 $X^TX\hat\beta=X^Ty$，解 $\hat\beta=(X^TX)^{-1}X^Ty$；一元情形 $\hat\beta_1=S_{xy}/S_{xx}$、$\hat\beta_0=\bar y-\hat\beta_1\bar x$。Gauss–Markov 定理：在 $E(\varepsilon)=0$、$\operatorname{Var}(\varepsilon)=\sigma^2 I$（同方差且互不相关）、$X$ 非随机且列满秩下，OLS 估计量 $\hat\beta$ 是 BLUE——对任意 $c$，线性组合 $c^T\hat\beta$ 在一切线性无偏估计中方差最小。异方差（$\operatorname{Var}(\varepsilon)\ne\sigma^2 I$）下 OLS 仍线性无偏但不再是 BLUE，应改用 GLS/WLS。同方差下 $\operatorname{Var}(\hat\beta)=\sigma^2(X^TX)^{-1}$。
+- 解题路线：① 建设计矩阵 $X$，算 $X^TX,X^Ty$，解正规方程；② 证 BLUE 用「OLS 估计 = 任意线性无偏估计 + 正交项」结构或直接引 Gauss–Markov；③ 判无偏用 $E(\hat\beta)=\beta$，比较有效性比较方差矩阵；④ 异方差时指出 OLS 无偏但非 BLUE、传统标准误有偏。
+- 易错点：Gauss–Markov 结论是「最佳线性无偏」（BLUE），不是含非线性估计的全最优；同方差（球形扰动）是 BLUE 的必要假设，异方差破坏 BLUE；正规方程 $X^TX$ 可逆要求 $X$ 列满秩（无完全多重共线性）；无偏性只需 $E(\varepsilon)=0$ 与 $X$ 非随机，不需要正态性。
+- 分步收尾：数据 $(1,2),(2,3),(3,5)$ 求回归直线。$\bar x=2,\ \bar y=10/3$。$S_{xx}=\sum(x_i-\bar x)^2=(-1)^2+0^2+1^2=2$。$S_{xy}=\sum(x_i-\bar x)(y_i-\bar y)=(-1)(2-\tfrac{10}{3})+0+(1)(5-\tfrac{10}{3})=\tfrac43+\tfrac53=3$。$\hat\beta_1=S_{xy}/S_{xx}=\tfrac32$，$\hat\beta_0=\bar y-\hat\beta_1\bar x=\tfrac{10}{3}-\tfrac32\cdot2=\tfrac13$。回归直线 $\hat y=\tfrac32 x+\tfrac13$。
+
+## 模块速查：线性回归：正则化（Ridge/Lasso）与偏差-方差权衡
+- 检索词：正则化 regularization Ridge 岭回归 Lasso 套索 L1 L2 偏差-方差权衡 bias-variance tradeoff 收缩 shrinkage 过拟合 overfitting 稀疏 sparsity 惩罚 penalty 调参 tuning 交叉验证 cross-validation 多重共线性 multicollinearity 弹性网 elastic net
+- 核心内容：岭回归（L2）$\min_\beta\|y-X\beta\|_2^2+\lambda\|\beta\|_2^2$，闭式解 $\hat\beta_{\text{ridge}}=(X^TX+\lambda I)^{-1}X^Ty$，收缩系数但不置零，$X^TX$ 奇异（多重共线性）时仍可解。Lasso（L1）$\min_\beta\|y-X\beta\|_2^2+\lambda\|\beta\|_1$（$\|\beta\|_1=\sum|\beta_j|$），产生稀疏解（部分系数恰为 0）可做变量选择，无闭式解需坐标下降/LARS。$\lambda$ 为正则化参数：$\lambda=0$ 退化为 OLS，$\lambda\to\infty$ 系数趋于 0。偏差-方差权衡：OLS 无偏但高方差（尤其共线性/高维），正则化引入偏差（系数收缩）但大幅降方差，从而可能降低预测均方误差 MSE = 方差 + 偏差² + 不可约误差。弹性网 $\lambda_1\|\beta\|_1+\lambda_2\|\beta\|_2^2$ 兼顾稀疏与稳定。
+- 解题路线：① 识别多重共线性/高维（$p>n$）→ 岭回归（L2）或 Lasso；② 需变量选择/稀疏解 → Lasso；③ 选 $\lambda$ 用交叉验证（最小化验证 MSE）；④ 解释偏差-方差：正则化以小幅偏差换大幅方差下降、总 MSE 下降。
+- 易错点：Ridge 收缩但不稀疏（系数不为 0），Lasso 才产生稀疏解，两者别混；Ridge 有闭式解 $(X^TX+\lambda I)^{-1}X^Ty$，Lasso 无闭式解；$\lambda$ 越大偏差越大、方差越小；正则化前通常先标准化特征（否则惩罚对不同量纲变量不公平）；OLS 是 BLUE 但仍有方差，正则化牺牲无偏换更小方差、可得更优 MSE。
+- 分步收尾：二维强共线情形 $X^TX=\begin{pmatrix}1&\rho\\\rho&1\end{pmatrix}$（$\rho$ 接近 1）。OLS 系数方差 $\propto(X^TX)^{-1}$，对角元 $\frac{1}{1-\rho^2}$ 随 $\rho\to1$ 爆炸。岭回归用 $(X^TX+\lambda I)^{-1}=\frac{1}{(1+\lambda)^2-\rho^2}\begin{pmatrix}1+\lambda&-\rho\\-\rho&1+\lambda\end{pmatrix}$，对角元 $\frac{1+\lambda}{(1+\lambda)^2-\rho^2}$ 在 $\lambda>0$ 时有限，方差被压住，故共线性下岭回归更稳定；代价是偏差增加 $\lambda\|\beta\|$ 量级，但方差下降更显著、MSE 更低。
+
 <!-- AUTO-KNOWLEDGE-END -->

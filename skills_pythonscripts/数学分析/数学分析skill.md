@@ -431,4 +431,18 @@ description: 系统求解与核验数学分析中的极限、连续与可导、�
 - 解题路线：证函数可用多项式逼近 → 引 Stone-Weierstrass（或对具体函数构造 Bernstein 多项式）；隐函数求导 → f'(x)=−F_x/F_y 直接代；证局部反函数存在 → 用反函数定理（Jacobi 行列式非零）。
 - 易错点：Stone-Weierstrass 要求区间紧（闭区间），开区间不成立；隐函数定理是"局部"存在（只在 (x0,y0) 邻域）；隐函数求导用 −F_x/F_y，符号别反；多元隐函数用 Jacobi 矩阵判可解。
 - 分步收尾：F(x,y)=x²+y²−1=0 在 (0,1) 处 ∂F/∂y=2≠0，故局部 y=√(1−x²)，y'(0)=−F_x/F_y=−0/2=0。
+## 模块速查：数学分析：一致收敛
+- 检索词：一致收敛 uniform convergence 逐点收敛 pointwise convergence Weierstrass M 判别法 M-test 函数项级数 series of functions 连续 continuity 积分 integral 求导 differentiation 换序 interchange limit 上确界 supremum 一致 Cauchy 准则 uniform Cauchy
+- 核心内容：逐点收敛：固定 $x$，$\lim_{n\to\infty}f_n(x)=f(x)$。一致收敛：$\lim_{n\to\infty}\sup_{x\in E}|f_n(x)-f(x)|=0$（或 $\forall\varepsilon,\exists N$ 与 $x$ 无关，$\forall n>N,\forall x$：$|f_n(x)-f(x)|<\varepsilon$）。一致 Cauchy 准则：$f_n$ 一致收敛 ⟺ $\forall\varepsilon,\exists N,\forall m,n>N,\forall x$：$|f_m(x)-f_n(x)|<\varepsilon$。Weierstrass M 判别：若 $|u_n(x)|\le M_n$ 且 $\sum M_n$ 收敛，则 $\sum u_n(x)$ 一致（且绝对）收敛。一致收敛保连续：$f_n$ 连续且一致收敛到 $f$ ⟹ $f$ 连续。一致收敛可交换积分：$f_n$ 可积且一致收敛到 $f$ ⟹ $\lim_n\int f_n=\int f$。求导换序：若 $f_n'$ 一致收敛到 $g$ 且 $f_n$ 在某点收敛，则 $f_n$ 一致收敛到可导的 $f$ 且 $f'=g$（$\lim_n f_n'=(\lim_n f_n)'$）。
+- 解题路线：① 先求逐点极限 $f$；② 计算（或估计）$\sup_x|f_n(x)-f(x)|$ 是否趋于 0，或用一致 Cauchy/M 判别；③ 一致收敛则连续/积分/求导可换序；④ 开区间上检查端点附近上确界是否不趋于 0（如 $\sum x^n$ 在 $[0,1)$ 非一致）。
+- 易错点：逐点收敛不蕴含一致收敛，必须查 $\sup_x$ 或依赖 $x$ 的坏点；一致收敛不蕴含绝对收敛、绝对收敛不蕴含一致收敛；M 判别要求控制级数 $\sum M_n$ 收敛，$\sum1/n$ 型控制无效；求导换序要求「导数一致收敛」（不是函数本身一致收敛就够），还需某点收敛。
+- 分步收尾：$f_n(x)=x^n$ 在 $[0,1)$ 上逐点收敛到 $f(x)=0$ 但不一致收敛（$\sup_{x\in[0,1)}|x^n-0|=1\not\to0$）；在 $[0,a]$（$a<1$）上一致收敛（$\sup_{x\in[0,a]}|x^n|=a^n\to0$）。级数 $\sum_{n=1}^{\infty}x^n/n$ 在 $[0,a]$（$a<1$）一致收敛：$|x^n/n|\le a^n/n$ 且 $\sum a^n/n$ 收敛（$a<1$ 时与几何级数比较），由 Weierstrass M 判别一致收敛。
+
+## 模块速查：数学分析：隐函数与反函数定理、Arzelà–Ascoli
+- 检索词：隐函数定理 implicit function theorem 反函数定理 inverse function theorem Jacobi 矩阵 Jacobian 连续可微 continuously differentiable 局部 local 一致收敛 uniform convergence 等度连续 equicontinuous Arzelà-Ascoli 列紧 sequentially compact 一致有界 uniformly bounded 微分同胚 diffeomorphism
+- 核心内容：隐函数定理：$F(x,y)$ 在 $(x_0,y_0)$ 邻域 $C^1$，$F(x_0,y_0)=0$，$\frac{\partial F}{\partial y}(x_0,y_0)\neq0$，则在 $(x_0,y_0)$ 邻域唯一存在 $C^1$ 隐函数 $y=f(x)$ 使 $F(x,f(x))=0$ 且 $f'(x_0)=-\frac{F_x(x_0,y_0)}{F_y(x_0,y_0)}$；多元版（$x\in\mathbb R^n,y\in\mathbb R^m$）$\det\frac{\partial F}{\partial y}(x_0,y_0)\neq0$ ⟹ 局部唯一 $y=f(x)$，$Df=-(D_yF)^{-1}D_xF$。反函数定理：$f:\mathbb R^n\to\mathbb R^n$ 在 $x_0$ 邻域 $C^1$，$\det Df(x_0)\neq0$，则 $f$ 在 $x_0$ 邻域是 $C^1$ 微分同胚（有局部 $C^1$ 反函数），$D(f^{-1})(f(x_0))=[Df(x_0)]^{-1}$。Arzelà–Ascoli 定理：$C[a,b]$ 中函数族 $\mathcal F$ 列紧（任意序列有一致收敛子列）⟺ $\mathcal F$ 一致有界（$\sup_{f\in\mathcal F}\|f\|_\infty<\infty$）且等度连续（$\forall\varepsilon,\exists\delta,\forall f\in\mathcal F,|x-y|<\delta\Rightarrow|f(x)-f(y)|<\varepsilon$）。等度连续充分条件：导数一致有界 $|f'(x)|\le M$。
+- 解题路线：① 隐函数/反函数先验证 Jacobi 行列式（或偏导）非零，再给局部存在性与导数公式；② 隐函数求导用 $f'=-F_x/F_y$（多元 $Df=-(D_yF)^{-1}D_xF$）；③ 证函数列有收敛子列用 Arzelà–Ascoli：验证一致有界 + 等度连续；④ 注意「局部」——只在邻域内成立。
+- 易错点：隐函数/反函数定理是「局部」结论非全局；隐函数导数符号 $f'(x_0)=-\frac{F_x}{F_y}$（负号别丢），多元用 $-D_yF^{-1}D_xF$；Arzelà–Ascoli 给「列紧」（有收敛子列）不是整个序列收敛；等度连续 ≠ 每函数连续（$\delta$ 对族内所有 $f$ 一致）；一致有界与等度连续两条件缺一不可。
+- 分步收尾：$F(x,y)=x^2+y^2-1=0$ 在 $(0,1)$ 处 $\frac{\partial F}{\partial y}=2y|_{(0,1)}=2\ne0$，故局部存在隐函数 $y=\sqrt{1-x^2}$，且 $y'(0)=-\frac{F_x}{F_y}=-\frac{2x}{2y}|_{(0,1)}=-\frac{0}{2}=0$。验证：$\sqrt{1-x^2}$ 在 $x=0$ 处导数 $\frac{-x}{\sqrt{1-x^2}}|_{x=0}=0$，一致。
+
 <!-- AUTO-KNOWLEDGE-END -->

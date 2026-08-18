@@ -26,8 +26,11 @@ class TestNeitherThenDiverseRescue(unittest.TestCase):
         responses = [
             # 分类：高风险领域 + hard（首轮即扇出三路）
             '离散数学", "confidence": 0.93, "difficulty": "hard"}',
-            # 首轮三路：主推理 4、异构路径 4、Python 5 —— 三方全不一致
+            # A 路径小 N 采样（V2.5：hard 题触发 3 次多温度采样，都答 4 投票一致）
             _four_sections("4"),
+            _four_sections("4"),
+            _four_sections("4"),
+            # 首轮三路：主推理 4（采样投票结果）、异构路径 4、Python 5 —— 三方全不一致
             _four_sections("4"),
             _code_block("5"),
             # Playoff 裁决代码：双证伪

@@ -1637,4 +1637,11 @@
 - 易错点：Hamming 界中 t 是 ⌊(d−1)/2⌋（纠错能力），不是 d 本身；Singleton 界 k ≤ n−d+1 的 d 是最小距离；球填充要乘 (q−1)^i（每位置 q−1 种非零差异）；界给的是上界，实际码字数可能达不到。
 - 分步收尾：q=2、n=7、d=3 的码最大码字数：t=⌊(3−1)/2⌋=1，Hamming 界 = 2^7/(C(7,0)+C(7,1)) = 128/8 = 16，Hamming 码 [7,4,3] 恰好 2^4=16 个码字（完备码）。
 
+## 模块速查：离散数学：谱图理论（拉普拉斯矩阵与代数连通度）
+- 检索词：谱图 spectral graph 拉普拉斯矩阵 Laplacian matrix 代数连通度 algebraic connectivity 邻接矩阵 adjacency matrix 特征值 eigenvalue 矩阵树 matrix-tree 生成树 spanning tree
+- 核心内容：图 $G$ 的拉普拉斯矩阵 $L=D-A$（$D$ 对角度数矩阵，$A$ 邻接矩阵）。$L$ 对称半正定，$0$ 是特征值且重数 $=$ 连通分量数（$0$ 对应全 1 向量）。特征值 $0=\lambda_1\le\lambda_2\le\cdots\le\lambda_n$。代数连通度 $\lambda_2$（Fiedler 值）：$\lambda_2>0\iff G$ 连通，$\lambda_2$ 越大图连通越"健壮"。Kirchhoff 矩阵树定理：$G$ 的生成树个数 $=\frac1n\lambda_2\lambda_3\cdots\lambda_n$（$L$ 去掉一行一列的行列式，即非零特征值乘积除以 $n$）。
+- 解题路线：① 写出 $L=D-A$；② 求 $L$ 的特征值（$0$ 的重数给连通分量数）；③ $\lambda_2$ 判连通与健壮性；④ 生成树计数用矩阵树定理（非零特征值乘积 $/n$）。
+- 易错点：拉普拉斯矩阵是 $L=D-A$（不是 $A$，也不是 $-L$）；$\lambda_2=0\iff$ 不连通（$\lambda_2$ 是第二小，不是第二大的绝对值）；完全图 $K_n$ 的 $L$ 特征值为 $0,n,\dots,n$（$\lambda_2=n$）；矩阵树定理要除以 $n$。
+- 分步收尾：完全图 $K_n$ 的拉普拉斯矩阵 $L=nI-J$（$J$ 全 1），特征值 $0$（1 重）、$n$（$n-1$ 重）。代数连通度 $\lambda_2=n$。生成树数 $=n^{n-2}$（Cayley 公式）：非零特征值乘积 $/n=n^{n-1}/n=n^{n-2}$，与 Cayley 公式一致。完全二部图 $K_{m,n}$ 的 $L$ 特征值为 $0,m,n,m+n$。
+
 <!-- AUTO-KNOWLEDGE-END -->

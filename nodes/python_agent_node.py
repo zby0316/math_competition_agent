@@ -102,10 +102,10 @@ _MAIN_NAME_RE = re.compile(r"(?i)main|solve|count|compute|calc|answer|result|fin
 def _append_answer_print(code: str) -> str:
     """定义了函数却没有产出结论的代码，确定性补一个主调用 + 打印。
 
-    2026-08-10 评委报告 idx 0：DFS 建模方向完全正确，但只定义
-    count_hamiltonian_paths() 未调用，stdout 空转 0.058s；补打印的 LLM 短重试又被
+    2026-08-10 评委报告 ：DFS 建模方向完全正确，但只定义
+    count_hamiltonian_paths 未调用，stdout 空转 0.058s；补打印的 LLM 短重试又被
     预算门禁拒绝。改写是确定性的（不花 LLM 时间）：挑一个可无参调用的函数追加
-    print("最终答案:", fn())，执行仍受 60s 执行器时限保护。挑不出目标时返回 ""。
+    print("最终答案:", fn)，执行仍受 60s 执行器时限保护。挑不出目标时返回 ""。
     """
     source = code or ""
     if not source.strip():
@@ -120,7 +120,7 @@ def _append_answer_print(code: str) -> str:
         return ""
     preferred = [n for n in callable_names if _MAIN_NAME_RE.search(n)]
     target = (preferred or callable_names)[-1]
-    return source + f'\n\nprint("最终答案:", {target}())\n'
+    return source + f'\n\nprint("最终答案:", {target})\n'
 
 
 #: 压缩重生成的估时（8192 token @ ~50 tok/s + 余量）。
@@ -143,7 +143,7 @@ def _compressed_python_call(deps, problem, candidate_answer,
     失败返回 (None, 原因)。
     """
     clock = deps.time_budget
-    if clock and clock.remaining_hard() - _COMPRESSED_RESERVE_MARGIN_S \
+    if clock and clock.remaining_hard - _COMPRESSED_RESERVE_MARGIN_S \
             < _COMPRESSED_CALL_ESTIMATE_S:
         return None, "compressed_retry_unaffordable"
     instruction = _retry_prompt(
@@ -178,7 +178,7 @@ def python_agent_node(state, config):
     client = deps.client
     mcp_client = deps.mcp_client
     budget = deps.token_budget
-    max_attempts = 1 if budget and budget.is_tight() else CONFIG["max_retries_per_node"]
+    max_attempts = 1 if budget and budget.is_tight else CONFIG["max_retries_per_node"]
     problem, category = state["problem"], state["category"]
     question_mode = state.get("question_mode", "computation")
     if is_objective_mode(question_mode):
@@ -237,7 +237,7 @@ def python_agent_node(state, config):
     hint = state.get("branch_hint")
     prompt = f"{base_prompt}\n\n[复核提示] {hint}" if hint else base_prompt
     # VeritasMath 模结构守护：F_2/Z_m 语境注入"结构内聚合"强制条款
-    # （评委报告 idx 7：六个 F_2 值被按普通整数相加；提示层自觉不可靠，
+    # （评委报告 ：六个 F_2 值被按普通整数相加；提示层自觉不可靠，
     #  生成后还有一道静态核查兜底）。
     modular = {"hit": False, "cues": []}
     if CONFIG.get("enable_modular_guard", True):
@@ -245,7 +245,7 @@ def python_agent_node(state, config):
         modular = detect_modular_context(problem)
         if modular["hit"]:
             prompt += prompt_clause(problem)
-    # VeritasMath 计数题枚举对照守护（冲刺满分 M6，ultra_112 idx=40 实证）：
+    # VeritasMath 计数题枚举对照守护（冲刺满分 M6 实证）：
     # 组合计数是 LLM 最弱项，闭式极易错。检出计数题则注入强制枚举对照条款，
     # 生成后静态核查代码必须含枚举循环，否则打回（不执行只写闭式的代码）。
     counting = {"hit": False}
@@ -262,10 +262,10 @@ def python_agent_node(state, config):
     last_output = None
     last_code = ""
     clock = deps.time_budget
-    # V2.4 提分（idx=92 实证）：代码执行失败（多为生成代码的语法错误，如
+    # V2.4 提分（实证）：代码执行失败（多为生成代码的语法错误，如
     # "from sympy.stats import Sample mean_sym = ..." 一行两语句）时，旧链路
     # 在 max_attempts=1 下直接放弃 → 无验证证据出厂。这里给一次独立的
-    # "执行修复"重试（不消耗主生成配额，受预算门禁保护），让 idx=92 类
+    # "执行修复"重试（不消耗主生成配额，受预算门禁保护），让此类
     # 题至少有第二证据而非裸 reasoning 出厂。
     exec_fix_used = False
     exec_fix_pending = False
@@ -273,7 +273,7 @@ def python_agent_node(state, config):
     def finalize(output):
         enriched = parse_verification_evidence(
             output, candidate_answer=candidate_answer, code=last_code)
-        # V2.4 提分（idx=85 实证）：Python 验证"内部自洽 PASS"但符号与推理
+        # V2.4 提分（实证）：Python 验证"内部自洽 PASS"但符号与推理
         # 候选相反时，旧链路把 support 证据出厂、仲裁盲选推理错值。这里做
         # 确定性数值兜底：只要 python answer 与候选都是可解析数值且不一致，
         # 一律把证据降级为 contradict，让下游 playoff/仲裁用确定性计算纠偏。
@@ -290,7 +290,7 @@ def python_agent_node(state, config):
                                 if xc["reason"] not in c]
                     enriched["contradictions"] = existing + [xc["reason"]]
                     deps.logger.warning(
-                        "Python 数值比对兜底: idx候选与python结果不一致 -> %s",
+                        "Python 数值比对兜底: 候选与python结果不一致 -> %s",
                         xc["reason"])
             except Exception:  # noqa: BLE001 - 兜底失败不影响主流程
                 pass
@@ -305,7 +305,7 @@ def python_agent_node(state, config):
             "python_evidence_summary": enriched.get("evidence_summary", ""),
             "python_contradictions": enriched.get("contradictions", []),
         }
-    if clock and clock.fast_path():
+    if clock and clock.fast_path:
         max_attempts = 1
     compressed_next = False
     compressed_used = False
@@ -337,7 +337,7 @@ def python_agent_node(state, config):
                     and not can_afford_retry(clock, "python"):
                 deps.logger.warning(
                     "Skipping Python retry: %.0fs left, last attempt cost %.0fs",
-                    clock.remaining(), last_attempt_cost(clock, "python"))
+                    clock.remaining, last_attempt_cost(clock, "python"))
                 trace.append({"attempt": attempts + 1, "status": "skipped",
                               "reason": "retry_unaffordable"})
                 break
@@ -428,7 +428,7 @@ def python_agent_node(state, config):
             continue
         if not _prints_answer(code):
             # 缺少最终答案打印的代码**仍然执行**：stdout 里往往已有结论
-            # （评委报告 idx 38：正确公式在代码里，旧逻辑拒绝执行去换一次
+            # （评委报告 ：正确公式在代码里，旧逻辑拒绝执行去换一次
             # 450s 的重生成，最终一无所获）。执行后由 stdout 二次抽取兜底。
             trace.append({"attempt": attempts, "status": "missing_answer_print",
                           "note": "executing anyway; stdout miner may recover"})
@@ -449,7 +449,7 @@ def python_agent_node(state, config):
             if str(probe.get("answer") or "").strip():
                 return finalize(output)
             # 执行成功但连 stdout 挖掘都拿不到结论 → 先做确定性补调用修复
-            # （2026-08-10 评委建议 5：idx 0 的代码方向正确、只差一个主调用，
+            # （2026-08-10 评委建议 5： 的代码方向正确、只差一个主调用，
             # 而"补打印"LLM 短重试恰恰会被预算门禁拒绝）。修不动再花 LLM 重试。
             trace.append({"attempt": attempts, "status": "no_extractable_answer"})
             repaired = _append_answer_print(code)
@@ -460,7 +460,7 @@ def python_agent_node(state, config):
                     repaired_output, candidate_answer=candidate_answer, code=repaired)
                 answer_text = str(repaired_probe.get("answer") or "").strip()
                 if repaired_output.get("success") and answer_text \
-                        and answer_text.lower() not in {"none", "null"}:
+                        and answer_text.lower not in {"none", "null"}:
                     last_code = repaired
                     trace.append({"attempt": attempts,
                                   "status": "deterministic_print_repair"})
@@ -484,7 +484,7 @@ def python_agent_node(state, config):
             exec_fix_used = True
             if not can_afford_retry(clock, "python"):
                 deps.logger.warning(
-                    "Skipping Python exec-fix retry: %.0fs left", clock.remaining())
+                    "Skipping Python exec-fix retry: %.0fs left", clock.remaining)
                 trace.append({"attempt": attempts, "status": "exec_fix_skipped",
                               "reason": "retry_unaffordable"})
                 break

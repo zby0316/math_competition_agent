@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import re
 
+from utils.problem_profile import is_property_judge
+
 #: 期望单值答案的题面信号（求值/求个数/求半长/求大小等）
 _SINGLE_VALUE_RE = re.compile(
     r"(?:求|计算|为|等于|是多少|的值|大小|个数|数量|半长|长度|面积|体积|"
@@ -73,6 +75,12 @@ def expected_form(problem: str) -> str:
     if option_count >= 2:
         return "choice"
     if re.search(r"判断(?:题)?|正误|对错|是否正确|是否成立", text):
+        # 性质判断题（"判断系统是否稳定"、"判断是否一致收敛"）答案不是"正确/错误"，
+        # 而是对具体性质的结论（稳定/不稳定、一致收敛/不一致收敛）。其形态无法用
+        # 简单正则校验，跳过形式对齐——否则二次重述会把"稳定但不渐近稳定"错改写成
+        # "正确/错误"（U-02 实证：idx=9/14 因此被判错）。
+        if is_property_judge(text):
+            return "unknown"
         return "judge"
     # 判断信号优先（"是否"类题目答案形态最特殊）
     if _JUDGE_RE.search(text):

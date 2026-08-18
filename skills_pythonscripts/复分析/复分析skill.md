@@ -1097,3 +1097,31 @@ $$\frac{(w-w_1)(w_2-w_3)}{(w-w_3)(w_2-w_1)} = \frac{(z-z_1)(z_2-z_3)}{(z-z_3)(z_
 - 唯一性定理要求聚点在**区域内部**（边界点不算）
 - Möbius 变换要求 $ad-bc\ne0$（否则退化为常数）
 - 保角映射分"保角"与"反角"（方向），$w=\bar z$ 是反角的
+
+## 模块速查：复分析：留数定理与围道积分
+- 检索词：留数 residue 留数定理 residue theorem 围道积分 contour integral 实积分 real integral 三角积分 trigonometric integral 有理函数 rational function
+- 核心内容：留数 $\operatorname{Res}(f,z_0)$ 是 $f$ 在孤立奇点 $z_0$ 处 Laurent 展开中 $(z-z_0)^{-1}$ 的系数 $c_{-1}$。留数定理：若 $f$ 在简单闭围道 $C$ 及其内部除有限个孤立奇点 $z_1,\dots,z_k$ 外解析，则 $\oint_C f(z)\,dz = 2\pi i\sum_{j=1}^{k}\operatorname{Res}(f,z_j)$。用留数算实积分：①有理函数 $\int_{-\infty}^{\infty}\frac{P(x)}{Q(x)}\,dx$（要求 $\deg Q\ge\deg P+2$，且 $Q$ 在实轴上无零点）$=2\pi i\sum_{\operatorname{Im}z_j>0}\operatorname{Res}(\frac{P}{Q},z_j)$；②三角积分 $\int_0^{2\pi}R(\cos\theta,\sin\theta)\,d\theta$ 用 $z=e^{i\theta}$、$\cos\theta=\frac{z+z^{-1}}{2}$、$\sin\theta=\frac{z-z^{-1}}{2i}$、$d\theta=\frac{dz}{iz}$ 化为单位圆围道积分 $=\oint_{|z|=1}R(\frac{z+z^{-1}}{2},\frac{z-z^{-1}}{2i})\frac{dz}{iz}=2\pi i\sum_{|z_j|<1}\operatorname{Res}(f,z_j)$。
+- 解题路线：① 写出围道并确定围道内所有孤立奇点；② 对每个奇点判阶并求留数（一阶极点用 $\lim_{z\to z_0}(z-z_0)f(z)$ 或 $P(z_0)/Q'(z_0)$，高阶极点用导数公式）；③ 留数定理求和乘 $2\pi i$ 得结果；④ 实积分还需验证大半圆弧/单位圆代换的合理性（次数条件或 Jordan 引理）。
+- 易错点：有理函数实积分必须满足 $\deg Q\ge\deg P+2$，否则大半圆弧积分不趋于 0；三角代换 $d\theta=\frac{dz}{iz}$ 的 $i$ 和 $z$ 都别漏；只取围道内部的奇点，围道外的奇点不贡献；$P(z_0)/Q'(z_0)$ 公式要求 $z_0$ 是一阶极点（$Q(z_0)=0$ 但 $Q'(z_0)\ne0$）。
+- 分步收尾：计算 $I=\int_0^{2\pi}\frac{d\theta}{5+3\cos\theta}$。令 $z=e^{i\theta}$，$\cos\theta=\frac{z+z^{-1}}{2}$，$d\theta=\frac{dz}{iz}$，则 $I=\oint_{|z|=1}\frac{2\,dz}{iz(10+3z+3z^{-1})}=\oint_{|z|=1}\frac{2\,dz}{i(3z^2+10z+3)}$。因式分解 $3z^2+10z+3=3(z+\tfrac13)(z+3)$，单位圆内仅 $z=-\tfrac13$ 为奇点，$\operatorname{Res}=\lim_{z\to-\frac13}(z+\tfrac13)\frac{2}{i\cdot3(z+\tfrac13)(z+3)}=\frac{2}{3i(\tfrac83)}=\frac{1}{4i}$。故 $I=2\pi i\cdot\frac{1}{4i}=\frac{\pi}{2}$。
+
+## 模块速查：复分析：Cauchy 积分公式与解析函数性质
+- 检索词：Cauchy 积分公式 Cauchy integral formula 导数公式 derivative formula 高阶导数 higher derivative Liouville 定理 最大模原理 maximum modulus principle 零点孤立 isolated zero 解析 analytic holomorphic
+- 核心内容：设 $f$ 在简单闭围道 $C$ 及其内部解析，$a$ 在 $C$ 内，则 Cauchy 积分公式 $f(a)=\frac{1}{2\pi i}\oint_C\frac{f(z)}{z-a}\,dz$ 与高阶导数公式 $f^{(n)}(a)=\frac{n!}{2\pi i}\oint_C\frac{f(z)}{(z-a)^{n+1}}\,dz$。由积分公式导出：Liouville 定理（有界整函数必为常数）；最大模原理（非常数解析函数在区域内取不到模的最大值，最大值只能在边界取到）；零点孤立性（非零解析函数 $f$ 的零点孤立：每个零点存在邻域内无其他零点，等价于解析函数唯一性定理——两解析函数在一个有聚点的集合上相等则恒等）。
+- 解题路线：① 判断被积函数奇点位置与围道关系；② 把被积式配成 $\frac{f(z)}{(z-a)^{n+1}}$ 形式，确定 $f$、$a$、$n$；③ 代入公式 $\oint=\frac{2\pi i}{n!}f^{(n)}(a)$，计算 $f^{(n)}(a)$；④ 证明题（Liouville、最大模）用 Cauchy 估计/平均值性质配合反证或令 $R\to\infty$。
+- 易错点：高阶导数公式系数是 $\frac{2\pi i}{n!}$，遗漏 $1/n!$ 是高频错误；分母 $(z-a)^{n+1}$ 对应 $f^{(n)}(a)$，$n$ 的对应关系别搞混（别把 $n+1$ 当成 $n$）；必须先确认 $a$ 在围道内部，奇点在围道外积分为 0；最大模原理是"内部取不到最大值"，不是"处处无最大值"。
+- 分步收尾：计算 $\oint_{|z|=1}\frac{\cos z}{z^3}\,dz$。分母 $z^3=(z-0)^{2+1}$，取 $f(z)=\cos z$，$a=0$，$n=2$。高阶导数公式给出 $\oint=\frac{2\pi i}{2!}f''(0)$。因 $f''(z)=-\cos z$，$f''(0)=-1$，故原式 $=\frac{2\pi i}{2}\cdot(-1)=-\pi i$。（验算：$\frac{\cos z}{z^3}=\frac{1}{z^3}-\frac{1}{2z}+\frac{z}{24}-\cdots$，留数 $c_{-1}=-\frac12$，积分 $=2\pi i\cdot(-\frac12)=-\pi i$，一致。）
+
+## 模块速查：复分析：洛朗级数与孤立奇点
+- 检索词：洛朗级数 Laurent series 孤立奇点 isolated singularity 可去奇点 removable singularity 极点 pole 本性奇点 essential singularity 留数计算 residue
+- 核心内容：若 $f$ 在圆环 $r<|z-z_0|<R$ 内解析，则 $f(z)=\sum_{n=-\infty}^{\infty}c_n(z-z_0)^n$，$c_n=\frac{1}{2\pi i}\oint_C\frac{f(z)}{(z-z_0)^{n+1}}\,dz$。孤立奇点 $z_0$ 按 Laurent 展开分类：①可去奇点（无负幂项，$\lim_{z\to z_0}f(z)$ 存在且有限）；②$m$ 阶极点（负幂项有限且最低次为 $(z-z_0)^{-m}$，即 $c_{-m}\ne0$ 而 $n<-m$ 时 $c_n=0$）；③本性奇点（无穷多负幂项）。留数：$\operatorname{Res}(f,z_0)=c_{-1}$；一阶极点 $\operatorname{Res}=\lim_{z\to z_0}(z-z_0)f(z)$；$m$ 阶极点 $\operatorname{Res}=\frac{1}{(m-1)!}\lim_{z\to z_0}\frac{d^{m-1}}{dz^{m-1}}[(z-z_0)^m f(z)]$。
+- 解题路线：① 确定奇点类型（可去/极点/本性）；② 求 Laurent 展开（部分分式+几何级数，或利用已知展开）或直接用留数公式；③ 一阶极点用极限公式，$m$ 阶极点用导数公式，本性奇点必须读展开的 $c_{-1}$；④ 验证留数之和：$\sum$有限奇点留数 $+\operatorname{Res}(f,\infty)=0$。
+- 易错点：极点阶数判断错会导致用错公式（如 $1/[z(z-1)^2]$ 中 $z=0$ 是一阶、$z=1$ 是二阶）；$m$ 阶极点留数公式的 $1/(m-1)!$ 因子别漏；几何级数在 $|z|>1$ 时展开方向相反（$\frac{1}{1-z}=-\sum_{n\ge1}z^{-n}$）；本性奇点不能套极限公式，只能读 Laurent 系数。
+- 分步收尾：求 $f(z)=\frac{e^z}{z^2(z-1)}$ 在 $z=0$ 处的留数（$z=0$ 是二阶极点）。用公式 $\operatorname{Res}(f,0)=\lim_{z\to0}\frac{d}{dz}[z^2 f(z)]=\lim_{z\to0}\frac{d}{dz}\frac{e^z}{z-1}$。求导 $\frac{d}{dz}\frac{e^z}{z-1}=\frac{e^z(z-2)}{(z-1)^2}$，代入 $z=0$ 得 $\frac{1\cdot(-2)}{1}=-2$，故 $\operatorname{Res}(f,0)=-2$。（验算：$|z|<1$ 时 $e^z=1+z+\frac{z^2}{2}+\cdots$，$\frac{1}{z-1}=-(1+z+z^2+\cdots)$，乘积中 $z$ 的一次项系数为 $-2$，留数 $=-2$，一致。）
+
+## 模块速查：复分析：辐角原理与 Rouché 定理
+- 检索词：辐角原理 argument principle 对数导数 logarithmic derivative Rouché 定理 Rouche theorem 零点计数 zero counting zeros poles
+- 核心内容：辐角原理：设 $f$ 在简单闭围道 $C$ 及其内部亚纯、在 $C$ 上无零点无极点，则 $\frac{1}{2\pi i}\oint_C\frac{f'(z)}{f(z)}\,dz=N-P$，其中 $N$、$P$ 分别为 $f$ 在 $C$ 内零点、极点的个数（均计重数）；等价地 $\Delta_C\arg f(z)=2\pi(N-P)$。Rouché 定理：设 $f,g$ 在 $C$ 及其内部解析，且在 $C$ 上 $|f(z)|>|g(z)|$，则 $f$ 与 $f+g$ 在 $C$ 内有相同个数的零点（计重数）。
+- 解题路线：① 把方程 $h(z)=0$ 拆成 $f(z)+g(z)=0$；② 在边界 $C$ 上比较模，选取占优项 $f$（模最大），验证 $|f|>|g|$ 严格成立；③ 由 Rouché 定理，$h$ 的零点数 $=$ 占优项 $f$ 的零点数；④ 直接数 $f$ 的零点（通常为 $cz^n$ 或简单多项式，零点数易数）。
+- 易错点：Rouché 要求边界上严格 $|f|>|g|$，而非 $\ge$；零点、极点都要计重数；辐角原理中 $f$ 在 $C$ 上不能有零点或极点（否则对数导数无定义）；占优项选取要保证其余项之和在边界上确实小于占优项。
+- 分步收尾：求 $h(z)=z^4-5z+1$ 在 $|z|<1$ 内零点个数。在 $|z|=1$ 上取 $f(z)=-5z$，$g(z)=z^4+1$，则 $h=f+g$。此时 $|f|=5$，$|g|=|z^4+1|\le|z^4|+1=2<5=|f|$，Rouché 条件满足。故 $h$ 与 $-5z$ 在 $|z|<1$ 内零点数相同。$-5z$ 在 $|z|<1$ 内仅有 $z=0$ 一个（一重）零点，故 $h(z)$ 在 $|z|<1$ 内恰有 $1$ 个零点。

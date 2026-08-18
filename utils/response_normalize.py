@@ -92,6 +92,27 @@ def normalize_chat_response(resp) -> str:
         return ""
 
 
+def detect_truncation(resp) -> bool:
+    """检测 client 返回是否因 max_tokens 被截断（finish_reason == "length"）。
+
+    V2.4 官方评测日志实证：truncated_count=91（10.2% 请求）答案没写完就被切断，
+    而 normalize_chat_response 只取 content、丢弃 finish_reason——这 91 个截断
+    答案被当作完整答案返回，下游无法感知也无法补救。此函数补上这个信号，
+    供 LLMRetryWrapper 在截断时触发续写补全。
+
+    兼容 dict（OpenAI 形态 choices[0].finish_reason）与对象（finish_reason 属性）。
+    """
+    try:
+        if isinstance(resp, dict):
+            choices = resp.get("choices") or []
+            if choices and isinstance(choices[0], dict):
+                return choices[0].get("finish_reason") == "length"
+            return resp.get("finish_reason") == "length"
+        return getattr(resp, "finish_reason", None) == "length"
+    except Exception:  # noqa: BLE001 - 检测失败按未截断处理，不影响主流程
+        return False
+
+
 def chat_compatible(client, messages, temperature, max_tokens):
     """签名探测调用（VeritasMath 平台防线）。
 

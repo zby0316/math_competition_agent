@@ -92,7 +92,7 @@ if _BACKEND == "graph":
                 initial = create_initial_state(str(problem or ""), meta)
                 final_state = self.graph.run(initial, token_budget=TokenBudget())
                 result = {
-                    "final_response": final_state.get("final_response", "无法生成答案"),
+                    "final_response": final_state.get("final_response", "最终答案：未能求解"),
                     "trace": self._build_trace(final_state),
                 }
                 self._validate_output(result)
@@ -100,7 +100,7 @@ if _BACKEND == "graph":
             except Exception as e:
                 self.logger.error(f"Error solving problem {idx}: {e}")
                 return {
-                    "final_response": "解题过程中出现错误，无法给出完整答案。",
+                    "final_response": "最终答案：未能求解",
                     "trace": [{"step": "error", "content": str(e), "idx": idx}],
                 }
 
@@ -509,7 +509,7 @@ else:
             except Exception:  # noqa: BLE001
                 final = ""
             return {
-                "final_response": final or "解题过程中出现错误，无法给出完整答案。",
+                "final_response": final or "最终答案：未能求解",
                 "trace": [{"step": "fallback_backend",
                            "content": f"graph import failed: {_IMPORT_ERROR[:120]}",
                            "idx": idx}],

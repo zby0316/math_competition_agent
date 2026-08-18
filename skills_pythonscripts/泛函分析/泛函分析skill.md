@@ -393,4 +393,25 @@ $$\forall \varepsilon > 0, \exists N, \forall m, n > N: d(x_m, x_n) < \varepsilo
 - 解题路线：判断题逐条用定义验证或用最小反例排除；「收敛蕴含柯西」与「完备空间中柯西收敛」两条方向要分清前提；注意完备性是空间的整体性质而非单列性质。
 - 易错点：把「有界」与「柯西」互相蕴含；在一般（不完备）度量空间中宣称柯西列必收敛；把「收敛列必柯西」的证明写成循环论证。
 
+## 模块速查：泛函分析：开映射定理与逆算子定理
+- 检索词：开映射 open mapping 逆算子 inverse operator 有界逆 bounded inverse 满射 surjective Banach
+- 核心内容：设 $X,Y$ 是 Banach 空间，$T:X\to Y$ 是连续线性算子且满射，则 $T$ 是开映射（把开集映为开集）。逆算子定理（有界逆定理）：若 $T$ 还是双射，则逆算子 $T^{-1}:Y\to X$ 也是连续（有界）线性算子。证明核心用 Baire 范畴定理：$Y=\overline{\bigcup_n T(B(0,n))}$，由完备性知某个 $\overline{T(B(0,n))}$ 有内点，再线性平移/缩放得 $T(B(0,1))$ 含原点邻域。
+- 解题路线：① 证明 $T$ 连续且满射（两个前提缺一不可）；② 直接引用开映射定理得 $T$ 是开映射；③ 若要证逆算子连续，再加"双射"前提引用逆算子定理；④ 证具体算子方程 $Tx=y$ 的解连续依赖 $y$ 时即等价于证 $T^{-1}$ 连续。
+- 易错点：前提漏掉 Banach（完备）——在非完备赋范空间上开映射定理不成立；把"满射"和"双射"混淆（逆算子定理才需要双射）；忘记 $T$ 必须连续（开映射定理的 $T$ 本身要连续线性）。
+- 分步收尾：设 $X=Y=\ell^1$，$T(x_1,x_2,\dots)=(0,x_1,x_2,\dots)$（右移算子）。$T$ 是连续线性单射但非满射（像是不含 $(1,0,0,\dots)$ 的真子空间），故 $T^{-1}:\operatorname{Im}T\to X$ 存在但不连续——这正说明逆算子定理的"满射+Banach"前提缺一不可。若改 $Y=\operatorname{Im}T$ 且 $\operatorname{Im}T$ 闭（Banach），则 $T^{-1}$ 连续。
+
+## 模块速查：泛函分析：共鸣定理（Banach-Steinhaus）
+- 检索词：共鸣 Banach-Steinhaus 一致有界 uniform boundedness 逐点有界 算子族 family of operators
+- 核心内容：设 $X$ 是 Banach 空间，$Y$ 是赋范空间，$\{T_\alpha\}_{\alpha\in A}$ 是一族从 $X$ 到 $Y$ 的有界线性算子。若对每个 $x\in X$ 有 $\sup_\alpha\|T_\alpha x\|<\infty$（逐点有界），则 $\sup_\alpha\|T_\alpha\|<\infty$（一致有界）。证明用 Baire 范畴定理：$X=\bigcup_n\{x:\sup_\alpha\|T_\alpha x\|\le n\}$，某闭集有内点推出一致有界。
+- 解题路线：① 先证逐点有界（对每个固定 $x$，算子族作用后的模有界）；② 引用共鸣定理得一致有界；③ 典型应用：证明"逐点收敛的算子列其极限仍是有界线性算子"；④ 逆否命题：若 $\sup_\alpha\|T_\alpha\|=\infty$，则存在 $x$ 使 $\sup_\alpha\|T_\alpha x\|=\infty$（可构造反例）。
+- 易错点：前提要求 $X$ 完备（Banach），$Y$ 只需赋范；混淆"逐点有界"与"一致有界"的推理方向；在非 Banach 空间上直接套用导致错误结论。
+- 分步收尾：设 $X$ 是 Hilbert 空间，$\{f_n\}$ 是 $X$ 上连续线性泛函列，且对每个 $x$，$\lim_n f_n(x)$ 存在（故 $\sup_n|f_n(x)|<\infty$ 逐点有界）。由共鸣定理 $\sup_n\|f_n\|<\infty$，再证 $f(x)=\lim_n f_n(x)$ 定义了一个有界线性泛函且 $\|f\|\le\liminf_n\|f_n\|$。
+
+## 模块速查：泛函分析：闭图像定理
+- 检索词：闭图像 closed graph 图像 graph 闭算子 closed operator 连续 continuity Banach
+- 核心内容：设 $X,Y$ 是 Banach 空间，$T:X\to Y$ 是线性算子，图像 $G(T)=\{(x,Tx):x\in X\}\subset X\times Y$。闭图像定理：$T$ 连续 $\iff$ $G(T)$ 是 $X\times Y$ 中的闭集。即线性算子"图像闭"等价于"连续"，条件仍是 $X,Y$ 都 Banach。
+- 解题路线：① 要证某线性算子连续，只需证其图像闭：取 $(x_n,Tx_n)\to(x,y)$，证 $y=Tx$；② 图像闭等价于"$x_n\to x$ 且 $Tx_n\to y$ 蕴含 $y=Tx$"；③ 与开映射定理互推（两者都基于 Baire 范畴）。
+- 易错点：忘证 $x_n\to x$ 与 $Tx_n\to y$ 两个收敛（图像闭要同时满足）；$X,Y$ 缺 Banach 前提；把"闭算子"与"连续算子"混为一谈（一般闭算子不必连续，Banach 空间上才等价）。
+- 分步收尾：微分算子 $T=\frac{d}{dx}$ 作为 $C^1[0,1]\to C[0,1]$（都配 $\|\cdot\|_\infty$）。取 $f_n(t)=\frac{\sin(nt)}{n}$，则 $f_n\to 0$ 但 $Tf_n=f_n'=\cos(nt)$ 不收敛，故图像不闭，$T$ 不连续。这正是"无界微分算子"的典型反例。
+
 <!-- AUTO-KNOWLEDGE-END -->
