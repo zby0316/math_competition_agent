@@ -137,6 +137,11 @@ def deepen_proof(client, deps, problem: str, answer: str,
         return text
 
 
+def _final_verdict_guard(answer: str) -> bool:
+    """最终答案是否包含可判定的结论（judger 依赖）。"""
+    return bool(_CONCLUSION_RE.search(str(answer or "")))
+
+
 # ---- V2.3 M12 证明自检（Proof Self-Critique） ----
 
 _SELF_CRITIQUE_PROMPT = (

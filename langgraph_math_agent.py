@@ -3,7 +3,7 @@ from state.math_agent_state import MathAgentState
 from graph.solving_subgraph import build_solving_subgraph
 from nodes import (
     input_node, classifier_node, reconciliation_node, semantic_arbiter_node,
-    coordinator_node, critic_node, playoff_node, reflection_node, should_reflect,
+    coordinator_node, critic_node, playoff_node,
 )
 from utils.error_handler import node_wrapper
 
@@ -26,7 +26,6 @@ def build_math_agent_graph():
     g.add_node("reconciliation", node_wrapper(reconciliation_node, "reconciliation"))
     g.add_node("semantic_arbiter", node_wrapper(semantic_arbiter_node, "semantic_arbiter"))
     g.add_node("playoff", node_wrapper(playoff_node, "playoff"))
-    g.add_node("reflection", node_wrapper(reflection_node, "reflection"))
     g.add_node("critic", node_wrapper(critic_node, "critic"))
     g.add_node("coordinator", node_wrapper(coordinator_node, "coordinator"))
 
@@ -42,17 +41,11 @@ def build_math_agent_graph():
             return "playoff"
         if requested in {"reconciliation", "semantic_arbiter"}:
             return requested
-        # match / 默认：进 Critic 过程审计门
+        # match / 默认：原直达 coordinator，现必经 Critic 过程审计门
         return "critic"
     g.add_conditional_edges("solving", route_after_solving,
                             {"critic": "critic", "reconciliation": "reconciliation",
                              "semantic_arbiter": "semantic_arbiter", "playoff": "playoff"})
-
-    def route_after_reflection(state, config):
-        # 反思发现实质错误 → 回调解做定向重算；否则（确认正确/跳过/不可用）→ coordinator
-        return "reconciliation" if state.get("next_node") == "reconciliation" else "coordinator"
-    g.add_conditional_edges("reflection", route_after_reflection,
-                            {"reconciliation": "reconciliation", "coordinator": "coordinator"})
 
     def route_after_reconciliation(state, config):
         requested = state.get("next_node")
@@ -81,17 +74,9 @@ def build_math_agent_graph():
                              "semantic_arbiter": "semantic_arbiter"})
 
     def route_after_critic(state, config):
-        if state.get("next_node") == "reconciliation":
-            return "reconciliation"
-        # 审计通过：先过反思环（正确性批判性复核），再 coordinator。
-        # 反思环挂在这里（而非 match 直达路径）是为了覆盖所有进入 coordinator
-        # 的答案——包括 mismatch 后经 playoff/arbiter/reconciliation 兜底来的。
-        if should_reflect(state):
-            return "reflection"
-        return "coordinator"
+        return "reconciliation" if state.get("next_node") == "reconciliation" else "coordinator"
     g.add_conditional_edges("critic", route_after_critic,
-                            {"reconciliation": "reconciliation", "reflection": "reflection",
-                             "coordinator": "coordinator"})
+                            {"reconciliation": "reconciliation", "coordinator": "coordinator"})
 
     g.add_edge("coordinator", END)
     return g.compile()

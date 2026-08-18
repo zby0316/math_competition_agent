@@ -84,7 +84,6 @@ class LLMRetryWrapper:
         temperature: float = 0.2,
         max_tokens: int = 4096,
         label: str = "llm",
-        thinking_mode: bool = None,
     ) -> str:
         if not self._affordable():
             need = (f"~{self.expected_call_seconds:.0f}s"
@@ -101,7 +100,7 @@ class LLMRetryWrapper:
                 # 响应归一化（str/bytes/choices/content blocks/对象形态 → str）。
                 # 官方 client 形态见 utils/response_normalize.py 头注的 0 分教训。
                 raw = chat_compatible(
-                    self.client, messages, temperature, max_tokens, thinking_mode)
+                    self.client, messages, temperature, max_tokens)
                 result = normalize_chat_response(raw)
                 if self.time_budget:
                     self.time_budget.record(label, self._now() - started)
@@ -154,7 +153,6 @@ def chat_with_retry(
     time_budget=None,
     expected_call_seconds=None,
     label="llm",
-    thinking_mode=None,
 ):
     return LLMRetryWrapper(
         client,
@@ -168,7 +166,6 @@ def chat_with_retry(
         temperature=temperature,
         max_tokens=max_tokens,
         label=label,
-        thinking_mode=thinking_mode,
     )
 
 

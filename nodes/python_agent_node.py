@@ -216,7 +216,7 @@ def python_agent_node(state, config):
     # Validation examples are prompt documents. Select the knowledge-point sections
     # whose vocabulary matches the problem instead of sending a positional prefix.
     base_prompt = PYTHON_PROMPT.format(
-        validation_script=select_script_excerpt(validation_script, problem, 4000),
+        validation_script=select_script_excerpt(validation_script, problem, 2000),
         problem=problem, category=category)
     base_prompt += structure_instruction(problem)
     # 技能手册的速查条目（题型方法论）与验证示例互补：前者决定"算什么/怎么建模"，
@@ -225,7 +225,7 @@ def python_agent_node(state, config):
         skill_doc = sl.get_skill_document(category)
     except Exception:
         skill_doc = ""
-    knowledge_ref = select_skill_excerpt(skill_doc, problem, 4000)
+    knowledge_ref = select_skill_excerpt(skill_doc, problem, 1600)
     if knowledge_ref:
         base_prompt += "\n\n[技能知识点参考]\n" + knowledge_ref
     if candidate_answer:

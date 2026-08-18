@@ -21,16 +21,9 @@ from __future__ import annotations
 
 import re
 
-#: Module boundary = any second-level heading. Historically only ``## 模块...``
-#: and ``## 1. ...`` were recognised, so documents whose core chapters used bare
-#: CJK headings (``## 概述`` / ``## 关键定理速查表``) or ``## 1 曲线弧长`` (digit
-#: followed by a space) had NO modules at all — ``_split_modules`` returned the
-#: whole document as preamble and ``select_skill_excerpt`` degraded to a bare
-#: ``[:limit]`` head slice, silently dropping the formula tables sitting past the
-#: cut (e.g. 复分析's 关键公式速查表 at offset 28k was never injected). Matching
-#: every ``## ...`` heading (but not ``### ...``, via the negative lookahead) fixes
-#: this: the theorem/formula chapters become selectable modules.
-_MODULE_RE = re.compile(r"^##(?!\#)\s*\S", re.MULTILINE)
+#: Module boundary in these documents: either the legacy ``## 模块...`` heading
+#: or the numbered ``## 1. ...`` style used by the competition skill manuals.
+_MODULE_RE = re.compile(r"^##\s*(?:模块|\d+\s*[.)、:：-])", re.MULTILINE)
 #: Trailing sections that apply to every problem regardless of domain.
 _UNIVERSAL_HEADING_RE = re.compile(r"^##\s*(?:跨学科|通用|附录)", re.MULTILINE)
 #: CJK runs and latin words; single CJK characters are too common to discriminate.

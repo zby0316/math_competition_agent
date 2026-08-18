@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os as _os
 import sys as _sys
+from typing import Any, Dict
 
 # ── 防线 1：sys.path 自举（任何加载形态不抛异常）──
 _HERE = ""
@@ -91,7 +92,7 @@ if _BACKEND == "graph":
                 initial = create_initial_state(str(problem or ""), meta)
                 final_state = self.graph.run(initial, token_budget=TokenBudget())
                 result = {
-                    "final_response": final_state.get("final_response", "最终答案：未能求解"),
+                    "final_response": final_state.get("final_response", "无法生成答案"),
                     "trace": self._build_trace(final_state),
                 }
                 self._validate_output(result)
@@ -99,7 +100,7 @@ if _BACKEND == "graph":
             except Exception as e:
                 self.logger.error(f"Error solving problem {idx}: {e}")
                 return {
-                    "final_response": "最终答案：未能求解",
+                    "final_response": "解题过程中出现错误，无法给出完整答案。",
                     "trace": [{"step": "error", "content": str(e), "idx": idx}],
                 }
 
@@ -119,15 +120,6 @@ if _BACKEND == "graph":
                     "confidence": state.get("category_confidence", 0.0),
                     "candidates": state.get("candidate_categories", []),
                     "difficulty": state.get("difficulty", ""),
-                    # 第三层评分要求 trace 记录"设计思路（plan）"。这里记录求解计划：
-                    # 题型×领域双路由 + 多候选异构 + 三重验证 + 反思纠错闭环。
-                    "plan": {
-                        "route": f"{state.get('question_mode', 'computation')} x {state.get('category', '')}",
-                        "multi_candidate": True,
-                        "heterogeneous_branch": True,
-                        "verification": ["python_sympy", "cross_validation", "reflection"],
-                        "thinking_mode": bool(state.get("difficulty")),
-                    },
                     "tools": [
                         {
                             "name": "category_candidates",
@@ -336,20 +328,6 @@ if _BACKEND == "graph":
                         }
                     ],
                 })
-            if state.get("reflection_trace"):
-                trace.append({
-                    "step": "reflection",
-                    "status": state.get("reflection_status", ""),
-                    "thinking": {
-                        "purpose": "定稿前对答案做正确性批判性复核（代回验证/差一/符号/边界/反例）。",
-                    },
-                    "tools": [
-                        {
-                            "name": "reflection_llm",
-                            "rounds": state.get("reflection_trace", []),
-                        }
-                    ],
-                })
             if state.get("reconciliation_trace"):
                 trace.append({
                     "step": "reconciliation",
@@ -531,7 +509,7 @@ else:
             except Exception:  # noqa: BLE001
                 final = ""
             return {
-                "final_response": final or "最终答案：未能求解",
+                "final_response": final or "解题过程中出现错误，无法给出完整答案。",
                 "trace": [{"step": "fallback_backend",
                            "content": f"graph import failed: {_IMPORT_ERROR[:120]}",
                            "idx": idx}],

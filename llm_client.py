@@ -36,7 +36,6 @@ class InternChatClient:
         messages: List[Dict[str, str]],
         temperature: float = 0.2,
         max_tokens: int = 4096,
-        thinking_mode: bool = None,
     ) -> str:
         payload = {
             "model": self.model,
@@ -44,11 +43,6 @@ class InternChatClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
-        # V2.8 思考模式：对齐官方 client。thinking_mode=True 时模型生成私有
-        # reasoning_content（深度推理）后给出 content，本 client 只返回 content
-        # （丢弃 reasoning_content），与官方 client 行为一致。
-        if thinking_mode is not None:
-            payload["thinking_mode"] = thinking_mode
         headers = {
             "Content-Type": "application/json",
             "Authorization": self.authorization,

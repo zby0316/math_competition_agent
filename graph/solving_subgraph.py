@@ -11,16 +11,13 @@ from config import CONFIG
 def _want_diverse_branch(state, config) -> bool:
     """异构第二推理路径的触发条件（VeritasMath）。
 
-    V2.9 方法差距修复（retry=0 根因）：不再用「分类器置信度 / 领域白名单」
-    限制异构验证——分类器把科研级题判成 easy+0.98 高置信（实证），fast 档
-    短路会让这些题只有单路径 A，答错就错、没有第二视角（官方 retry=0 的根因
-    之一）。异构互验是打破「单样本系统性错误」的唯一机制，所有非客观题都该
-    有第二视角。
-    - 客观题：不扇出（快速路径就是最优解，第二视角无增量）；
-    - 调解重算轮：一律追加（已知首路径失败，多样性正是缺的东西）；
-    - 时间 fast path：剩余时间不足以再跑一次完整推理时不扇出（唯一保留的
-      成本护栏——分类器信号不可靠，但时间信号是硬的）；
-    - 配置关闭时不发。
+    成本纪律：第二路径是一次完整推理调用（77-550s），不能无条件扇出——
+    - 首轮：只对高风险领域（组合/竞赛构造/微分几何/测度积分，单样本错误率
+      最高的四类）随首路径并行发出；
+    - 调解重算轮：一律追加（此时已知首路径失败，多样性正是缺的东西）；
+    - 客观题、时间 fast path、配置关闭时不发。
+    - V2 M2：分类置信度高（≥0.90，fast 档）时即使高风险领域也不扇出——
+      首答已高度可信，第二路径是浪费资源（最少资源原则）。
     """
     if not CONFIG.get("enable_diverse_reasoning", True):
         return False
@@ -28,15 +25,16 @@ def _want_diverse_branch(state, config) -> bool:
         return False
     if state.get("reconciliation_round", 0) >= 1:
         return True
+    # V2 M2 置信门控：fast 档（高置信）省第二路径
+    from utils.confidence_gate import confidence_level
+    if confidence_level(state.get("category_confidence")) == "fast":
+        return False
+    category = state.get("category", "")
+    if category not in (CONFIG.get("high_risk_domains") or []):
+        return False
     try:
         clock = get_deps(config).time_budget
-        # 不能用 clock.fast_path()：它基于单题软预算（remaining = soft_total -
-        # reserve），easy 题软预算 480s、reserve 300s → remaining 一开始就只有
-        # ~180s < 阈值 300s → fast_path 恒 True，B 路径永远不扇出。而被分类器
-        # 判 easy 的科研级题恰好是 retry=0 的重灾区——软预算信号在这里是错的。
-        # B 路径是一次 prefill 级推理（~30-60s），只看单题硬预算（1200s）是否
-        # 还够，硬预算剩余 < 90s 才跳过（此时确实没空间跑第二路径了）。
-        if clock is not None and clock.remaining_hard() < 90:
+        if clock is not None and clock.fast_path():
             return False
     except Exception:  # noqa: BLE001 - 取不到预算时按可负担处理
         pass

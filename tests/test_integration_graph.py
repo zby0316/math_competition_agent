@@ -48,14 +48,12 @@ class TestHappyPathWithCritic(unittest.TestCase):
             '数学分析", "confidence": 0.97, "difficulty": "easy"}',
             # 2) 主推理：四章节，答案 5
             _four_sections("5"),
-            # 3) B 路径（V2.9 方法差距修复：非客观题全量扇出异构第二视角）
-            _four_sections("5"),
-            # 4) Python 验证代码：真实执行得 5
+            # 3) Python 验证代码：真实执行得 5
             _code_block("2+3"),
-            # 5) Critic 审计 prefill：pass
+            # 4) Critic 审计 prefill：pass
             ' true, "missing": [], "calc_checks": [{"check": "2+3=5", "ok": true}],'
             ' "verdict": "pass"}',
-            # 6) coordinator 成稿
+            # 5) coordinator 成稿
             "最终答案：5",
         ]
         final, client = _run_graph("计算 2+3 的值。", responses)
@@ -67,8 +65,8 @@ class TestHappyPathWithCritic(unittest.TestCase):
         # 难度画像已应用（easy → 软预算 480）
         self.assertEqual(final.get("difficulty"), "easy")
         self.assertEqual(final.get("_time_budget", {}).get("soft_total_s"), 480.0)
-        # V2.9 方法差距修复：非客观题全量扇出 B 路径（异构第二视角）
-        self.assertIsNotNone(final.get("reasoning_result_alt"))
+        # 数学分析不在高风险领域：不应扇出第二推理路径
+        self.assertIsNone(final.get("reasoning_result_alt"))
 
 
 class TestPlayoffDecisive(unittest.TestCase):
@@ -84,7 +82,6 @@ class TestPlayoffDecisive(unittest.TestCase):
         responses = [
             '数学分析", "confidence": 0.97, "difficulty": "easy"}',
             _four_sections("5"),           # 主推理答 5
-            _four_sections("5"),           # B 路径答 5（异构方法，与 A 一致）
             _code_block("3+3"),            # Python 答 6（与推理冲突）
             playoff_code,                  # Playoff 生成裁决代码：判 A 胜
             ' true, "missing": [], "calc_checks": [], "verdict": "pass"}',  # Critic

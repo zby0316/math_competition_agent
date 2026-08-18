@@ -399,23 +399,18 @@ def _append_recovered_components(fa: str, cleaned: str, missing: list) -> str:
 
 _STEPS_HEADING = "关键步骤："
 _MAX_STEPS_IN_BLOCK = 6
-_MAX_STEPS_BLOCK_CHARS = 2000
+_MAX_STEPS_BLOCK_CHARS = 1200
 _THEOREM_MARKER_RE = __import__("re").compile(
-    r"(?m)^\s*(?:使用)?(?:公式|定理|定义|性质|引理|方法)\s*[：:]\s*(.+?)\s*$")
-#: 关键计算式行：如 "- $|A| = \\lfloor 120/2 \\rfloor = 60$" 或 "解得 $x = 3$"。
-#: 抓取含 '=' 的 LaTeX 式子，作为"支撑结论的关键计算"呈现给 judger。
-_CALC_LINE_RE = __import__("re").compile(
-    r"[-•*]?\s*\$[^$]*=[^$]*\$")
+    r"(?m)^\s*(?:使用)?公式\s*/?\s*定理\s*[：:]\s*(.+?)\s*$")
 
 
 def _condense_step(step: dict) -> str:
-    """每步一行：标题 + 关键计算式（而非只有标题+定理名）。
+    """One line per step: its title, plus the formula/theorem it applies.
 
-    V2.5 判分口径对齐（官方铁律"推导题应保留支撑结论所需的关键步骤"）：
-    旧实现只输出"步骤N：标题（定理名）"，把 description 里的实际计算式
-    （如 $|A|=\\lfloor 120/2\\rfloor=60$）全丢了，final_response 退化成
-    "答案 + 空标题壳"，官方 judger 看不到任何支撑结论的计算过程。
-    新实现：标题 + 提取 1-2 个含 '=' 的关键计算式，让推导过程真正可见。
+    Raw steps run 246-1131 chars each (multi-line LaTeX align blocks included), so
+    reproducing them verbatim would bury the answer. Title + theorem is what makes a
+    derivation followable at a glance, and it is what a grader needs to see that the
+    conclusion is supported rather than asserted.
     """
     import re
 
@@ -427,34 +422,21 @@ def _condense_step(step: dict) -> str:
         return ""
 
     title = re.sub(r"^\s*(?:步骤|Step)\s*\d+\s*[：:]\s*", "", lines[0]).strip()
-    # V2.5 修复：剥掉 markdown ** 残留（模型常在标题两侧加粗，导致"xxx**"空壳）
-    title = title.strip().strip("*").strip()
     title = title.rstrip("：: ")
     if not title or looks_like_latex_fragment(title):
         return ""
 
-    number = step.get("step_num")
-    prefix = f"步骤{number}：" if number else "- "
-
-    # 优先提取关键计算式（含 '=' 的 LaTeX 式子），这才是 judger 需要的"支撑计算"
-    calc_lines = []
-    for line in lines:
-        for m in _CALC_LINE_RE.finditer(line):
-            frag = m.group(0).strip().lstrip("-•* ").strip()
-            if frag and frag not in calc_lines:
-                calc_lines.append(frag)
-        if len(calc_lines) >= 2:
-            break
-    if calc_lines:
-        return f"{prefix}{title}：{'；'.join(calc_lines[:2])}"
-
-    # 无计算式时，退回"定理/公式"（旧逻辑，但扩充了定义/性质/引理/方法）
     theorem = ""
     match = _THEOREM_MARKER_RE.search(description)
     if match:
         candidate = match.group(1).strip().rstrip("。;；ary ")
+        # A truncated LaTeX fragment would render as broken markup — drop it and
+        # keep the title alone rather than emitting something malformed.
         if candidate and len(candidate) <= 220 and not looks_like_latex_fragment(candidate):
             theorem = candidate
+
+    number = step.get("step_num")
+    prefix = f"步骤{number}：" if number else "- "
     return f"{prefix}{title}（{theorem}）" if theorem else f"{prefix}{title}"
 
 
@@ -504,9 +486,7 @@ def attach_steps(final_response: str, problem: str, steps) -> str:
 
 
 _PROOF_BODY_HEADING = "证明过程："
-# V2.5：4200→8000。官方铁律"证明题应给出必要且完整的证明过程"，4200 字符
-# 对长证明（多步定理链）会截断关键结论；token 已上调（方向1），负担得起。
-_MAX_PROOF_BODY_CHARS = 8000
+_MAX_PROOF_BODY_CHARS = 4200
 _MIN_PROOF_BODY_CHARS = 80
 
 

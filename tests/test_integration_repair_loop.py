@@ -26,21 +26,13 @@ class TestNeitherThenDiverseRescue(unittest.TestCase):
         responses = [
             # 分类：高风险领域 + hard（首轮即扇出三路）
             '离散数学", "confidence": 0.93, "difficulty": "hard"}',
-            # V2.9 多温度采样：hard 题 A 路径先做 6 次分层温度采样（都答 4，
-            # 投票一致 consensus=1.0，胜出 4）
+            # 首轮三路：主推理 4、异构路径 4、Python 5 —— 三方全不一致
             _four_sections("4"),
-            _four_sections("4"),
-            _four_sections("4"),
-            _four_sections("4"),
-            _four_sections("4"),
-            _four_sections("4"),
-            # 首轮异构路径 B：4、Python：5 —— 三方全不一致（4/4/5）
             _four_sections("4"),
             _code_block("5"),
             # Playoff 裁决代码：双证伪
             neither_code,
-            # 重算轮（换方法提示 + 异构路径）：三路收敛到 6（重算轮 reconciliation>=1
-            # 不再多温度采样，A 单次直答）
+            # 重算轮（换方法提示 + 异构路径）：三路收敛到 6
             _four_sections("6"),
             _four_sections("6"),
             _code_block("6"),

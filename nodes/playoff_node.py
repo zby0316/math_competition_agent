@@ -54,17 +54,10 @@ def _usable(value) -> str:
 
 
 def playoff_candidates(state: dict) -> tuple[str, str]:
-    """取冲突双方：主推理 vs Python；Python 缺席时用第二推理路径。都缺则无可季后赛。
-
-    V2.9 三路投票：state 标记 prefer_alt（A=Python 同源一致、但异构 B 不同意）时，
-    优先返回 A vs B——此时裁决"A vs Python"没有意义（两者一致），要裁决的是
-    "同源一致"与"异构反对"谁对。
-    """
+    """取冲突双方：主推理 vs Python；Python 缺席时用第二推理路径。都缺则无可季后赛。"""
     rr = _usable((state.get("reasoning_result") or {}).get("answer"))
     po = _usable((state.get("python_output") or {}).get("answer"))
     alt = _usable((state.get("reasoning_result_alt") or {}).get("answer"))
-    if state.get("playoff_prefer_alt") and rr and alt:
-        return rr, alt
     if rr and po:
         return rr, po
     if rr and alt:

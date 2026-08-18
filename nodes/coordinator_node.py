@@ -40,22 +40,6 @@ def _evidence_override(state: dict, validated: str) -> tuple[str, str]:
         return validated, ""
     if (po.get("authenticity") or {}).get("fabricated"):
         return validated, ""
-    # V2.8 修复：contradict 有两种来源，需区分谁对谁错——
-    #   1) Python 代回验证"主推理答案"发现误差（主推理错，Python 对）→ 应覆盖；
-    #   2) Python 自己的 answer 字符串代回发现误差（Python 错，主推理对）→ 不应覆盖。
-    # 洛朗展开题实证：LLM 生成代码时 SymPy 算出 -Σ（正确），但 answer 字符串和
-    # approx 部分写成 +Σ（符号错），代回误差 2.21 → contradict。此时 stdout 里的
-    # "数值验证失败/最大误差"说明"被验证的答案代回不成立"，Python 的 answer 字符串
-    # 本身可疑，用它覆盖主推理会把对的改成错的。
-    evidence_summary = str(po.get("evidence_summary") or "")
-    # 与 verification_evidence._FAIL_RE 保持一致的"代回发现矛盾"信号：
-    # 反例/矛盾/不一致/失败断言/FAIL/误差/差值。洛朗题实证：stdout 明确
-    # "验证状态: FAIL"+"反例：差值=3.12e-02"，但 evidence_summary 只提取了
-    # "反例/差值"两词，旧列表（仅"验证失败/误差/FAIL"）漏配 → 误覆盖正确答案。
-    if any(k in evidence_summary for k in (
-            "验证失败", "最大误差", "误差", "err=", "FAIL",
-            "反例", "矛盾", "不一致", "失败", "差值", "counterexample", "contradict")):
-        return validated, ""
     python_answer = str(po.get("answer") or "").strip()
     reasoning_answer = str(rr.get("answer") or "").strip()
     if not python_answer or is_placeholder_answer(python_answer) \
@@ -119,7 +103,7 @@ def _partial_response(state: dict) -> tuple[str, str]:
         text = (candidate or "").strip()
         if text and not is_placeholder_answer(text) and not is_noise_answer(text):
             return f"{_PARTIAL_HEADER}{text}", source
-    return "最终答案：未能求解", "generic_error"
+    return "解题过程中出现错误，无法给出完整答案。", "generic_error"
 
 
 def _emergency_direct_answer(state: dict, deps) -> str:
@@ -278,14 +262,10 @@ def coordinator_node(state, config):
         return {"final_response": final, "coordination_detail": "",
                 "fallback_source": "objective_validated_answer"}
     # 证据优先最终闸门：被自家验证器反驳的答案不得出厂（评委建议 1）。
-    # V2.5 缺口2修复：原实现 answer_locked=True 时跳过证据闸门——仲裁锁定的
-    # 错误答案（idx=85 留数符号，Python 算对但仲裁选了错的推理答案）会漏出。
-    # 改为：证据闸门对"锁定的答案"同样生效——Python 明确 contradict 且非伪造、
-    # 持有不同答案时，覆盖仲裁锁定（被验证器反驳的答案无论如何不该出厂）。
-    # 唯一豁免保留 playoff decisive（playoff 代回复算证据强于 Python 自报证据）。
+    # 仲裁明确锁定的选择（answer_locked）尊重仲裁；未锁定的候选一律过闸。
     evidence_note = ""
-    validated, evidence_note = _evidence_override(state, validated)
     if not state.get("answer_locked"):
+        validated, evidence_note = _evidence_override(state, validated)
         # 洁净度终门（2026-08-09 冒烟 idx 43）：交叉验证在双分支皆弱时可能放行一段
         # 探索散文；deadline 路径会把它原样出厂。修复优先于丢弃——"1/2 works." 这类
         # 正确值+口癖要剥尾保值（idx 2），修不出干净头部才置空。仲裁锁定的选择不经
@@ -452,7 +432,7 @@ def coordinator_node(state, config):
     cleaned_raw = strip_cot_prefix(raw)
     final = post_process_final_response(cleaned_raw, validated, ptype, problem=state["problem"])
     if not isinstance(final, str) or not final.strip():
-        final = f"最终答案：{validated}" if validated else "最终答案：未能求解"
+        final = f"最终答案：{validated}" if validated else "无法生成完整答案。"
     # Proof answers already carry their full derivation as the answer body; only
     # computation problems that require working get an appended outline.
     if ptype != "proof":

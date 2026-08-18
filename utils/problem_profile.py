@@ -11,15 +11,12 @@ import re
 from typing import Any, Mapping
 
 
-QUESTION_MODES = frozenset({"proof", "computation", "derivation", "explain",
-                             "choice", "true_false", "fill"})
+QUESTION_MODES = frozenset({"proof", "computation", "choice", "true_false", "fill"})
 OBJECTIVE_MODES = frozenset({"choice", "true_false", "fill"})
 
 _TYPE_TO_MODE = {
     "计算": "computation", "计算题": "computation", "computation": "computation",
     "proof": "proof", "证明": "proof", "证明题": "proof",
-    "推导": "derivation", "推导题": "derivation", "derivation": "derivation",
-    "解释": "explain", "解释题": "explain", "说明": "explain", "explain": "explain",
     "choice": "choice", "选择": "choice", "选择题": "choice", "单选": "choice", "多选": "choice",
     "fill": "fill", "填空": "fill", "填空题": "fill",
     "true_false": "true_false", "判断": "true_false", "判断题": "true_false",
@@ -41,16 +38,6 @@ _PROOF_RE = re.compile(
     r"(?:^|[\n])\s*(?:证明|试证)|(?:^|[\n])\s*(?:prove|show)\b|"
     r"证明题|(?<!or )\b(?:prove|show|demonstrate|establish|justify)\s+that\b|"
     r"\b(?:prove|show|demonstrate|establish|justify)\b",
-    re.I,
-)
-# V2.9 题型六分类补全：推导（derivation，要求导出结论但非严格证明）与
-# 解释（explain，要求说明概念/原因/含义）。
-_DERIVATION_RE = re.compile(
-    r"推导|导出|推得|推导出|导出公式|推导公式|推导过程|derive|deriv",
-    re.I,
-)
-_EXPLAIN_RE = re.compile(
-    r"解释|说明|阐述|简述|为什么|理由|explain|含义|意义",
     re.I,
 )
 
@@ -100,13 +87,6 @@ def classify_question_mode(problem: str) -> str:
         return "fill"
     if _PROOF_RE.search(text):
         return "proof"
-    # V2.9 题型六分类：证明之后识别推导（导出结论）与解释（说明原因/含义）。
-    # 推导题保留完整推导步骤（类似 computation 但强调过程），解释题强调
-    # 概念/原因说明，二者均非客观题，走完整求解+验证链。
-    if _DERIVATION_RE.search(text):
-        return "derivation"
-    if _EXPLAIN_RE.search(text):
-        return "explain"
     return "computation"
 
 

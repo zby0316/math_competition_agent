@@ -34,19 +34,10 @@ CONFIG = {
     # failed/unparseable LLM classification; it no longer narrows the LLM's
     # candidate list (all 18 domains go in one prefilled call).
     "classifier_top_k": 3,
+    "computation_tolerance": 1e-6, "proof_confidence_threshold": 0.7,
     "temperatures": {"classifier": 0.1, "reasoning": 0.8, "objective_reasoning": 0.2,
                      "python": 0.6,
                      "reconciliation": 0.2, "semantic_arbiter": 0.1, "coordinator": 0.4},
-    # V2.9 分层温度采样（多候选 N≥8 的落地）：难题/低置信时用不同温度采样，产生
-    # 多样性答案，投票选最一致（self-consistency）。温度从低到高，低温度更确定、
-    # 高温度更多样。样本用 prefill 快速采样（~30s/次），墙钟可控。
-    "sample_temperatures": [0.2, 0.4, 0.6, 0.8, 1.0, 1.2],
-    # 多温度采样投票的触发门槛：难度 hard，或分类置信 < 此值（分类器不可靠，
-    # 低置信的信号是"这道题模型可能错"）。objective 题不触发。
-    "sample_vote_min_confidence": 0.85,
-    # 投票自洽性阈值：胜出答案得票占比 < 此值视为"不自洽"，升级 thinking_mode
-    # 深度重解（多温度采样无法定论，需要深度思考）。
-    "sample_vote_consensus_threshold": 0.5,
     # Prefilled selection calls (classifier/semantic_arbiter) emit 4-12 completion
     # tokens because the assistant seed suppresses reasoning entirely. The small
     # caps below are safe ONLY with prefill: without it, this reasoning model bills
@@ -68,8 +59,8 @@ CONFIG = {
     # 超时前完成。牺牲的仅是极少数"贴 24576 上限"的奥赛题成功区间。
     "max_tokens": {"classifier": 96, "classifier_fallback": 8192,
                    "objective_reasoning": 4096,
-                   "reasoning": 16384, "python": 8192,
-                   "reasoning_compressed": 16384, "python_compressed": 8192,
+                   "reasoning": 12288, "python": 8192,
+                   "reasoning_compressed": 12288, "python_compressed": 8192,
                    "reconciliation": 32768,
                    "semantic_arbiter": 96, "semantic_arbiter_fallback": 4096,
                    "coordinator": 16384, "emergency_answer": 1280},
@@ -79,38 +70,9 @@ CONFIG = {
     # 配合"提分内化到提示词 + 调用精简"不加剧超时。
     # V2.4 真机验证（10 题 L4）：hard 24576 使单次 reasoning 143-231s，且
     # reconciliation 重算 3 次 → 单题 7-8min → 全卷墙钟逼近 6h。回落：
-    # hard 16384（单次 reasoning 实测 ~34s）、medium 12288。
-    #
-    # V2.4 官方实测（2026-08-14 eval_log，59.82 分）揭示关键新信号：
-    # truncated_count=91（10.2% 请求输出被截断）+ completion 平均仅 2151
-    # token/请求——大量难题答案没写完就被 max_tokens 切断。且此时 prefill 已
-    # 全面抑制 CoT，token 只花在可见答案上（不再有 811s 的 CoT 慢速），所以
-    # "给足 token"不再等于"慢生成"。官方墙钟仅 2.5h/6h（余量 3.5h），完全
-    # 负担得起上调。V2.5：medium 12288→16384、hard 16384→24576（恢复 V1
-    # 峰值），让长证明/长推导题写完，直接对冲 truncated 截断失分。
-    #
-    # V2.6（方向1）：easy 8192→16384。真机验证发现分类器难度画像不可靠——
-    # 把 level 4 科研级题（球面平均曲率、Z15 乘法群阶）判成 easy + 0.98 高置信，
-    # 而模型在这些"高置信"题上照样答错。easy 档 8192 会让这些"被判 easy 的
-    # 难题"只拿到 8192 token 上限、答案被截断（truncated 的可能根因之一）。
-    # easy 提到 16384 与 medium 平齐，彻底消除"难题判 easy 被截断"风险。
-    # max_tokens 是上限而非配额：easy 题答案本就短，提高上限不增加实际生成量
-    # 与耗时，只防止截断。
-    #
-    # V2.7（官方评测 53.57 分日志驱动）：官方 FAQ 明确"不额外限制单题输入输出
-    # token 数量"+"可以用思考模式"。truncated_count=112（10.2%）的根因是官方
-    # client 可能忽略 assistant prefill 种子（CoT 回来）→ CoT 先计费塞满
-    # max_tokens → 答案没输出就被截断（finish_reason=length）。给足上限让
-    # CoT + 答案都写完：medium 24576、hard 32768（V1 曾用 24576-32768 区间）。
-    # 时间风险由深加工预算门禁兜底（CoT 慢则跳过可选阶段，单题 20min 硬限不破）。
-    #
-    # V2.9 方法差距修复：easy 档 16384→32768，彻底摆脱分类器难度画像对 token
-    # 分级的影响。分类器把科研级题判 easy+0.98 高置信（实证），easy 档 16384
-    # 会让"被判 easy 的 hard 题"只拿 16384 上限、深度思考链+长证明被截断
-    # （truncated=366 的成分之一）。max_tokens 是上限而非配额：easy 题答案本就
-    # 短，提高上限不增加实际生成量与耗时，只防截断——"省 token"是虚假的，截断
-    # 风险是真实的。统一 32768 后分级仅作语义标注，不再造成截断差。
-    "reasoning_tokens_by_difficulty": {"easy": 32768, "medium": 32768, "hard": 32768},
+    # hard 16384（单次 reasoning 实测 ~34s）、medium 12288。16384 对难题已够
+    # （V1 每题均 3.8K token，峰值 24576 是极少数题）。
+    "reasoning_tokens_by_difficulty": {"easy": 8192, "medium": 12288, "hard": 16384},
     "reconciliation_max_rounds": 2,
     "token_budget_max": 256000, "token_budget_warn_ratio": 0.9,
     # Wall-clock budget per problem. The platform's hard limit is 20 min; the
@@ -142,51 +104,20 @@ CONFIG = {
     # 调整 soft_total：客观题/简单题让出资源，难题拿满全预算。hard_total 永远是
     # 1200s 平台硬限；软预算只决定"可选阶段"的购买力，不会杀死进行中的工作。
     "difficulty_soft_budgets": {"easy": 480, "medium": 840, "hard": 1200},
-    # V2.9 异构第二推理路径：所有非客观题都并行扇出 B 路径（分类器置信度/领域
-    # 白名单不可靠，异构互验是打破"单样本系统性错误"的唯一机制，见
-    # graph/solving_subgraph.py 的 _want_diverse_branch）。客观题与时间 fast_path
-    # 除外。
+    # 异构双方法推理：首轮只在高风险领域（组合/竞赛构造类单样本错误率最高）
+    # 并行扇出第二条推理路径；其余题目在首轮不一致/不确定时由调解阶段以
+    # "换方法"提示触发第二路径，不在 happy path 上增加成本。
     "enable_diverse_reasoning": True,
-    # 思考模式（V2.8）：主推理开启 thinking_mode=True，让 intern-s2 生成私有
-    # reasoning_content（深度推理链）再输出答案。此前一直用 prefill（assistant
-    # 种子）强制跳过 reasoning_content 提速——但 reasoning_content 正是解科研级
-    # 难题的核心能力，跳过 = 让最强模型"不思考硬答"。真机实测 thinking_mode=True
-    # 解有限域 F81 题 44.7s（不是当年无控制 CoT 的 811s），finish_reason=stop。
-    #
-    # V2.9 分级思考（官方评测 58.04 分日志驱动）：thinking_mode 全量开导致
-    # truncated 从 112 暴涨到 366（33.8%，深度思考的 reasoning_content 挤占
-    # max_tokens，答案被截断）+ 墙钟 2.5h→5h。分级：easy 题 prefill 直答
-    # （简单题不需要深度思考，快且不截断），medium/hard 开 thinking_mode
-    # （科研级题保留深度思考——V2.8 提分 +5 题的来源）。
-    # enable_thinking_mode=False 则全部回退 prefill（A/B 对照）。
-    "enable_thinking_mode": True,
-    # V2.9 分级思考：按难度决定是否开 thinking_mode。easy=False（prefill 直答，
-    # 防截断+提速），medium/hard=True（保留深度思考提分）。
-    # 注意：分类器难度画像不可靠（把科研级题判 easy），easy 档 prefill 仍给
-    # 16384 token 上限（防"误判 easy 的难题"被截断，prefill 抑制思考后 token
-    # 只花答案）。
-    "thinking_by_difficulty": {"easy": False, "medium": True, "hard": True},
+    "high_risk_domains": ["离散数学", "非基础及进阶课程", "微分几何", "测度积分"],
     # 过程审计智能体：对已定候选做题面契约完整性 + 关键计算抽核。
     # prefill JSON 判定 ~10-20s；不完整且可负担时回调解做定向补算。
     "enable_critic": True,
     "critic_reserve_margin_s": 60,
-    # 深度反思环（V2.6）：Critic 前对答案做"正确性"批判性复核（代回验证/差一/
-    # 符号/边界/反例），补上"reasoning+python 一致地错也直接出厂"的缺口。
-    # 触发：所有非客观题一律反思一次（不依赖分类器 difficulty/confidence——
-    # 实测分类器把科研级题判 easy+0.98 高置信却照样答错，信号不可靠）。
-    # 判错则复用 reconciliation 定向重算回路（非简单 rollout，合规）。
-    "enable_reflection": True,
-    "reflection_reserve_margin_s": 60,
-    # 反思环思考模式（V2.9 降速）：V2.8 反思环开 thinking_mode 深度思考 ~70s/题，
-    # 112 题 ≈ +2h 墙钟（V2.8 全卷 5h 逼近 6h 上限的重要原因之一）。官方评测
-    # 反思环的"救回"价值未证实（同源模型漏判），而 SymPy 代回（确定性机器验证）
-    # 已独立兜底算术错误。V2.9 降回 prefill 浅思考 ~25s/题，省 ~1.25h 墙钟，
-    # 保留 LLM 反思 + SymPy 代回双保险。关闭则回退 prefill JSON 快速反思。
-    "enable_reflection_thinking": False,
     # 确定性复算季后赛：两路数值冲突时把候选代回原题复算/小规模枚举对照，
     # 替代"只能二选一"的仲裁。一次 playoff ≈ 一次 LLM 生成 + 一次代码执行，
     # 远低于整轮 solving 子图重跑。
     "enable_playoff": True,
+    "playoff_max_seconds": 240,
     # 客观题低置信复核投票：仅当首次抽取置信不足（空位数不足/来源为兜底）时
     # 追加一次独立短采样比对；一致则提置信，不一致则携带双候选交仲裁。
     "enable_objective_revote": True,
