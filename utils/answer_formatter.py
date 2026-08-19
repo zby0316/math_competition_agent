@@ -546,6 +546,31 @@ def _prefer_complete_proof_answer(cleaned: str, formatted_answer: str) -> str:
     return formatted_answer
 
 
+def render_sentence_answer(fa: str, problem: str) -> str:
+    """裸数值答案 → 判分期望句子（V2.5a 主线 3，榜一 render_answer 精简版）。
+
+    只处理最明确的文字应用题三类（数量/概率/年龄），且答案必须是**纯数值**
+    （不含字母/中文/LaTeX）——避免把表达式答案（如概率密度函数 f(x)=2x、方程解 x=2）
+    误伤成"所求概率为…"这种错误句子。judger 是 LLM 语义判分，句子化不改数学
+    本体、只补可读形态；已含字母/中文/LaTeX 的答案一律原样返回。
+    """
+    value = (fa or "").strip()
+    # 纯数值守卫：只允许数字/分数/小数/正负号，含字母或符号一律不碰。
+    if not value or not re.fullmatch(r"[+-]?\d+(?:\.\d+)?(?:/[+-]?\d+)?", value):
+        return fa
+    prob = problem or ""
+    _end = ("。", ".", "！", "!", "？", "?")
+    # 顺序从具体到泛化：年龄（"多少岁"含"多少"）必须排在数量之前。
+    if re.search(r"年龄|几岁|多少岁", prob):
+        return f"{value}岁。" if not value.endswith(_end) else value
+    # "概率密度/概率分布"不是"求概率"，负向断言排除。
+    if re.search(r"概率(?!密度|分布|空间)", prob):
+        return f"所求概率为{value}。" if not value.endswith(_end) else value
+    if re.search(r"多少个|多少种|几个|几名|几条|几块|数量|个数", prob):
+        return f"所求数量为{value}。" if not value.endswith(_end) else value
+    return fa
+
+
 def _clean_noise_head(fa: str) -> str:
     """噪声答案行截取句首的干净结论头；无可用头部时返回 ""。
 
@@ -638,4 +663,7 @@ def post_process_final_response(raw: str, validated_answer: str, problem_type: s
         missing = missing_components(problem, fa)
     if missing:
         fa = _append_recovered_components(fa, cleaned, missing)
+    # V2.5a 主线 3：计算题裸数值答案句子化（数量/概率/年龄），客观题不碰。
+    if problem_type == "computation":
+        fa = render_sentence_answer(fa, problem)
     return f"最终答案：{fa}"

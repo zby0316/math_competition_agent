@@ -41,6 +41,7 @@ for _cand in (_HERE, _os.getcwd()):
 try:
     from langgraph_math_agent import MathAgentGraph
     from utils.client_tuning import cap_internal_retries, raise_socket_timeout
+    from utils.client_probe import probe_signature, probe_contract, read_chat_mode
     from utils.skills_loader import SkillsLoader
     from utils.python_mcp_client import PythonMCPClient
     from utils.token_budget import TokenBudget
@@ -61,6 +62,10 @@ if _BACKEND == "graph":
     class ReasoningAgent:
         """挑战杯数学推理智能体（LangGraph 多代理架构）。"""
 
+        # 官方 client 契约探测结果缓存：首次 solve 时各发一次最小调用探测
+        # 返回形态/finish_reason/prefill，之后 112 题复用，不再重复探测。
+        _contract_probe_cache = None
+
         def __init__(self, client, *args, **kwargs):
             self.client = client
             self.logger = get_logger("ReasoningAgent")
@@ -71,6 +76,15 @@ if _BACKEND == "graph":
                 "socket_timeout": raise_socket_timeout(client, logger=self.logger),
                 "internal_retries": cap_internal_retries(client, logger=self.logger),
             }
+            # 零成本探针：inspect.signature 看官方 client 的 chat 到底接受哪些参数，
+            # 直接回答"max_tokens/temperature 传不传得进去"（V2.4/本次 truncated 根因）。
+            self.client_probe = probe_signature(client)
+            self.logger.info(
+                "client probe: type=%s signature=%s max_tokens=%s",
+                self.client_probe.get("client_type"),
+                self.client_probe.get("chat_signature"),
+                self.client_probe.get("accepts_max_tokens"),
+            )
             self.skills_loader = SkillsLoader()
             self.mcp_client = PythonMCPClient()
             self.graph = MathAgentGraph(
@@ -89,6 +103,14 @@ if _BACKEND == "graph":
             idx = meta.get("idx", -1)
             try:
                 self.logger.info(f"Solving problem {idx}")
+                # 低成本契约探测：首次 solve 时各发一次最小调用（返回形态 +
+                # finish_reason + prefill），结果类级缓存，112 题只探测一次。
+                if ReasoningAgent._contract_probe_cache is None:
+                    ReasoningAgent._contract_probe_cache = probe_contract(self.client)
+                    self.logger.info(
+                        "client contract probe: %s",
+                        ReasoningAgent._contract_probe_cache)
+                self.client_probe["contract"] = ReasoningAgent._contract_probe_cache
                 initial = create_initial_state(str(problem or ""), meta)
                 final_state = self.graph.run(initial, token_budget=TokenBudget())
                 result = {
@@ -381,6 +403,26 @@ if _BACKEND == "graph":
                         }
                     ],
                 })
+            # 官方 client 契约探针：签名（__init__ 零成本）+ 契约（首题低成本）+
+            # 主流程实际落到哪种调用模式（跑完后读 chat_compatible 的缓存）。
+            # 用于根治 V2.4/本次 truncated_count 的根因（max_tokens 是否丢失 /
+            # prefill 是否抑制 CoT / finish_reason 是否可见）。
+            try:
+                trace.append({
+                    "step": "client_probe",
+                    "thinking": {
+                        "purpose": "探测官方注入 client 的真实契约（签名/返回形态/finish_reason/prefill），定位截断根因。",
+                    },
+                    "tools": [
+                        {
+                            "name": "client_probe",
+                            "signature": getattr(self, "client_probe", {}),
+                            "chat_mode": read_chat_mode(self.client),
+                        }
+                    ],
+                })
+            except Exception:  # noqa: BLE001 - 探针失败不影响 trace 主体
+                pass
             return trace
 
         @staticmethod

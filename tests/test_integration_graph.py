@@ -33,30 +33,48 @@ def _code_block(value_expr: str) -> str:
     )
 
 
-def _run_graph(problem: str, responses: list):
+def _run_graph(problem: str, responses: list = None, routes: list = None):
+    """跑完整图。
+
+    - ``responses``：顺序响应列表（无并发场景，如客观题 fast path）；
+    - ``routes``：[(prompt 特征词, 响应)] 关键词路由——solving 子图
+      reasoning/python 节点**并发**执行，共享顺序响应存在竞态（V2.5 增加
+      sympy 前置计算后 python 线程可能抢先消费响应），路由按 prompt 特征
+      命中即正确分发，消除竞态。
+    """
     from langgraph_math_agent import MathAgentGraph
+    from utils.time_budget import TimeBudget
+    from utils.token_budget import TokenBudget
     client = MockClient(responses)
+    for keyword, response in (routes or []):
+        client.route(keyword, response)
     graph = MathAgentGraph(
         client=client, skills_loader=SkillsLoader(), mcp_client=PythonMCPClient())
-    return graph.run(create_initial_state(problem, {"idx": 0})), client
+    # 集成测试验证完整链路（match→critic→coordinator），预算必须给足：
+    # 默认 TimeBudget 的 reserve=300s 会把 easy 题 soft_total(480s) 压到
+    # remaining 180s < fast_path_threshold(300s)，触发 coordinator 跳过，
+    # 破坏"match 直达成稿"的断言（历史遗留问题，非 V2.5 回归）。
+    clock = TimeBudget(total_seconds=1200, reserve_seconds=0)
+    return graph.run(create_initial_state(problem, {"idx": 0}),
+                     time_budget=clock,
+                     token_budget=TokenBudget()), client
+
+
+_CLS = '数学分析", "confidence": 0.97, "difficulty": "easy"}'
+_CRITIC_PASS = (' true, "missing": [], "calc_checks": [{"check": "2+3=5", "ok": true}],'
+                ' "verdict": "pass"}')
 
 
 class TestHappyPathWithCritic(unittest.TestCase):
     def test_match_goes_through_critic_to_coordinator(self):
-        responses = [
-            # 1) 分类 prefill：含难度画像
-            '数学分析", "confidence": 0.97, "difficulty": "easy"}',
-            # 2) 主推理：四章节，答案 5
-            _four_sections("5"),
-            # 3) Python 验证代码：真实执行得 5
-            _code_block("2+3"),
-            # 4) Critic 审计 prefill：pass
-            ' true, "missing": [], "calc_checks": [{"check": "2+3=5", "ok": true}],'
-            ' "verdict": "pass"}',
-            # 5) coordinator 成稿
-            "最终答案：5",
+        routes = [
+            ("可选类别", _CLS),
+            ("你是一个数学专家，使用", _four_sections("5")),
+            ("你是Python数学计算专家", _code_block("2+3")),
+            ("请审计下面这道题", _CRITIC_PASS),
+            ("你是一个数学教学专家", "最终答案：5"),
         ]
-        final, client = _run_graph("计算 2+3 的值。", responses)
+        final, client = _run_graph("计算 2+3 的值。", routes=routes)
         self.assertEqual(final.get("validation_status"), "match")
         # Critic 必须真的运行过且放行
         self.assertEqual(final.get("critic_status"), "pass")
@@ -79,15 +97,15 @@ class TestPlayoffDecisive(unittest.TestCase):
             'print("候选B核验:", "PASS" if 6 == truth else "FAIL 6 != %s" % truth)\n'
             'print("PLAYOFF_RESULT:", "A")\n```'
         )
-        responses = [
-            '数学分析", "confidence": 0.97, "difficulty": "easy"}',
-            _four_sections("5"),           # 主推理答 5
-            _code_block("3+3"),            # Python 答 6（与推理冲突）
-            playoff_code,                  # Playoff 生成裁决代码：判 A 胜
-            ' true, "missing": [], "calc_checks": [], "verdict": "pass"}',  # Critic
-            "最终答案：5",                  # coordinator
+        routes = [
+            ("可选类别", _CLS),
+            ("你是一个数学专家，使用", _four_sections("5")),
+            ("你是Python数学计算专家", _code_block("3+3")),
+            ("你是数学裁判工程师", playoff_code),
+            ("请审计下面这道题", _CRITIC_PASS),
+            ("你是一个数学教学专家", "最终答案：5"),
         ]
-        final, client = _run_graph("计算 2+3 的值。", responses)
+        final, client = _run_graph("计算 2+3 的值。", routes=routes)
         self.assertEqual(final.get("validation_status"), "mismatch_playoff")
         self.assertEqual(final.get("playoff_status"), "decisive")
         self.assertEqual(final.get("playoff_answer"), "5")

@@ -7,7 +7,7 @@ code is found — never executes CoT as code.
 """
 import re
 from utils.deps import get_deps
-from utils.llm_retry import chat_prefilled, chat_with_retry
+from utils.llm_retry import chat_prefilled, chat_with_retry, thinking_mode_flag
 from utils.prompt_templates import PYTHON_PROMPT
 from utils.token_budget import estimate_tokens
 from utils.cot_stripper import strip_cot_prefix
@@ -163,6 +163,7 @@ def _compressed_python_call(deps, problem, candidate_answer,
             expected_call_seconds=_COMPRESSED_CALL_ESTIMATE_S,
             label="python_compressed",
             reserve_margin_s=_COMPRESSED_RESERVE_MARGIN_S,
+            thinking_mode=thinking_mode_flag(),
         )
     except Exception as exc:  # noqa: BLE001
         deps.logger.warning("Compressed python retry failed: %s", exc)
@@ -357,6 +358,7 @@ def python_agent_node(state, config):
                     logger=deps.logger,
                     time_budget=deps.time_budget,
                     label="python",
+                    thinking_mode=thinking_mode_flag(),
                 )
             except Exception as exc:  # noqa: BLE001
                 deps.logger.warning("Python attempt %s failed: %s", attempts, exc)

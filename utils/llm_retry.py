@@ -20,6 +20,17 @@ from utils.response_normalize import (
     chat_compatible, detect_truncation, normalize_chat_response)
 
 
+def thinking_mode_flag():
+    """V2.6 截断根治：thinking_mode=False 确定性关"深度思考"（长 CoT）。
+
+    截断根因是 CoT 计入 max_tokens、难题上吃光预算导致答案没写完。V2.4 用
+    prefill 变相关 CoT 拿 59.82 最佳分（对比 V1 开 CoT 53.53），证明数学场景
+    关 CoT 反而更好。官方原生 thinking_mode=False 比 prefill hack 更可靠。
+    返回 False（关 CoT）或 None（不传，保持默认深度思考）；由 config 开关控制。
+    """
+    return False if CONFIG.get("enable_thinking_mode_off") else None
+
+
 class DeadlineExceeded(RuntimeError):
     """Raised when the problem's time budget cannot fund another attempt."""
 
@@ -86,6 +97,7 @@ class LLMRetryWrapper:
         temperature: float = 0.2,
         max_tokens: int = 4096,
         label: str = "llm",
+        thinking_mode=None,
     ) -> str:
         if not self._affordable():
             need = (f"~{self.expected_call_seconds:.0f}s"
@@ -102,7 +114,7 @@ class LLMRetryWrapper:
                 # 响应归一化（str/bytes/choices/content blocks/对象形态 → str）。
                 # 官方 client 形态见 utils/response_normalize.py 头注的 0 分教训。
                 raw = chat_compatible(
-                    self.client, messages, temperature, max_tokens)
+                    self.client, messages, temperature, max_tokens, thinking_mode)
                 result = normalize_chat_response(raw)
                 if self.time_budget:
                     self.time_budget.record(label, self._now() - started)
@@ -117,7 +129,7 @@ class LLMRetryWrapper:
                         detect_truncation(raw)
                         or _looks_truncated(result, max_tokens)):
                     result = self._continue_truncated(
-                        messages, result, temperature, label)
+                        messages, result, temperature, label, thinking_mode)
                 return result
             except Exception as exc:  # noqa: BLE001 - retry transient transport failures.
                 last_error = exc
@@ -157,59 +169,86 @@ class LLMRetryWrapper:
                     time.sleep(delay)
         raise last_error
 
-    def _continue_truncated(self, messages, result, temperature, label):
-        """finish_reason=length 时，用已生成内容 prefill 续写补全（只一次）。
+    def _continue_truncated(self, messages, result, temperature, label, thinking_mode=None):
+        """finish_reason=length 时，用已生成内容 prefill 续写补全（最多 N 轮）。
 
         克制设计（区别于 V2.8 上调 token 反而 truncated 366 的教训）：
         - 续写用 prefill（assistant 前缀）抑制 CoT，不重新触发思考；
         - 只用结尾片段作前缀（超长前缀在慢 API 下会拖到 800s+ 逼近单题硬限）；
         - 预算不足（remaining_hard 或 can_afford 不满足）直接放弃，不冒险。
+        - V2.6 从"只续一次"升级为"续到完整，最多 N 轮"（N=truncation_continue_max_rounds）：
+          单次 2048 token 续写不够时（超长证明/多问项），循环续写直到完整或达到上限。
         """
+        max_rounds = int(CONFIG.get("truncation_continue_max_rounds", 2))
+        continue_tokens = CONFIG.get("truncation_continue_tokens", 2048)
+        current = result
         try:
-            if self.time_budget:
-                # 慢 API 下一次续写估 ~45s，硬上限前留 60s 余量
-                if getattr(self.time_budget, "remaining_hard", lambda: 0)() < 105:
-                    return result
-                if not self._affordable():
-                    return result
-            tail = result[-120:] if len(result) > 120 else result
-            raw2 = chat_compatible(
-                self.client, prefill_messages(messages, tail),
-                temperature, CONFIG.get("truncation_continue_tokens", 2048))
-            completion = normalize_chat_response(raw2)
-            if not completion or not completion.strip():
-                return result
-            stitched = stitch(tail, completion)
-            # 续写产物去掉前缀种子后拼回原答案；若续写异常（空/退化）保守回退
-            if stitched and stitched != tail:
-                return result + stitched[len(tail):] if stitched.startswith(tail) else result + stitched
-            return result
+            for _round in range(max_rounds):
+                if self.time_budget:
+                    # 慢 API 下一次续写估 ~45s，硬上限前留 60s 余量
+                    if getattr(self.time_budget, "remaining_hard", lambda: 0)() < 105:
+                        return current
+                    if not self._affordable():
+                        return current
+                tail = current[-120:] if len(current) > 120 else current
+                raw2 = chat_compatible(
+                    self.client, prefill_messages(messages, tail),
+                    temperature, continue_tokens, thinking_mode)
+                completion = normalize_chat_response(raw2)
+                if not completion or not completion.strip():
+                    return current
+                stitched = stitch(tail, completion)
+                # 续写产物去掉前缀种子后拼回原答案；若续写异常（空/退化）保守回退
+                if stitched and stitched != tail:
+                    current = (current + stitched[len(tail):]
+                               if stitched.startswith(tail) else current + stitched)
+                else:
+                    return current
+                # 续写又写满（还需续写）则继续下一轮，否则认为已补全。
+                if not (detect_truncation(raw2)
+                        or _looks_truncated(completion, continue_tokens)):
+                    return current
+            return current
         except Exception as exc:  # noqa: BLE001 - 续写失败保守返回原答案
             if self.logger:
                 self.logger.warning("%s: truncation continue failed: %s", label, exc)
-            return result
+            return current
 
 
 def _looks_truncated(text: str, max_tokens: int) -> bool:
     """finish_reason 不可见时的截断启发式（真机实证：本地 client 只返回 content
     字符串，丢弃 finish_reason，仅靠 detect_truncation 会漏检）。
 
-    判据（宁可误判补写——续写从结尾继续、主体答案保留，漏判代价是残缺 0 分）：
-    1. 写满判据：输出长度达到 max_tokens 的量级（中文 ~1.2 字符/token 下界）；
-    2. 未完成判据：结尾是明显未写完的形态（空列表项/冒号/逗号/未闭合括号/等号），
-       或写满 1.5 倍以上（截断点常在句中断开，无标点特征）。
+    判据分两层（宁可误判补写——续写从结尾继续、主体答案保留，漏判代价是残缺 0 分）：
+    - 强信号（不依赖写满判据，命中即判截断）：未闭合 LaTeX（$ 奇数、{/} 不配对）、
+      结尾反斜杠命令残片——正常答案几乎不会出现，出现即大概率截断。
+    - 弱信号（依赖写满判据，即输出达到 max_tokens 量级）：结尾未完成标点
+      （冒号/逗号/等号/空括号）、枚举空项、写满 1.5 倍以上。
     """
     if not isinstance(text, str) or max_tokens <= 0:
         return False
     s = text.rstrip()
+    # —— 强信号：未闭合 LaTeX / 命令残片（不依赖写满判据）——
+    if s.count("$") % 2 == 1:
+        return True
+    if s.count("{") > s.count("}"):
+        return True
+    if re.search(r"\\[a-zA-Z]+$", s):  # 结尾反斜杠命令残片（如 "\\alpha" 无闭合）
+        return True
+    # —— 弱信号：写满判据是前提 ——
     if len(s) < max_tokens * 1.2:
         return False
-    tail = s[-40:]
+    tail = s[-60:]
     if re.search(r"[-:：,，、=＝]\s*$", tail):
         return True
     if re.search(r"[（(]\s*$", tail):
         return True
+    if re.search(r"\\[a-zA-Z]*$", tail):
+        return True
+    if re.search(r"^\s*(?:\d+[.、)]|[-*•])\s*$", tail[-3:].lstrip()):  # 枚举项后无内容
+        return True
     return len(s) >= max_tokens * 1.5
+
 
 
 def chat_with_retry(
@@ -221,6 +260,7 @@ def chat_with_retry(
     time_budget=None,
     expected_call_seconds=None,
     label="llm",
+    thinking_mode=None,
 ):
     return LLMRetryWrapper(
         client,
@@ -234,6 +274,7 @@ def chat_with_retry(
         temperature=temperature,
         max_tokens=max_tokens,
         label=label,
+        thinking_mode=thinking_mode,
     )
 
 
@@ -249,6 +290,7 @@ def chat_prefilled(
     label="llm_prefill",
     max_retries=1,
     reserve_margin_s=None,
+    thinking_mode=None,
 ):
     """One prefilled round trip, returning the stitched assistant text.
 
@@ -258,6 +300,8 @@ def chat_prefilled(
 
     ``reserve_margin_s`` 非 None 时，本调用允许动用 reserve（软预算已尽仍可
     执行），仅要求硬上限前剩余 ≥ 调用估时 + margin。用于仲裁保底与应急直答。
+
+    ``thinking_mode``（V2.6）：官方原生关深度思考开关，透传给 chat_compatible。
     """
     wrapper = LLMRetryWrapper(
         client,
@@ -273,5 +317,6 @@ def chat_prefilled(
         temperature=temperature,
         max_tokens=max_tokens,
         label=label,
+        thinking_mode=thinking_mode,
     )
     return stitch(prefix, raw)

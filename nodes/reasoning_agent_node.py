@@ -1,6 +1,6 @@
 import re
 from utils.deps import get_deps
-from utils.llm_retry import chat_prefilled, chat_with_retry
+from utils.llm_retry import chat_prefilled, chat_with_retry, thinking_mode_flag
 from utils.prompt_templates import DIVERSE_METHOD_HINT, REASONING_PROMPT
 from utils.token_budget import estimate_tokens
 from utils.answer_extractor import (
@@ -14,6 +14,7 @@ from utils.skill_excerpt import select_skill_excerpt
 from utils.retry_affordability import can_afford_retry, last_attempt_cost
 from utils.problem_profile import (
     answer_coverage_clause,
+    is_multi_ask,
     is_objective_mode,
     is_property_judge,
     mode_instruction,
@@ -97,6 +98,11 @@ def _parse_reasoning_output(response, question_mode="computation"):
         evidence = re.search(r"(?:依据|理由|说明)\s*[：:]\s*(.+)", response or "", re.S)
         description = evidence.group(1).strip() if evidence else "按选项/空位逐项核对题面条件。"
         r["steps"] = [{"step_num": 1, "description": description[:600]}]
+    # V2.6 答案先行压缩重试：只产出"最终答案 + 关键验证点"、无"详细解题步骤"时，
+    # 用验证点回填 steps，避免 _is_complete 因 steps 空而误判为失败。
+    if r["answer"] and not r["steps"] and r.get("validation_points"):
+        r["steps"] = [{"step_num": i + 1, "description": vp[:400]}
+                      for i, vp in enumerate(r["validation_points"][:3])]
     return r
 
 
@@ -275,13 +281,16 @@ _COMPRESSED_RESERVE_MARGIN_S = CONFIG.get("compressed_reserve_margin_s", 150)
 #: 压缩重试的 assistant 种子。以内容开头接管助手轮，模型进入续写模式后不再打开
 #: reasoning_content（与分类器/仲裁器 prefill 同机制，见 utils/prefill.py 实测），
 #: 因此 8192 token 全部落在四章节上。
-_COMPRESSED_PREFILL = "## 问题分析\n"
+# V2.6 答案先行：压缩重试是"截断挽救"通道，价值在于把答案抢救出来。种子从
+# "## 问题分析"改为"## 最终答案"，让答案永远在输出最前面——即使 12288 token
+# 仍不够写满，截断点也只会落在答案之后的验证点，答案本身不再被切掉。
+_COMPRESSED_PREFILL = "## 最终答案\n"
 
 _COMPRESSED_INSTRUCTION = (
-    "\n\n注意：上一次输出{failure}。现在禁止展开探索性思考："
-    "沿最可行的一条路线直接写出四个章节，每章从简（'## 详细解题步骤' 最多 4 步、每步 3 行以内）。"
-    "'## 最终答案' 必须给出明确结论；若尚不能完全确定，也必须给出当前最可信的具体结论"
-    "（数值/表达式/集合），并把不确定之处写进 '## 关键验证点'，不得留空。{coverage}"
+    "\n\n注意：上一次输出{failure}。现在禁止展开探索性思考，直接给答案："
+    "先写 '## 最终答案'（明确具体结论——数值/表达式/集合，必须具体，不得留空、不得说无法确定），"
+    "再写 '## 关键验证点'（1-3 条关键计算或核对，每条一行，说明该答案如何满足题面条件）。"
+    "不要写 '## 问题分析' 和 '## 详细解题步骤'。{coverage}"
 )
 
 
@@ -315,6 +324,7 @@ def _compressed_reasoning_retry(deps, base_prompt,
             expected_call_seconds=_COMPRESSED_CALL_ESTIMATE_S,
             label="reasoning_compressed",
             reserve_margin_s=_COMPRESSED_RESERVE_MARGIN_S,
+            thinking_mode=thinking_mode_flag(),
         )
     except Exception as exc:  # noqa: BLE001 - degrade to whatever the caller holds.
         deps.logger.warning("Compressed reasoning retry failed: %s", exc)
@@ -333,8 +343,63 @@ def _raw_excerpt(text, head=600, tail=1400):
     return f"{s[:head]}\n……[中略 {omitted} 字符]……\n{s[-tail:]}"
 
 
+#: sympy 预解器的惰性单例（进程内复用，避免每题重新 import sympy）。
+_SYMPY_SOLVER = None
+
+
+def _sympy_pre_solve(state, deps):
+    """V2.5a 主线 1：sympy 事前直接解，解出完整目标且非 hard → 跳过 LLM。
+
+    只对"非客观题 + 非 hard + 非多问项"触发：客观题答案是选项/判断（sympy
+    解不了），hard 难题需要推理框架，多问项（"求 a 和 b"）sympy 只解第一个
+    会漏解。解出完整目标时返回一个可直接当 reasoning_result 的 dict；否则
+    返回 None（交回 LLM）。
+    """
+    if is_objective_mode(state.get("question_mode", "computation")):
+        return None
+    if str(state.get("difficulty") or "").lower() == "hard":
+        return None
+    # 多问项不短路：sympy 的 whole_answer 只取首个无歧义式子，会漏掉其余问项。
+    if is_multi_ask(str(state.get("problem") or "")):
+        return None
+    global _SYMPY_SOLVER
+    if _SYMPY_SOLVER is None:
+        try:
+            from utils.sympy_pre_solver import SympyPreSolver
+            _SYMPY_SOLVER = SympyPreSolver()
+        except Exception:  # noqa: BLE001 - sympy 不可用时静默关闭
+            _SYMPY_SOLVER = False
+    if not _SYMPY_SOLVER:
+        return None
+    try:
+        result = _SYMPY_SOLVER.pre_solve(str(state.get("problem") or ""))
+    except Exception:  # noqa: BLE001 - 确定性工具失败交回 LLM
+        return None
+    whole = (result or {}).get("whole_answer", "")
+    if not whole:
+        return None
+    parsed = {
+        "analysis": "由 sympy 确定性计算直接得出。",
+        "steps": [{"step_num": 1, "description": f"sympy 直接计算：{whole}"}],
+        "answer": whole,
+        "validation_points": ["sympy 确定性计算结果"],
+        "answer_source": "sympy_pre_solve",
+    }
+    return {
+        "reasoning_result": parsed,
+        "reasoning_trace": [{"attempt": 0, "status": "sympy_direct",
+                             "reason": "sympy_pre_solve_whole_answer"}],
+        "reasoning_attempts": 0,
+        "reasoning_raw_response": whole,
+    }
+
+
 def _reasoning_agent_impl(state, config):
     deps = get_deps(config)
+    # V2.5a sympy 事前直接解：解出完整目标且非 hard 时跳过 LLM 求解。
+    pre = _sympy_pre_solve(state, deps)
+    if pre is not None:
+        return pre
     sl = deps.skills_loader
     client = deps.client
     budget = deps.token_budget
@@ -462,6 +527,7 @@ def _reasoning_agent_impl(state, config):
                 time_budget=deps.time_budget,
                 expected_call_seconds=45,
                 label="objective_reasoning_plain",
+                thinking_mode=thinking_mode_flag(),
             )
             if budget:
                 budget.consume(estimate_tokens(objective_prompt), estimate_tokens(response))
@@ -506,6 +572,7 @@ def _reasoning_agent_impl(state, config):
                     time_budget=deps.time_budget,
                     expected_call_seconds=60,
                     label="objective_reasoning_prefill",
+                    thinking_mode=thinking_mode_flag(),
                 )
                 if budget:
                     budget.consume(estimate_tokens(objective_prompt), estimate_tokens(response))
@@ -595,6 +662,9 @@ def _reasoning_agent_impl(state, config):
             # 计入 max_tokens 且慢 API 下生成极慢（16384 token ≈ 811s，真机实测）。
             # 用 prefill 让模型从"## 问题分析"直接作答、跳过 CoT——思考引导已由
             # 提示词内化七点承担（结构/覆盖/逻辑/自洽验证），不再依赖 CoT 空想。
+            # V2.6 双保险：叠加 thinking_mode=False 官方原生关 CoT，prefill 若在
+            # 官方 backend 下失效（忽略 trailing assistant turn），thinking_mode
+            # 仍能确定性关 CoT，根治"CoT 吃光 max_tokens 答案没写完"的截断。
             resp = chat_prefilled(
                 client,
                 messages=[{"role": "user", "content": prompt}],
@@ -605,6 +675,7 @@ def _reasoning_agent_impl(state, config):
                 logger=deps.logger,
                 time_budget=deps.time_budget,
                 label="reasoning",
+                thinking_mode=thinking_mode_flag(),
             )
         except Exception as exc:  # noqa: BLE001 - keep whatever we already parsed.
             deps.logger.warning("Reasoning attempt %s failed: %s", attempts, exc)

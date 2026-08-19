@@ -9,7 +9,7 @@ from utils.answer_formatter import (
 from utils.conclusion_salvage import salvage_conclusion
 from utils.cot_stripper import is_placeholder_answer, strip_cot_prefix
 from utils.answer_extractor import looks_incomplete_answer
-from utils.llm_retry import chat_prefilled, chat_with_retry
+from utils.llm_retry import chat_prefilled, chat_with_retry, thinking_mode_flag
 from utils.prompt_templates import COORDINATOR_PROMPT
 from utils.token_budget import estimate_tokens
 from config import CONFIG
@@ -396,6 +396,7 @@ def coordinator_node(state, config):
             logger=deps.logger,
             time_budget=time_budget,
             label="coordinator",
+            thinking_mode=thinking_mode_flag(),
         )
     except Exception as exc:  # noqa: BLE001 - never lose an answer we already hold.
         deps.logger.warning("Coordinator LLM unavailable (%s); emitting validated answer", exc)

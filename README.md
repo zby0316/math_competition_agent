@@ -476,3 +476,65 @@ Intern-S2 模型的私有思维链（CoT）计入 `max_tokens`，慢 API 下单�
 **153 项测试 + 30 子测试全绿**（较 V2.3 新增 `test_v24_budget`、
 `test_v24_grade_boost`、`test_form_align` 客观题 9 用例）。
 
+### 10.7 V2.5：截断根治 + 确定性计算嫁接（2026-08-19）
+
+> 官方实测 V2.4 强化版 58.93 分（66/112），`truncated_count=116`（10.7% 请求
+> 被截断）。对照榜一（80.36 分）代码后定位：差距不在架构复杂度，而在
+> **确定性计算缺失**——榜一用 sympy 直接算、确定性规则校验，我们用 LLM 全包。
+> V2.5 分两条主线补齐。
+
+#### 主线 A：截断根治（根因 = CoT 计入 max_tokens）
+
+- `thinking_mode=False` 官方原生关深度思考（`llm_retry.thinking_mode_flag`，
+  经 `chat_compatible` kwargs 透传；旧版 client 自动降级回 prefill）
+- `_looks_truncated` 加固：强信号（未闭合 `$`/花括号不配对/结尾命令残片）
+  不依赖写满判据，弱信号（结尾标点/枚举空项）以写满为前提
+- `_continue_truncated` 循环续写（最多 2 轮，从"续一次"升级）
+- 压缩重试"答案先行"：`_COMPRESSED_PREFILL` 改 `## 最终答案`，答案永在最前
+
+#### 主线 B：确定性计算嫁接（对照榜一）
+
+- `utils/sympy_pre_solver.py`：sympy 事前直接解（积分/方程/极限/导数/同余/
+  模幂/矩阵），`reasoning_agent_node._sympy_pre_solve` 短路——非客观题 +
+  非 hard + 非多问项 + sympy 解出完整目标 → 跳过 LLM
+- `answer_formatter.render_sentence_answer`：计算题裸数值答案句子化
+  （数量/概率/年龄），纯数值守卫避免误伤表达式答案
+
+#### 配套（同轮）
+
+- `utils/client_probe.py`：探测官方 client 真实契约（签名/返回形态/
+  finish_reason/prefill），结果写 trace
+- `llm_client.py` 对齐官方 baseline（支持 thinking_mode/tools/**request_args）
+  （tools 通道为 client 层透传能力；独立工具循环预研件已移除，未接入主图）
+
+#### 合规确认（对照官方知识库完整文档 2026-08-19）
+
+- 18 个数学子领域与官方分布**完全一致**（`skills_pythonscripts/` 18 目录全覆盖；
+  离散数学 24 题 21.43% 最大）
+- sympy 本地符号计算官方**明确允许**（`requirements.txt` 已声明）
+- 官方明确"每个 problem 不涉及多个小问"；judger 为 Intern-S 模型语义判分，
+  LaTeX 等价表达判一致（不做字符串精确匹配）
+- 证明题 final_response 须保留完整证明过程（`answer_formatter.build_proof_body` 已覆盖）
+
+#### 真机 112 题测试（2026-08-19，题集已删）
+
+按官方 18 领域分布独立出 112 题（L3/L4，答案唯一可验证）真机求解 + Intern-S
+LLM 判分（与官方 Judger 同口径）：
+
+- **求解**：112/112 全完成，墙钟 42min（并发 3），0 异常；平均单题 66.5s
+  （中位 45s），最慢 862s，1463 次 API 调用
+- **判分**：103 correct（92.0%）/ 8 wrong / 1 error（传输失败已重判）
+- **人工复核修正**：8 道 wrong 中 3 道为标准答案自身错误（模型答对，含
+  idx=31 拉格朗日插值——判分器重判明示"参考答案存在数学错误"）、2 道为
+  近似值判分过严（官方"数值等价"口径下应算对）→ **修正正确率 106-109/112
+  （94.6%-97.3%）**；模型真错仅 3 道（Hilbert 条件数 / 瑕积分极限 / 柯西积分）
+- **⚠️ 关键教训：sympy 事前短路命中率仅 1/112（1%）**——题集为自然语言叙述
+  （"求 2^100 除以 13 的余数"），而 pre_solver 正则只认裸算式（`a^b mod m`），
+  识别不到自然语言形态 → 全部落回 LLM。V2.5a 预想的"榜一式 sympy 秒解"在
+  自然语言题集上基本未兑现。改进方向：扩展自然语言数字模式识别
+  （`除以 N 的余数`/`的 N 次幂`/`关于 x 求导` 等），或让 python_agent 的
+  sympy 验证结果在交叉验证后反哺成稿
+- **额外发现**：idx=46 出现 sympy `Limit(Piecewise(...))` 原语泄漏进
+  final_response（成稿缺 sympy 输出清洗）——列入后续修复
+- 测试题集与全部测试产物已删除（`local_test/` 目录不入仓库）
+
