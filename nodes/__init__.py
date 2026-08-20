@@ -8,3 +8,4 @@ from .coordinator_node import coordinator_node
 from .semantic_arbiter_node import semantic_arbiter_node
 from .critic_node import critic_node
 from .playoff_node import playoff_node
+from .substitute_node import substitute_node

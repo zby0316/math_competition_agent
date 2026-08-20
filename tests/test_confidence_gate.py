@@ -50,8 +50,8 @@ class TestConfidenceGate(unittest.TestCase):
         # 客观题永不深通道（快速路径最优）
         self.assertFalse(wants_deep_solver("choice", 0.50))
         self.assertFalse(wants_deep_solver("true_false", 0.50))
-        # 深思考领域（数论）→ 触发
-        self.assertTrue(wants_deep_solver("computation", 0.85, category="数论"))
+        # 深思考领域（离散数学，V2.6.1 对齐官方 18 领域名）→ 触发
+        self.assertTrue(wants_deep_solver("computation", 0.85, category="离散数学"))
         # 显式 hard 难度 → 触发
         self.assertTrue(wants_deep_solver("proof", 0.85, difficulty="hard"))
 

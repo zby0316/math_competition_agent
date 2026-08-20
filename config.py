@@ -21,7 +21,7 @@ CONFIG = {
                       "reasoning_agent": 1100, "python_agent": 1100,
                       "python_mcp_execute": 60, "cross_validator": 15,
                       "reconciliation": 10, "semantic_arbiter": 150, "coordinator": 420,
-                      "critic": 120, "playoff": 300},
+                      "critic": 120, "playoff": 300, "substitute": 240},
     "classifier_confidence_threshold": 0.85,
     # V2 M2 置信门控：最少资源高准确率
     #   high(≥0.90) → fast 单路径快速答（省 Python/双路径）
@@ -29,7 +29,10 @@ CONFIG = {
     #   中间        → standard 双路验证（现状）
     "confidence_gate": {"high": 0.90, "low": 0.70},
     # V2 M3 DeepSolver 深思考通道触发的领域（科研级超难题高发）
-    "deep_solver_domains": ["数论", "组合数学", "高等代数", "抽象代数"],
+    # V2.6.1 修正："数论/组合数学"不是官方 18 领域名（分类器只会输出知识库
+    # 文件夹名，这两项是死配置永不命中）；官方题集中的数论/组合内容落在
+    # "离散数学"/"非基础及进阶课程"下，改对齐后可真正触发深思考 B 路径。
+    "deep_solver_domains": ["离散数学", "非基础及进阶课程", "高等代数", "抽象代数"],
     # Zero-cost deterministic ranking is retained purely as a fallback for a
     # failed/unparseable LLM classification; it no longer narrows the LLM's
     # candidate list (all 18 domains go in one prefilled call).
@@ -64,6 +67,10 @@ CONFIG = {
     # 大量题无法产出有效答案。首轮降至 8192（中档题实测 5-7k token 覆盖大部分），
     # 配合 *_compressed 8192 双通道，单次推理时长显著缩短，官方环境下更可能在
     # 超时前完成。牺牲的仅是极少数"贴 24576 上限"的奥赛题成功区间。
+    # V2.6.1 注：以上是 V2.1 历史记录，当前实际值已被 V2.4 恢复为难度分级
+    # （easy 8192 / medium 12288 / hard 16384，见 reasoning_tokens_by_difficulty），
+    # reasoning_compressed 当前=12288（压缩重试估时按 12288 计价，见
+    # nodes/reasoning_agent_node._COMPRESSED_CALL_ESTIMATE_S=260）。
     "max_tokens": {"classifier": 96, "classifier_fallback": 8192,
                    "objective_reasoning": 4096,
                    "reasoning": 12288, "python": 8192,
@@ -71,16 +78,22 @@ CONFIG = {
                    "reconciliation": 32768,
                    "semantic_arbiter": 96, "semantic_arbiter_fallback": 4096,
                    "coordinator": 16384, "emergency_answer": 1280},
-    # finish_reason=length 截断时的续写补全 max_tokens（只续一次，prefill 抑制 CoT）。
-    "truncation_continue_tokens": 2048,
+    # finish_reason=length 截断时的续写补全 max_tokens。
+    # V2.6 从 2048 上调：官方实测 truncated=203（V2.5，14.5%）暴露"答案超预算"
+    # 截断，2048 续写在已写满上下文下极易再次截断造成雪球。按难度分级给足，
+    # 一次续写尽量覆盖答案尾部；配合轮数=1（见下），不再循环累积截断计数。
+    "truncation_continue_tokens": 4096,
+    "truncation_continue_tokens_hard": 8192,
     # V2.6 截断根治：thinking_mode=False 确定性关"深度思考"（长 CoT）。截断根因
     # 是 CoT 计入 max_tokens、难题上吃光预算导致答案没写完。V2.4 用 prefill 变相
     # 关 CoT 拿到 59.82 最佳分（对比 V1 开 CoT 53.53），证明数学场景关 CoT 反而
     # 更好。官方原生 thinking_mode=False 比 prefill hack 更可靠。默认开启；
     # 若实测降质，改回 False 退回纯 prefill。
     "enable_thinking_mode_off": True,
-    # 截断续写最大轮次（V2.6 从"只续一次"升级为"续到完整，最多 N 次"）。
-    "truncation_continue_max_rounds": 2,
+    # 截断续写最大轮次（V2.6 修正：官方实测 truncated=203 雪球来自"续写→再截断
+    # →再续写"循环累积，2 轮让截断计数翻倍且请求膨胀 57%。改为 1 轮：一次续写
+    # 不够就走压缩重试（答案先行，max_tokens 12288），比循环续写更有效）。
+    "truncation_continue_max_rounds": 1,
     # V2.4 token 分级恢复：V2.1 把 reasoning 一刀切到 8192 导致难题推理被截断
     # （正确率 60→45）。恢复为按难度分级：简单题省 token（快），难题给足（推理
     # 充分）。hard 恢复到 V1 峰值 24576（V1 正是用 24576 拿到 60 correct），
@@ -106,6 +119,10 @@ CONFIG = {
     "problem_time_budget_s": 1200,
     "time_reserve_s": 300,
     "time_fast_path_threshold_s": 300,
+    # V2.6.2 单题 LLM 请求硬上限：防御深度保险（图内各循环已有结构性终止，
+    # 此上限只拦"失控路径"）。官方实测均值 12.5 次/题、最重题 29 次；24 给
+    # 合法路径留足余量，只截断雪球类失控。0 = 不限制。emergency_answer 豁免。
+    "max_llm_calls_per_problem": 24,
     # V2 M1 全卷完成率引擎（PaperPacer）：平台 6h 全卷硬限（秒）。
     # 官方评测实证：V1 每题固定 1200s 软预算导致 112 题只完成 16 题（14.29%）。
     # PaperPacer 按"剩余全卷时间 ÷ 剩余题数"动态收紧每题软预算，保证
@@ -120,12 +137,19 @@ CONFIG = {
     # 分类节点在同一 prefill 调用里顺带输出难度（边际成本≈0），TimeBudget 据此
     # 调整 soft_total：客观题/简单题让出资源，难题拿满全预算。hard_total 永远是
     # 1200s 平台硬限；软预算只决定"可选阶段"的购买力，不会杀死进行中的工作。
-    "difficulty_soft_budgets": {"easy": 480, "medium": 840, "hard": 1200},
+    # V2.6.2：easy 480→600。可选工作窗口 = soft_total − reserve(300)，480 时只有
+    # 180s——误判为 easy 的难题 180s 后停购一切 LLM 调用（只剩 reserve 配额通道），
+    # 安全垫太薄；600 给 300s 窗口，与 fast_path 阈值一致（easy 题在窗口内仍走
+    # 快速路径，成本只多 120s 购买力）。
+    "difficulty_soft_budgets": {"easy": 600, "medium": 840, "hard": 1200},
     # 异构双方法推理：首轮只在高风险领域（组合/竞赛构造类单样本错误率最高）
     # 并行扇出第二条推理路径；其余题目在首轮不一致/不确定时由调解阶段以
     # "换方法"提示触发第二路径，不在 happy path 上增加成本。
     "enable_diverse_reasoning": True,
-    "high_risk_domains": ["离散数学", "非基础及进阶课程", "微分几何", "测度积分"],
+    # V2.6.1 对齐官方 18 领域分布：数值分析（13 题，11.61%，第二大池子）首轮
+    # 也扇出异构第二路径——数值分析几乎全是可确定性核验的计算题（插值/迭代/
+    # 求积/条件数），且评委历史错题（Hilbert 条件数/拉格朗日插值）正出自此。
+    "high_risk_domains": ["离散数学", "数值分析", "非基础及进阶课程", "微分几何", "测度积分"],
     # 过程审计智能体：对已定候选做题面契约完整性 + 关键计算抽核。
     # prefill JSON 判定 ~10-20s；不完整且可负担时回调解做定向补算。
     "enable_critic": True,
@@ -134,6 +158,11 @@ CONFIG = {
     # 替代"只能二选一"的仲裁。一次 playoff ≈ 一次 LLM 生成 + 一次代码执行，
     # 远低于整轮 solving 子图重跑。
     "enable_playoff": True,
+    # V2.6.1 单候选代回核验（对标榜一 sympy 硬校验，V2.5 主线 2 补课）：
+    # match 后 medium/hard 计算题把已一致答案代回题面条件做确定性核验，
+    # 戳穿"两路同源一致地错"。PASS→critic；FAIL→带定向提示回调解重算；
+    # 预算不足/无法机械核验→放行（锦上添花，不阻塞出答案）。
+    "enable_substitution_check": True,
     # 客观题低置信复核投票：仅当首次抽取置信不足（空位数不足/来源为兜底）时
     # 追加一次独立短采样比对；一致则提置信，不一致则携带双候选交仲裁。
     "enable_objective_revote": True,

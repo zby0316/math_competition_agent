@@ -96,10 +96,13 @@ def _resolve_category(raw, valid_categories, fallback):
     for c in valid_categories:
         if _normalize_cat(c) == sn:
             return c
-    # 3. 子串包含（任一方向）
-    for c in valid_categories:
-        if s in c or c in s:
-            return c
+    # 3. 子串包含（任一方向）——V2.6.1 改为"唯一命中才采纳"：多命中说明有歧义
+    #    （如 "代数" ∈ {高等代数, 抽象代数}、"概率" ∈ {概率论, …}），旧实现按
+    #    valid_categories 目录顺序取第一个，是依赖顺序的确定性误判源；歧义时
+    #    落到下方 LCS/Levenshtein 精排。
+    sub_hits = [c for c in valid_categories if s in c or c in s]
+    if len(sub_hits) == 1:
+        return sub_hits[0]
     # 4. 最长公共子串（连续≥2字符）—— 对中文类别名比 Levenshtein 更可靠
     #    例：线性代数 ↔ 高等代数（共享"代数"）、概率统计 ↔ 概率论（共享"概率"）
     lcs_matches = [(c, _lcs_length(s, c)) for c in valid_categories]
@@ -159,7 +162,8 @@ def _extract_decision(text, all_categories):
     name. The scan matters: a prefilled reply is a JSON *fragment* by construction,
     and a plain reply may carry a CoT preamble around the object. Confidence is
     optional — the category is the signal, so a parseable domain with no readable
-    confidence is accepted at the threshold rather than discarded.
+    confidence is accepted with ``None`` confidence（V2.6.1：不再回填 0.85——
+    回填值与真实 0.85 不可区分，会静默抑制下游采样投票）rather than discarded.
     """
     if not text:
         return None
@@ -177,7 +181,7 @@ def _extract_decision(text, all_categories):
                     return resolved, float(parsed["confidence"]), difficulty
                 except (TypeError, ValueError):
                     pass
-            return resolved, CONFIG["classifier_confidence_threshold"], difficulty
+            return resolved, None, difficulty
 
     # Prefilled shape: '数学分析", "confidence": 0.95}' — the seed already supplied
     # the opening brace and key, so the reply never parses as a standalone object.
@@ -200,7 +204,7 @@ def _extract_decision(text, all_categories):
             return resolved, float(match.group(1)), difficulty
         except (TypeError, ValueError):
             pass
-    return resolved, CONFIG["classifier_confidence_threshold"], difficulty
+    return resolved, None, difficulty
 
 
 def _classify_prefilled(deps, prompt, all_categories):
@@ -601,7 +605,12 @@ def _decision_payload(problem, categories, category, confidence, candidates, sta
     if override and override != category:
         stages.append("domain_override")
         category = override
-        confidence = max(confidence, CONFIG["classifier_confidence_threshold"])
+        # V2.6.1 修复：不再 max(confidence, threshold) 伪造高置信。LLM 与确定性
+        # 规则分歧本身就是不确定性信号（且 override 可能误命中，"残差"等通用
+        # cue 会跨领域撞车），上限 0.7 让改写后的分类落 standard 档：既不触发
+        # fast 档跳过验证，也不至于 deep 档无谓扇出。confidence 为 None 时不动。
+        if confidence is not None:
+            confidence = min(confidence, 0.7)
     payload = {
         "category": category,
         "category_confidence": confidence,
@@ -626,7 +635,8 @@ def classifier_node(state, config):
 
     stages = ["llm_prefill"]
     result = _classify_prefilled(deps, prompt, all_categories)
-    if result and result[1] >= threshold:
+    # V2.6.1：置信度可能为 None（解析不出时不再回填阈值），None 不视为高置信。
+    if result and result[1] is not None and result[1] >= threshold:
         return _finalize_classification(
             deps, _decision_payload(
                 problem, all_categories, result[0], result[1], all_categories, stages,
@@ -656,7 +666,10 @@ def classifier_node(state, config):
         plain = _classify_plain(deps, prompt, all_categories)
         if plain:
             # Low confidence still beats a keyword guess: the model named a real domain.
-            stages.append("low_confidence_accepted" if plain[1] < threshold else "llm_plain_accepted")
+            # V2.6.1：置信度 None 同样按低置信路径标记。
+            stages.append("low_confidence_accepted"
+                          if (plain[1] is None or plain[1] < threshold)
+                          else "llm_plain_accepted")
             return _finalize_classification(
                 deps, _decision_payload(
                     problem, all_categories, plain[0], plain[1], all_categories, stages,

@@ -1,6 +1,7 @@
 import re
 from utils.deps import get_deps
-from utils.llm_retry import chat_prefilled, chat_with_retry, thinking_mode_flag
+from utils.llm_retry import (
+    _looks_truncated, chat_prefilled, chat_with_retry, thinking_mode_flag)
 from utils.prompt_templates import DIVERSE_METHOD_HINT, REASONING_PROMPT
 from utils.token_budget import estimate_tokens
 from utils.answer_extractor import (
@@ -267,8 +268,10 @@ def _looks_token_exhausted(response: str, parsed: dict) -> bool:
     return "## 最终答案" not in text
 
 
-#: 压缩重试的估时：8192 token 上限 @ ~50 tok/s，再留传输余量。
-_COMPRESSED_CALL_ESTIMATE_S = 200
+#: 压缩重试的估时：reasoning_compressed 实际 max_tokens=12288（config 注释
+#: 曾写 8192 已漂移），@ ~50 tok/s ≈ 246s，加传输余量取 260s（V2.6.1 修正，
+#: 原 200s 低估会让 reserve_margin 定价放行一次跑不完的调用）。
+_COMPRESSED_CALL_ESTIMATE_S = 260
 
 #: 压缩重试允许动用 reserve，但必须给收尾链留出这些硬时限余量（仲裁 prefill
 #: 配额 75s + 应急直答 + 确定性拼装）。评委报告 5.3（2026-08-10）：首轮推理
@@ -304,7 +307,7 @@ def _compressed_reasoning_retry(deps, base_prompt,
     已尽也放行，只要硬上限前还容得下本次调用 + 收尾余量。
 
     ``coverage`` 是必须保全的答案覆盖度（全部解支/多问项/计数）——压缩针对推导
-    篇幅，绝不针对答案本身该覆盖的内容（2026-08-10 复测轮 idx 14 漏值事故）。
+    篇幅，绝不针对答案本身该覆盖的内容（2026-08-10 复测轮 真机实证 漏值事故）。
     失败时返回 (None, 原因)。
     """
     clock = deps.time_budget
@@ -378,6 +381,13 @@ def _sympy_pre_solve(state, deps):
     whole = (result or {}).get("whole_answer", "")
     if not whole:
         return None
+    # V2.6.2 修复（V2.6.1 引入的逻辑反转）：_reject_bad_answer 对干净答案返回
+    # 原串（truthy）、对脏答案返回 ""（falsy）——守卫必须判 `== ""` 才拒绝。
+    # 干净答案放行短路，占位符/残片/噪声一律不短路（交回 LLM）。
+    if _reject_bad_answer(str(whole)) == "":
+        return None
+    if looks_incomplete_answer(str(whole)):
+        return None
     parsed = {
         "analysis": "由 sympy 确定性计算直接得出。",
         "steps": [{"step_num": 1, "description": f"sympy 直接计算：{whole}"}],
@@ -428,7 +438,7 @@ def _reasoning_agent_impl(state, config):
             base_prompt += plan_hint
     except Exception:  # noqa: BLE001 - 提示注入失败不影响主路径
         pass
-    # 压缩重试要压的是推导篇幅，不是答案该覆盖的分支（评委复测 idx 14）。
+    # 压缩重试要压的是推导篇幅，不是答案该覆盖的分支（评委复测 真机实证）。
     coverage_clause = answer_coverage_clause(problem)
 
     if is_objective_mode(question_mode):
@@ -442,7 +452,7 @@ def _reasoning_agent_impl(state, config):
         if category == "抽象代数" and re.search(
             r"分裂域|Galois|伽罗瓦|域扩张|扩张次数|单位根", problem, flags=re.I
         ):
-            # 2026-08-10 复测轮 idx 86：本守卫已存在，模型仍答 Q(∜5, i) 与次数 8。
+            # 2026-08-10 复测轮 真机实证：本守卫已存在，模型仍答 Q(∜5, i) 与次数 8。
             # 补上可机械执行的判据（ζ_n 的实部/虚部展开、√2 的归属、塔次数乘积
             # 与根个数的对账），把"要检查"变成"照着算"。
             domain_guard = (
@@ -454,8 +464,8 @@ def _reasoning_agent_impl(state, config):
                 "并核对 [E:Q] 必须能被单个根的次数整除、且不小于根的个数；"
                 "(4) 特征零上的可分多项式，其分裂域必为 Galois 扩张。"
             )
-        # 空位数由代码侧数好写进提示（评委报告 idx 105：提示里的"先数空位"元指令
-        # 被模型原样回显成了答案 "Count blanks: 1"；idx 86：三空只答零空未被拦截）。
+        # 空位数由代码侧数好写进提示（评委报告实证：提示里的"先数空位"元指令
+        # 被模型原样回显成了答案 "Count blanks: 1"；真机实证：三空只答零空未被拦截）。
         from utils.problem_profile import count_blanks, fill_answer_matches_blanks
 
         blank_count = count_blanks(problem) if question_mode == "fill" else 0
@@ -484,7 +494,7 @@ def _reasoning_agent_impl(state, config):
             )
         # 两行契约把"答案"排在"依据"前面，模型先承诺后核对——对需要实算的客观题
         # （域扩张次数、维数、阶、收敛半径等）这个顺序恰好是反的：2026-08-10 复测轮
-        # idx 86 就是先写下 Q(∜5,i);8 再补依据。检出实算标记时改为"先核对后作答"，
+        # 真机实证 就是先写下 Q(∜5,i);8 再补依据。检出实算标记时改为"先核对后作答"，
         # 输出契约不变（解析取最后一个"答案："标签），成本只多几行核对文字。
         needs_derivation = bool(re.search(
             r"分裂域|扩张次数|\[E\s*[:：]\s*(?:Q|\\mathbb\{Q\})\]|Galois|伽罗瓦|"
@@ -549,7 +559,7 @@ def _reasoning_agent_impl(state, config):
                           "response_chars": len(response or ""),
                           "raw_excerpt": _raw_excerpt(response, head=300, tail=500)})
         if parsed.get("answer") and not fill_complete:
-            # 空位覆盖不足（评委报告 idx 86：三空只答零空仍以 0.78 置信放行）。
+            # 空位覆盖不足（评委报告实证：三空只答零空仍以 0.78 置信放行）。
             # 保留这个不完整候选，但先花一次种子重试争取全空覆盖。
             trace.append({"attempt": attempts, "status": "fill_blank_mismatch",
                           "blanks": count_blanks(problem),
@@ -709,11 +719,19 @@ def _reasoning_agent_impl(state, config):
             budget.consume(estimate_tokens(prompt), estimate_tokens(resp))
         parsed = _parse_reasoning_output(resp, question_mode=question_mode)
         exhausted = _looks_token_exhausted(resp, parsed)
+        # V2.6.2：llm_retry 层已做过一轮截断续写；续写轮次耗尽后若仍截断且
+        # 章节不完整，与 token 耗尽同等待遇——走压缩答案先行重试，而不是完整
+        # 格式重试（同样的长度压力必然再次截断）。这是 V2.6 配置注释承诺的
+        # "一次续写不够就走压缩重试"此前未实现的补课。
+        still_truncated = bool(
+            resp and _looks_truncated(resp, _mt) and not _is_complete(parsed))
         trace.append({"attempt": attempts,
                       "status": "success" if _is_complete(parsed) else "failed",
                       "response_chars": len(resp or ""),
                       **({"reason": "token_budget_exhausted",
-                          "raw_excerpt": _raw_excerpt(resp)} if exhausted else {})})
+                          "raw_excerpt": _raw_excerpt(resp)} if exhausted else {}),
+                      **({"reason": "still_truncated_after_continuation"}
+                         if (still_truncated and not exhausted) else {})})
         if _is_complete(parsed):
             return {"reasoning_result": parsed, "reasoning_trace": trace,
                     "reasoning_attempts": attempts, "reasoning_raw_response": resp}
@@ -725,7 +743,8 @@ def _reasoning_agent_impl(state, config):
         # deadline for nothing. 2026-08-09 评委报告模式 A：这类"耗尽后普通重试"
         # 常因预算不足被跳过，约 35 题四章节全空。现改为 prefill 压缩重试：助手
         # 种子抑制私有推理，~150s 即产出可解析章节（阶段性熔断，评委建议 4）。
-        if exhausted:
+        # 续写后仍截断同理（V2.6.2 并入此通道）。
+        if exhausted or still_truncated:
             attempts += 1
             compressed_resp, fail_reason = _compressed_reasoning_retry(
                 deps, hinted_base, coverage=coverage_clause)
@@ -777,7 +796,9 @@ def _should_sample_vote(state: dict) -> bool:
     try:
         low_conf = float(conf) < float(CONFIG.get("sample_vote_min_confidence", 0.85))
     except (TypeError, ValueError):
-        low_conf = False
+        # V2.6.1：置信度缺失（分类器未解析出，state 里为 None）按低置信处理——
+        # 不确定就该多采样，而不是像旧实现那样静默跳过投票。
+        low_conf = conf is None
     return diff == "hard" or low_conf
 
 
@@ -796,6 +817,12 @@ def _sample_vote_reasoning(state: dict, config) -> dict:
     samples = []  # (temperature, answer, out)
     for t in temps:
         if clock and clock.remaining_hard() < 60:
+            break
+        # V2.6.1 修复：采样循环缺"按实测成本向时钟要许可"的护栏（全系统铁律）。
+        # 每多一次完整采样 ≈ 一次 reasoning 实测成本（hard 分级 16384 token，
+        # 官方慢 API 下 300-800s），仅靠 remaining_hard<60 会在慢 API 下击穿
+        # 1200s 硬限。已有采样后才按上次实测成本定价，首样由内部计价闸门保护。
+        if clock and samples and not can_afford_retry(clock, "reasoning"):
             break
         out = _reasoning_agent_impl({**state, "sample_temperature": t}, config)
         rr = out.get("reasoning_result") or {}
@@ -826,7 +853,7 @@ def reasoning_agent_node(state, config):
     """调度入口：主路径直走实现；method_variant="B" 时跑异构第二解法。
 
     VeritasMath 升级：单样本推理的系统性强偏差无法靠"同样提示再跑一次"消除
-    （评委报告 idx 7/14/31：模型在同一思路上重复同一个错）。第二路径通过
+    （评委报告实证：模型在同一思路上重复同一个错）。第二路径通过
     DIVERSE_METHOD_HINT 强制切换方法论（构造枚举/不变量/反向归谬/生成函数），
     与主路径（直接代数法）形成独立证据源，结果写入 *_alt 字段参与三路交叉验证。
 

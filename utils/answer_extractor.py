@@ -93,7 +93,7 @@ def extract_answer_fallback_with_source(text: str) -> tuple:
     for line in reversed(lines):
         if len(line) > 600 or re.match(r"^#{1,6}\s", line):
             continue
-        # 真机压测（ultra_112 idx=63）：思维流中的"Line 2: 依据：当 z=1 时…故"
+        # 真机压测（真机实证）：思维流中的"Line 2: 依据：当 z=1 时…故"
         # 被当成答案——它是**证据行**（依据/理由/说明）且**话说一半**（"故"收尾），
         # 两类都不是结论。剥掉行号前缀后命中证据标签、或以 dangling 词收尾的行跳过。
         core = _LINE_NO_PREFIX_RE.sub("", line)
@@ -193,7 +193,7 @@ _MULTI_ASK_RE = re.compile(
 
 
 def is_multi_part_problem(problem: str) -> bool:
-    """检测题目是否包含多个问项（评委报告问题 4：多问只答一问，如 idx=172）。"""
+    """检测题目是否包含多个问项（评委报告问题 4：多问只答一问，如 真机实证）。"""
     p = (problem or "").strip()
     if not p:
         return False

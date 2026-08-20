@@ -2,9 +2,9 @@
 """V2.4 提分机制单元测试：🅰数值比对兜底 + 🅱统计口径 + 🅲执行失败修复。
 
 覆盖（对应 v24_112 评测 2 道错题的根因修复）：
-- idx=85 留数符号：Python 验证内部自洽 PASS 但符号与候选相反 → 必须被
+- 真机实证 留数符号：Python 验证内部自洽 PASS 但符号与候选相反 → 必须被
   确定性数值比对降级为 contradict（不能出厂 support）。
-- idx=92 方差口径：统计题未明确口径时提示词要求按总体方差（÷n）作答。
+- 真机实证 方差口径：统计题未明确口径时提示词要求按总体方差（÷n）作答。
 - 代码执行失败（语法错误）应获得一次独立 exec-fix 重试，而不是裸出厂。
 """
 import unittest
@@ -15,10 +15,10 @@ from utils.numeric_crosscheck import numeric_crosscheck, _extract_scalar_express
 
 
 class TestNumericCrosscheck(unittest.TestCase):
-    """🅰 确定性数值比对兜底（idx=85 根因）。"""
+    """🅰 确定性数值比对兜底（真机实证 根因）。"""
 
     def test_residue_sign_mismatch_detected(self):
-        """idx=85 场景：候选正号错误 vs python 负号正确 → mismatch。"""
+        """真机实证 场景：候选正号错误 vs python 负号正确 → mismatch。"""
         candidate = (
             "\\operatorname{Res}(f,e^{i\\pi/4})="
             "\\frac{1+i}{4\\sqrt{2}}=\\frac{\\sqrt{2}}{8}+i\\frac{\\sqrt{2}}{8}"
@@ -43,7 +43,7 @@ class TestNumericCrosscheck(unittest.TestCase):
         self.assertEqual(r["status"], "mismatch", r["reason"])
 
     def test_missing_python_answer_inconclusive(self):
-        """python 无答案 → inconclusive（不误降级，idx=92 前 python 失败场景）。"""
+        """python 无答案 → inconclusive（不误降级，真机实证 前 python 失败场景）。"""
         r = numeric_crosscheck("样本方差：$s^2=\\dfrac{20}{3}$", "")
         self.assertEqual(r["status"], "inconclusive", r["reason"])
 
@@ -66,7 +66,7 @@ class TestNumericCrosscheck(unittest.TestCase):
 
 
 class TestPromptStatConvention(unittest.TestCase):
-    """🅱 统计口径提示词（idx=92 根因）。"""
+    """🅱 统计口径提示词（真机实证 根因）。"""
 
     def test_reasoning_prompt_has_variance_convention(self):
         from utils.prompt_templates import REASONING_PROMPT
@@ -81,7 +81,7 @@ class TestPromptStatConvention(unittest.TestCase):
 
 
 class TestPythonExecFixLogic(unittest.TestCase):
-    """🅲 执行失败修复重试（idx=92 代码生成语法错误根因）。"""
+    """🅲 执行失败修复重试（真机实证 代码生成语法错误根因）。"""
 
     def test_exec_fix_flags_exist(self):
         """python_agent_node 引入 exec_fix_used / exec_fix_pending 标志。"""

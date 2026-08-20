@@ -40,3 +40,9 @@ local_test/
 # 本地代码审查产物（不提交评测仓库）
 review_results.json
 reports/
+
+# 榜单截图等本地个人文件（不提交评测仓库）
+ranking-*.png
+*.png
+*.jpg
+*.jpeg

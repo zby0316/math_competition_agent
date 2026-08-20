@@ -110,10 +110,11 @@ class TestDifficultyBudget(unittest.TestCase):
         from utils.time_budget import TimeBudget
         budget = TimeBudget(total_seconds=1200, reserve_seconds=300)
         budget.apply_difficulty_profile("easy")
-        self.assertEqual(budget.soft_total, 480.0)
+        # V2.6.2：easy 480→600（可选窗口 300s 安全垫）
+        self.assertEqual(budget.soft_total, 600.0)
         # 后到的更难画像不会把已收紧的预算放回去
         budget.apply_difficulty_profile("hard")
-        self.assertEqual(budget.soft_total, 480.0)
+        self.assertEqual(budget.soft_total, 600.0)
         self.assertEqual(budget.difficulty_profile, "easy")
 
     def test_remaining_uses_soft_total_but_hard_untouched(self):

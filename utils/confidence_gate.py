@@ -65,7 +65,7 @@ def fast_lane_eligible(question_mode: str, confidence: float | None,
       - 题型为客观题（选择/判断/概念填空，计算填空排除）；
       - 置信度 fast 档（≥ high_threshold）；
       - 难度为 L1/L2（非 hard 显式标记，防止难题被误省）。
-    实算填空永远不省 Python（治本机制，idx=13 教训）。
+    实算填空永远不省 Python（治本机制，真机实证 教训）。
     """
     if question_mode in ("choice", "true_false"):
         pass
@@ -98,15 +98,3 @@ def wants_deep_solver(question_mode: str, confidence: float | None,
     if str(difficulty or "").strip().lower() in ("hard", "very_hard", "extremely_hard"):
         return True
     return False
-
-
-def gate_report(question_mode: str, confidence: float | None,
-                category: str = "", difficulty: str = "") -> dict:
-    """为 trace 输出门控决策留痕。"""
-    level = confidence_level(confidence)
-    return {
-        "level": level,
-        "confidence": round(float(confidence), 3) if confidence is not None else None,
-        "skip_python": can_skip_python_verify(question_mode, confidence),
-        "deep_solver": wants_deep_solver(question_mode, confidence, category, difficulty),
-    }

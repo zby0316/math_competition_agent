@@ -1,4 +1,4 @@
-"""真机实证 bug 的回归测试（ultra_112 idx=30）：
+"""真机实证 bug 的回归测试：
 
 链路缺陷：Python 算错 CRT 得 803 却自报 contradict 反驳正确的推理 423；
 原链路 contradict 直接仲裁且 coordinator 证据闸门强行采信 Python 错值 → 输出错答。
@@ -15,7 +15,7 @@ from utils.deps import MockClient
 
 
 def _crt_state():
-    """idx=30 现场：推理 423（对），Python 803（错）+ 自报 contradict。"""
+    """现场：推理 423（对），Python 803（错）+ 自报 contradict。"""
     return {
         "problem": "求满足 x≡2(mod 3), x≡3(mod 5), x≡2(mod 7) 的最小正整数。",
         "question_mode": "computation",
@@ -60,11 +60,24 @@ class TestContradictRoutesToPlayoff(unittest.TestCase):
                          "python_evidence_contradiction_deterministic_playoff")
 
     def test_contradict_playoff_only_once(self):
-        # 已玩过 playoff（playoff_trace 非空）→ 不再进 playoff，防循环
+        # 已真实裁决过（playoff_status 非 skipped）→ 不再进 playoff，防循环
+        # V2.6.1：判重依据从 playoff_trace 非空改为 playoff_status（与真实
+        # playoff_node 行为一致：真实裁决会同时写入 status 与 trace）。
         state = _crt_state()
         state["playoff_trace"] = [{"status": "indecisive"}]
+        state["playoff_status"] = "indecisive"
         out = cross_validator_node(state, _Cfg())
         self.assertNotEqual(out["next_node"], "playoff")
+
+    def test_contradict_playoff_skipped_can_reroute(self):
+        # V2.6.1 修复：playoff 被 skipped（预算不足/候选不足）留下的 trace
+        # 不算"已裁决"，下次仍可路由 playoff——playoff 节点会重新评估预算，
+        # 仍不足时安全降级到仲裁，不会死循环（旧实现把"跳过"当成"跑过"）。
+        state = _crt_state()
+        state["playoff_trace"] = [{"status": "skipped", "reason": "unaffordable"}]
+        state["playoff_status"] = "skipped"
+        out = cross_validator_node(state, _Cfg())
+        self.assertEqual(out["next_node"], "playoff")
 
 
 class TestEvidenceOverrideExemption(unittest.TestCase):
@@ -82,6 +95,32 @@ class TestEvidenceOverrideExemption(unittest.TestCase):
         state = _crt_state()
         validated, note = _evidence_override(state, "423")
         self.assertEqual(validated, "803")  # 原证据优先逻辑
+        self.assertEqual(note, "evidence_priority_override")
+
+    def test_playoff_indecisive_exempts_override(self):
+        # V2.6.2：playoff 僵局（两候选都无法区分）时不再盲信 Python 自报
+        # contradict——假证据形态的残留风险：僵局下换票只是抛硬币。
+        state = _crt_state()
+        state["playoff_status"] = "indecisive"
+        state["playoff_trace"] = [{"status": "indecisive", "verdict": "INCONCLUSIVE"}]
+        validated, note = _evidence_override(state, "423")
+        self.assertEqual(validated, "423")  # 不被覆盖成 803
+        self.assertEqual(note, "")
+
+    def test_playoff_neither_exempts_override(self):
+        # V2.6.2：双证伪（两候选都被驳回）时更不该换到同样被证伪的 Python 侧
+        state = _crt_state()
+        state["playoff_status"] = "neither"
+        validated, note = _evidence_override(state, "423")
+        self.assertEqual(validated, "423")
+        self.assertEqual(note, "")
+
+    def test_playoff_skipped_keeps_override(self):
+        # 跳过态（没跑成）保持原证据优先行为——没有裁决可尊重
+        state = _crt_state()
+        state["playoff_status"] = "skipped"
+        validated, note = _evidence_override(state, "423")
+        self.assertEqual(validated, "803")
         self.assertEqual(note, "evidence_priority_override")
 
 

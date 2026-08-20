@@ -11,9 +11,11 @@
 
 在 2026-08-12 官方规则更新（并发 3 / 单题 20min / 总运行 6h，超时未答不计分）后，
 进一步升级为 **V2（全卷完成率 + 资源分级）**、**V2.1（证明结构对齐 + 提速）**、
-**V2.3（初解质量 + 证明自检 + 难题兜底）** 与 **V2.4（prefill 抑制 CoT 提速 +
-判分口径对齐 + 客观题格式兜底）**：累计 **M1-M14 十四个机制**（详见第 10 节），
-V2.4 全量验收 **110/112（98.2%，历史最高）**。
+**V2.3（初解质量 + 证明自检 + 难题兜底）**、**V2.4（prefill 抑制 CoT 提速 +
+判分口径对齐 + 客观题格式兜底）**、**V2.5（sympy 事前短路，官方 61.61 分）**、
+**V2.6（截断续写雪球治理 + sympy 自然语言化）** 与 **V2.6.1/V2.6.2（单候选代回
+核验 + 全代码审查修复 + 困难题校准集）**：累计 **M1-M16 十六个机制**（详见第 10 节），
+V2.6.2 现状 **178 项单测全绿** + 16 题困难题校准集真机两轮 **16/16 全对**。
 
 竞赛接口保持约定：评测侧导入 `user_agent.py` 的 `ReasoningAgent`，平台以其官方 client 构造，
 调用 `solve(problem, metadata)` 取得 `final_response` 与 `trace`。
@@ -44,10 +46,13 @@ flowchart LR
     Start([START]) --> Input[input] --> Classifier[classifier<br/>领域+难度画像]
     Classifier --> Solving[[solving 子图]]
     Solving --> Route{route_after_solving}
-    Route -->|match| Critic[critic 过程审计]
+    Route -->|match·medium/hard 计算题| Substitute[substitute<br/>单候选代回核验]
+    Route -->|match 其余| Critic[critic 过程审计]
     Route -->|mismatch·计算题| Playoff[playoff 复算裁决]
     Route -->|mismatch 可重试| Reconciliation[reconciliation]
     Route -->|uncertain/耗尽| Arbiter[semantic_arbiter]
+    Substitute -->|PASS/INCONCLUSIVE| Critic
+    Substitute -->|FAIL 证伪| Reconciliation
     Playoff -->|decisive| Critic
     Playoff -->|NEITHER 双证伪| Reconciliation
     Playoff -->|indecisive| Arbiter
@@ -62,6 +67,9 @@ flowchart LR
 
 与基线的拓扑差异：**所有答案进 coordinator 前必经 Critic 审计门**；计算题冲突
 **先进 Playoff 再决定重算或仲裁**——重算从"第一反应"降级为"复算无效后的手段"。
+**V2.6.1 新增 substitute 节点**：medium/hard 计算题两路一致（match）后先做单候选
+代回核验（第三种证据，戳穿"两路同源一致地错"），PASS 才进 Critic，FAIL 带定向
+提示回调解重算。
 
 > V2.1/V2.3 的增强（M7 证明深加工 → M12 逻辑自检 → M13 覆盖检查 → M14 难题兜底）
 > 全部收敛在 coordinator 节点内部，不改变主图拓扑——成稿前做"结构补强 + 逻辑审查 +
@@ -89,8 +97,9 @@ flowchart LR
 
 - **FastLane（V2.1 M8）**：L1 客观题且分类高置信 → 单路径直出，跳过 B 路径与
   Python（省时间给难题）；
-- **首轮**：仅高风险领域（离散数学、非基础及进阶课程、微分几何、测度积分——
-  评测集占比最高且单样本错误率最高的四类）并行扇出；
+- **首轮**：仅高风险领域（离散数学、数值分析、非基础及进阶课程、微分几何、
+  测度积分——V2.6.1 对齐官方 18 领域分布补入数值分析，评测集占比最高且
+  单样本错误率最高的五类）并行扇出；
 - **重算轮**：一律追加（此时已知首路径失败，多样性正是缺的东西）；
 - 客观题、时间 fast path、`enable_diverse_reasoning=False` 时不发。
 
@@ -153,16 +162,32 @@ flowchart LR
 - **trace 可审计**：diverse_reasoning / deterministic_playoff / process_audit /
   objective_revote / modular_guard 各阶段证据全部入 trace，供 judger 综合判定。
 
+### 2.7 单候选确定性代回核验（Substitute，V2.6.1）
+
+`match` 只保证"推理与 Python 两路独立计算一致"，但两路同源（同一模型、同一
+题面读法）可能**一致地错**——这是三路投票和季后赛都覆盖不到的盲区。Substitute
+节点提供第三种证据：把两路一致的候选答案**代回题面条件**做确定性核验
+（方程验残差/极值代回比较/计数小规模枚举对照/数值题独立重算）。
+
+- **触发**：仅 medium/hard 计算题的 clean match（easy/客观题保持直通；每题至多
+  一次，`substitution_trace` 防重入）；
+- **路由**：PASS/INCONCLUSIVE → Critic 收尾；FAIL（证伪）→ 带定向修复提示回调解
+  重算；预算不足/无法机械核验 → 良性放行，不阻塞出答案；
+- **成本**：≈ 一次 prefill 代码生成（~150s）+ 一次沙箱执行（≤60s），与 playoff
+  同档定价，官方卷预计 +25~30 分钟墙钟（仍在 5h 目标内），配置可一键关闭
+  （`enable_substitution_check`）。
+
 ## 3. 目录结构（相对基线的新增）
 
 ```text
 ├── nodes/
 │   ├── critic_node.py            # 【新】过程审计智能体：契约完整性 + 计算抽核
 │   ├── playoff_node.py           # 【新】确定性复算季后赛：候选代回裁决
+│   ├── substitute_node.py        # 【新·V2.6.1】单候选代回核验：match 后第三证据
 │   ├── reasoning_agent_node.py   # 【改】+ method_variant="B" 异构路径调度
 │   ├── cross_validator_node.py   # 【改】+ 三路比对、playoff 路由、复核投票
 │   ├── classifier_node.py        # 【改】+ 难度画像解析与软预算应用
-│   ├── reconciliation_node.py    # 【改】+ critic/playoff 定向修复直通
+│   ├── reconciliation_node.py    # 【改】+ critic/playoff/substitute 定向修复直通
 │   ├── semantic_arbiter_node.py  # 【改】+ 第三候选（reasoning_alt）
 │   └── coordinator_node.py       # 【改】+ 审计缺口随成稿提示显性补齐
 ├── utils/
@@ -183,7 +208,7 @@ flowchart LR
 │   └── answer_matcher.py         # 【改】+ 限时代简、符号对齐、≤4 维采样
 ├── mcp_servers/python_executor/server.py  # 【改】+ 静态安全扫描 + 资源限额
 ├── graph/solving_subgraph.py     # 【改】+ 条件扇出异构第二路径
-├── tests/                        # 【新】153 项离线回归测试（基线未随仓附带）
+├── tests/                        # 【新】178 项离线回归测试（基线未随仓附带）
 │   ├── test_veritas_upgrades.py
 │   ├── test_integration_graph.py
 │   ├── test_integration_repair_loop.py
@@ -195,7 +220,10 @@ flowchart LR
 │   ├── test_stress_faults.py
 │   ├── test_v24_budget.py         # 【新】V2.4 token 分级 + 单题预算
 │   ├── test_v24_grade_boost.py    # 【新】V2.4 数值比对/统计口径/执行修复
-│   └── test_form_align.py         # 【新】形式对齐（含客观题格式）
+│   ├── test_form_align.py         # 【新】形式对齐（含客观题格式）
+│   ├── test_substitute_check.py   # 【新·V2.6.1】代回核验节点 + match 路由
+│   ├── test_request_cap.py        # 【新·V2.6.2】单题请求硬上限/emergency 豁免
+│   └── test_truncation_and_sympy.py # 【新·V2.6.2】截断启发式 + sympy 预解器守卫
 └── （以下与基线一致）state/、skills_pythonscripts/（18 领域手册+验证知识）、
     main.py、user_agent.py、llm_client.py、config.py、requirements.txt
 ```
@@ -228,10 +256,11 @@ python main.py --input_file input.jsonl --output_dir outputs
 python -B -m unittest discover -s tests -v
 ```
 
-**153 项测试 + 30 项子测试**（`pytest tests/` 全绿），零 API 调用：升级机制单测
+**178 项测试**（`pytest tests/` 全绿），零 API 调用：升级机制单测
 （审计解析/模守护/季后赛裁决/软预算/matcher 加固/执行器拦截/判断题双向确认/
-计数枚举守护/平台防线三形态加载/PaperPacer/置信门控/DeepSolver/形式对齐/
-限流退避/ProofDeepener/V2.4 数值比对/客观题格式）+ 多条全图集成链路（happy path；
+计数枚举守护/平台防线三形态加载/PaperPacer/置信门控/形式对齐/
+限流退避/ProofDeepener/V2.4 数值比对/客观题格式/V2.6.1 代回核验/V2.6.2 请求上限
+与截断启发式）+ 多条全图集成链路（happy path；
 双证伪→异构重算翻盘；contradict 假证据→playoff 裁决）+ 题面滥用/故障注入/ReDoS 压测。
 Python 验证代码由真实执行器子进程运行。
 
@@ -242,6 +271,7 @@ Python 验证代码由真实执行器子进程运行。
 ```bash
 python local_test/run_tests.py --input 题集.jsonl --concurrency 3 --live   # 批量求解（实时写盘）
 python local_test/grade_llm.py --input 结果.json --concurrency 6            # LLM 判分（模拟官方 Judger）
+python local_test/calibrate.py --tag v27 --baseline results/基线_graded.json  # 困难题校准管线（V2.6.2）
 python local_test/server.py --port 8000                                     # 监控面板（http://127.0.0.1:8000）
 ```
 
@@ -249,22 +279,29 @@ python local_test/server.py --port 8000                                     # �
   不使用本地符号/字符串判分器——与官方口径一致（模型综合判定，等价表达判对）。
 - 面板实时显示：进度/正确率/API 次数/耗时/难度分布/推理过程（trace 展开）。
 - `--resume` 支持断点续跑（跳过已成功题）。
+- **困难题校准集**（`local_test/data/calibrate_hard.jsonl`，16 道 L3/L4 可验证
+  难题，覆盖官方权重前 8 领域，答案全部经 sympy 验证）：官方闭源无逐题反馈、
+  每天仅 2 次提交，本地常规题集又远简单于官方（历史 98% vs 59.8% 落差）——
+  校准集用于改版前后**相对 delta 对比**，不预测官方分。
 
 ## 5. 配置（新增项）
 
 | 配置项 | 默认 | 作用 |
 |---|---:|---|
-| `difficulty_soft_budgets` | 480/840/1200 | 难度三档软预算（秒） |
+| `difficulty_soft_budgets` | 600/840/1200 | 难度三档软预算（秒；V2.6.2 easy 480→600 安全垫） |
 | `enable_diverse_reasoning` | True | 异构第二推理路径总开关 |
-| `high_risk_domains` | 离散数学等 4 领域 | 首轮即扇出第二路径的领域 |
+| `high_risk_domains` | 离散数学等 5 领域 | 首轮即扇出第二路径的领域（V2.6.1 +数值分析） |
 | `enable_critic` / `critic_reserve_margin_s` | True / 60 | 过程审计开关与预留配额 |
 | `enable_playoff` / `playoff_max_seconds` | True / 240 | 复算季后赛开关与预算 |
+| `enable_substitution_check` | True | 单候选代回核验（V2.6.1；match 后 medium/hard 计算题第三证据） |
 | `enable_objective_revote` | True | 客观题低置信复核投票 |
 | `matcher_simplify_timeout_s` / `matcher_max_sample_symbols` | 8 / 4 | 等价判定加固 |
 | `enable_modular_guard` | True | 模结构三重守护 |
 | `enable_judge_confirm` | True | 判断题双向确认（结论→自证→反向重解） |
 | `enable_counting_guard` | True | 计数题小规模枚举对照守护 |
-| `node_timeouts.critic` / `playoff` | 120 / 300 | 新节点上限（仍受 deadline 钳制） |
+| `max_llm_calls_per_problem` | 24 | 单题 LLM 请求硬上限（V2.6.2；0=不限；emergency 豁免） |
+| `truncation_continue_max_rounds` | 1 | 截断续写轮数（V2.6 消除续写雪球） |
+| `node_timeouts.critic` / `playoff` / `substitute` | 120 / 300 / 240 | 新节点上限（仍受 deadline 钳制） |
 
 ## 6. 与基线的兼容性
 
@@ -332,9 +369,13 @@ python local_test/server.py --port 8000                                     # �
 ## 8. 已知边界
 
 - Playoff 对证明题/概念题返回 INCONCLUSIVE（无法机械核验），退回语义仲裁；
+- Substitute 代回核验同样无法机械核验证明/概念题（返回 INCONCLUSIVE 放行）；
+  且其触发仅限 medium/hard 计算题的 clean match——easy 误判为难题/仲裁路径不触发；
 - 难度画像误判只会改变可选阶段的购买力，不会截断进行中的求解；
 - 复核投票在两票同错时不提升正确率（独立性只能降低、不能消除相关错误）；
-- 模结构守护的检出是保守的，未命中的变体语境仍依赖提示层清单。
+- 模结构守护的检出是保守的，未命中的变体语境仍依赖提示层清单；
+- sympy 短路只认无歧义的可机械解析题（多条件/近似算法/未定值结果均不短路），
+  命中率依赖题面措辞（官方全集约 1-20%）。
 
 ## 9. 平台兼容性修复（2026-08-11）
 
@@ -381,7 +422,7 @@ assert 'final_response' in result
 |---|---|---|---|
 | M1 PaperPacer | `utils/paper_pacer.py` | 全卷 6h 预算池：动态收紧防超时，完成率保底 | V2 |
 | M2 置信门控 | `utils/confidence_gate.py` | 置信分级投入：fast/standard/deep 三档 | V2 |
-| M3 DeepSolver | `utils/deep_solver.py` | 超难领域强制异构 B 路径 + 机器验证 | V2 |
+| M3 DeepSolver | `utils/confidence_gate.py` | 深思考信号（低置信/超难领域/hard）强制异构 B 路径扇出（`wants_deep_solver`） | V2 |
 | M4 形式对齐 | `utils/form_align.py` | 题面形态识别 + 错配 LLM 重述 | V2 |
 | M5 Token 分级 | `config.py` | reasoning 8192（防官方慢 API 烧穿） | V2 |
 | M6 限流退避 | `utils/llm_retry.py` | 429/配额错误长退避 | V2 |
@@ -393,6 +434,8 @@ assert 'final_response' in result
 | M12 答案自检 | `utils/proof_deepener.py` | 审稿查逻辑漏洞（prefill 低成本） | V2.3 |
 | M13 覆盖检查 | `utils/proof_deepener.py` | 检测"题目问几件事漏答" | V2.3 |
 | M14 难题兜底 | `utils/hard_fallback.py` | 放弃型答案触发部分求解 | V2.3 |
+| M15 单候选代回核验 | `nodes/substitute_node.py` | match 后 medium/hard 计算题代回题面条件核验（第三证据，戳穿同源同错） | V2.6.1 |
+| M16 单题请求硬上限 | `utils/time_budget.py` + `llm_retry.py` | 每问题 LLM 调用总数封顶，超限确定性兜底（emergency 豁免） | V2.6.2 |
 
 V2.4 新增（2026-08-14，不新增编号，均为现有链路的确定性加固）：
 
@@ -416,6 +459,8 @@ V2.4 新增（2026-08-14，不新增编号，均为现有链路的确定性加�
 - **L3 竞赛级**：100%（59/59）· **L4 科研级**：94.3%（50/53）
 - 完成率三套均 112/112（0 空卷）；V2.4 墙钟 **1.46h**（并发 3，官方 6h 上限余量 4.5h）
 - 官方 V1 得分 53.57 分 → V2.3 预估 90-95 分 → V2.4 保守 60-68 分（详见 10.6）
+- 官方实测谱系（同题集 input_sha256 一致）：V1 53.53 → V2.1 40.18 → V2.4 **59.82**
+  → V2.4强化 58.93 → **V2.5 61.61（69/112，历史最佳）**（详见 10.7）
 
 ### 10.4 难度分级定义（L1-L4）
 
@@ -538,3 +583,77 @@ LLM 判分（与官方 Judger 同口径）：
   final_response（成稿缺 sympy 输出清洗）——列入后续修复
 - 测试题集与全部测试产物已删除（`local_test/` 目录不入仓库）
 
+### 10.8 V2.6：截断续写雪球治理 + sympy 自然语言化（2026-08-20）
+
+> V2.5 官方实测 61.61 分（69/112，历史最佳）但 `truncated_count=203`（14.5%）
+> 暴涨：根因是续写循环雪球（2048 token 续写在已满上下文下再截断，一次截断
+> 累积 2-3 轮）＋请求膨胀（1402，+57%）。服务端直测确认 thinking_mode=False
+> 官方 API 接受、max_tokens 不 clamp——截断发生在官方 client 层透传。
+
+**主线 A：截断续写雪球治理**
+- `truncation_continue_tokens` 2048→4096（reasoning 主链路 8192，按 label 分级）
+- `truncation_continue_max_rounds` 2→1（一次续写不够走压缩重试，不再循环累积）
+- `_looks_truncated` 写满判据 `effective_cap=min(max_tokens,4096)`（官方 client
+  若 clamp 到 ≤4096 仍能检出截断，防漏判）
+- 12 题真机验证：5 题触发截断续写全部**一次到位**，长证明题完整产出
+
+**主线 B：sympy 自然语言化（识别命中 1% → 验证集 42%）**
+- `sympy_pre_solver.py` 新增中文模式：模幂（"除以 K 的余数"）、同余括号修复
+  （"(mod 11)"）、同余中文（"同余 3 模 7"）、组合数 C(n,k)→binomial、
+  Unicode 乘号 ×·、导数无前缀、算术后缀"的值"、Unicode ∫/裸 lim
+- **convert_xor 修复**：sympy `parse_expr` 默认对纯数字把 `^` 当 Python XOR
+  （"C(10,3)×3^7" 曾被算成 367=(360 XOR 7)）——加 convert_xor 后 `^` 恒为幂
+- 33 用例（23 识别 + 10 拒绝）全过；12 题真机：5/6 识别题 sympy 短路且
+  LLM 判分全部 correct；154 单测全绿
+
+### 10.9 V2.6.1 + V2.6.2：确定性验证前移 + 全代码审查修复（2026-08-20）
+
+> 基于官方 61.61 分评测日志（203 截断 / 1402 请求 / 墙钟 3h53m 剩 2h）+ 官方
+> 知识库完整文档（judger 语义判分、18 领域分布、每天 2 次提交）+ 全代码
+> 逐行审查（三路交叉验证）的一轮系统修复。178 项单测全绿 + 16 题困难题
+> 校准集真机 16/16 全对（两轮，第二轮修 bug 后墙钟 925s/226 次 API）。
+
+**A. 新机制（M15/M16）**
+- **M15 单候选代回核验（substitute 节点）**：对标榜一 80 分"sympy 硬校验"
+  缺口（V2.5 主线 2 一直未落地）。match 后 medium/hard 计算题把两路一致的
+  答案代回题面条件做确定性核验——方程验残差/极值代回/计数枚举/独立重算。
+  PASS→Critic；FAIL→定向修复重算；无法机械核验→良性放行。三件套纪律齐备
+  （node_wrapper + 错误降级 + 路由映射）。
+- **M16 单题请求硬上限**：`max_llm_calls_per_problem=24`（0=不限），
+  emergency_answer 豁免；防御深度保险，只拦失控路径（官方实测均值 12.5 次/题）。
+
+**B. 官方文档校准后的配置对齐**
+- `high_risk_domains` 补入**数值分析**（官方第二大池子 13 题，且全是可确定性
+  核验的计算题）；`deep_solver_domains` 的"数论/组合数学"死配置（非官方领域名）
+  改为"离散数学/非基础及进阶课程"
+- `difficulty_soft_budgets.easy` 480→600（可选工作窗口 180s→300s 安全垫）
+
+**C. 全代码审查修复的 4 处漏括号 bug**
+- `python_agent_node` 三处（`.lower`、`budget.is_tight`、`clock.fast_path`，
+  外加审查后真机暴露的第四处 `clock.remaining_hard`）——Python 分支重试与
+  压缩路径此前被静默锁死/静默抛错，全部修复
+- `_resolve_category` 子串匹配改唯一命中；`_domain_override` 不再伪造 0.85
+  置信；confidence 缺失回填 None（缺失=低置信，采样投票不再被静默抑制）
+- 截断启发式仅在 finish_reason 不可见时启用 + 移除纯长度误触发（完整长答案
+  不再被误判截断）；续写轮次耗尽仍截断 → 合并进压缩答案先行重试
+- `_evidence_override` 收紧：playoff decisive/neither/indecisive 时不盲信
+  Python contradict 自报（idx=30 假证据残留风险）
+- playoff 判重改用 `playoff_status`（"被跳过"不再误判为"已裁决"）
+- 采样投票补 `can_afford_retry` 按实测成本计价护栏
+- sympy 短路完整性三守卫：多条件（"且"）不短路、近似算法（梯形/辛普森）不
+  短路、未定值/特殊函数泄漏（lerchphi/gamma）不短路；输出美化 `*`→`·`
+- 删除死代码：`utils/deep_solver.py`（3 候选深思考计划从未接线）、
+  `confidence_gate.gate_report`、`error_handler.safe_execute`
+
+**D. 困难题校准集（本地验证闭环）**
+- `local_test/data/calibrate_hard.jsonl`：16 道 L3/L4 可验证难题（覆盖官方
+  权重前 8 领域），答案全部经 sympy/数学推导验证
+- `local_test/calibrate.py`：求解 → LLM 判分 → 与基线逐题 delta 对比的一键
+  管线——官方无逐题反馈 + 每天 2 次提交 + 本地常规题集远简单（历史 98% vs
+  59.8%），校准集是唯一可靠的相对验证手段
+
+**E. 真机冒烟发现的联动修复（第二轮校准实证）**
+- 守卫逻辑反转（干净 sympy 结果全被拒、短路失效）——节点层测试防复发
+- lerchphi 未定值垃圾（∫₀¹xⁿ/(1+x)dx）与"梯形近似题被算成精确值"两类
+  "确定性错误答案"被新守卫拦截
+- MockClient 每关键词队列路由，根治集成测试的并发响应竞态

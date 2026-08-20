@@ -295,6 +295,21 @@ if _BACKEND == "graph":
                         }
                     ],
                 })
+            # V2.6.1：单候选代回核验证据（match 后 medium/hard 计算题的第三证据）
+            if state.get("substitution_trace"):
+                trace.append({
+                    "step": "substitution_check",
+                    "status": state.get("substitution_status", ""),
+                    "thinking": {
+                        "purpose": "match 后把已一致答案代回题面条件做确定性核验，戳穿两路同源同错。",
+                    },
+                    "tools": [
+                        {
+                            "name": "substitution_executor",
+                            "rounds": state.get("substitution_trace", []),
+                        }
+                    ],
+                })
             # VeritasMath：过程审计（题面契约完整性 + 关键计算抽核）证据
             if state.get("critic_trace"):
                 trace.append({

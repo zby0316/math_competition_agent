@@ -250,7 +250,7 @@ def _try_parse_expr(text: str):
     raw = (text or "").strip()
     if not raw or len(raw) > 400:
         return None
-    # 剥离"J = "、"K = "这类命名标签，比较值本身（评委报告 idx=352：标签后接矩阵）。
+    # 剥离"J = "、"K = "这类命名标签，比较值本身（评委报告实证：标签后接矩阵）。
     # 复用 structured_answer 的标签定义，使 `\bar y = …`、`\lambda = …` 与纯 ASCII
     # 标签走同一套规则——此处曾另写一份仅认 ASCII 的正则，导致希腊字母标签的答案
     # 整条无法解析（2026-07-29 判分 Q3：`$\bar y=\frac{\pi(\sqrt3+1)}{12}$`）。
@@ -593,7 +593,7 @@ class AnswerMatcher:
         if e1 is None or e2 is None:
             return None
         # 矩阵结构化比较：形状不同或差非零矩阵 → 确定不等价（触发 reconciliation 重试，
-        # 而非落入低置信 uncertain 直接采信 Python 答案——评委报告 idx=352 教训）
+        # 而非落入低置信 uncertain 直接采信 Python 答案——评委报告 真机实证 教训）
         is_m1 = isinstance(e1, sp.MatrixBase)
         is_m2 = isinstance(e2, sp.MatrixBase)
         if is_m1 or is_m2:

@@ -51,8 +51,8 @@ def _run_graph(problem: str, responses: list = None, routes: list = None):
     graph = MathAgentGraph(
         client=client, skills_loader=SkillsLoader(), mcp_client=PythonMCPClient())
     # 集成测试验证完整链路（match→critic→coordinator），预算必须给足：
-    # 默认 TimeBudget 的 reserve=300s 会把 easy 题 soft_total(480s) 压到
-    # remaining 180s < fast_path_threshold(300s)，触发 coordinator 跳过，
+    # 默认 TimeBudget 的 reserve=300s 会把 easy 题 soft_total(600s) 压到
+    # remaining 300s = fast_path_threshold(300s)，触发 coordinator 跳过，
     # 破坏"match 直达成稿"的断言（历史遗留问题，非 V2.5 回归）。
     clock = TimeBudget(total_seconds=1200, reserve_seconds=0)
     return graph.run(create_initial_state(problem, {"idx": 0}),
@@ -80,9 +80,9 @@ class TestHappyPathWithCritic(unittest.TestCase):
         self.assertEqual(final.get("critic_status"), "pass")
         self.assertTrue(final.get("final_response", "").strip())
         self.assertIn("5", final.get("final_response", ""))
-        # 难度画像已应用（easy → 软预算 480）
+        # 难度画像已应用（easy → 软预算 600，V2.6.2）
         self.assertEqual(final.get("difficulty"), "easy")
-        self.assertEqual(final.get("_time_budget", {}).get("soft_total_s"), 480.0)
+        self.assertEqual(final.get("_time_budget", {}).get("soft_total_s"), 600.0)
         # 数学分析不在高风险领域：不应扇出第二推理路径
         self.assertIsNone(final.get("reasoning_result_alt"))
 

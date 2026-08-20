@@ -143,7 +143,9 @@ def _compressed_python_call(deps, problem, candidate_answer,
     失败返回 (None, 原因)。
     """
     clock = deps.time_budget
-    if clock and clock.remaining_hard - _COMPRESSED_RESERVE_MARGIN_S \
+    # V2.6.2 修复：remaining_hard 是方法，漏括号时 bound method − int 恒抛
+    # TypeError——与 is_tight/fast_path 同族的第三处漏括号，此前被节点兜底掩盖。
+    if clock and clock.remaining_hard() - _COMPRESSED_RESERVE_MARGIN_S \
             < _COMPRESSED_CALL_ESTIMATE_S:
         return None, "compressed_retry_unaffordable"
     instruction = _retry_prompt(
@@ -179,7 +181,9 @@ def python_agent_node(state, config):
     client = deps.client
     mcp_client = deps.mcp_client
     budget = deps.token_budget
-    max_attempts = 1 if budget and budget.is_tight else CONFIG["max_retries_per_node"]
+    # V2.6.1 修复：is_tight 是方法，漏括号时 bound method 恒 truthy，
+    # max_attempts 被锁死为 1（即使预算宽裕也不重试）。
+    max_attempts = 1 if budget and budget.is_tight() else CONFIG["max_retries_per_node"]
     problem, category = state["problem"], state["category"]
     question_mode = state.get("question_mode", "computation")
     if is_objective_mode(question_mode):
@@ -306,7 +310,9 @@ def python_agent_node(state, config):
             "python_evidence_summary": enriched.get("evidence_summary", ""),
             "python_contradictions": enriched.get("contradictions", []),
         }
-    if clock and clock.fast_path:
+    # V2.6.1 修复：fast_path 是方法，漏括号时 bound method 恒 truthy，
+    # 与上方 is_tight 同类问题，会把 max_attempts 永远锁死在 1。
+    if clock and clock.fast_path():
         max_attempts = 1
     compressed_next = False
     compressed_used = False
@@ -462,7 +468,7 @@ def python_agent_node(state, config):
                     repaired_output, candidate_answer=candidate_answer, code=repaired)
                 answer_text = str(repaired_probe.get("answer") or "").strip()
                 if repaired_output.get("success") and answer_text \
-                        and answer_text.lower not in {"none", "null"}:
+                        and answer_text.lower() not in {"none", "null"}:
                     last_code = repaired
                     trace.append({"attempt": attempts,
                                   "status": "deterministic_print_repair"})

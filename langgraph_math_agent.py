@@ -3,7 +3,7 @@ from state.math_agent_state import MathAgentState
 from graph.solving_subgraph import build_solving_subgraph
 from nodes import (
     input_node, classifier_node, reconciliation_node, semantic_arbiter_node,
-    coordinator_node, critic_node, playoff_node,
+    coordinator_node, critic_node, playoff_node, substitute_node,
 )
 from utils.error_handler import node_wrapper
 
@@ -15,6 +15,8 @@ def build_math_agent_graph():
                   ├─► critic（过程审计，必经）───┤
       arbiter ────┘                              └─► reconciliation（带定向修复提示）
       mismatch ─► playoff（确定性复算裁决）─► critic / reconciliation / arbiter
+      match(medium/hard 计算题) ─► substitute（单候选代回核验，V2.6.1）
+                                  └─► PASS→critic / FAIL→reconciliation
 
     所有进入 coordinator 的答案都必须先过 Critic 审计门——这是"题面契约完整性"
     在架构上的强制保证，而不是依赖提示词自觉。
@@ -26,6 +28,7 @@ def build_math_agent_graph():
     g.add_node("reconciliation", node_wrapper(reconciliation_node, "reconciliation"))
     g.add_node("semantic_arbiter", node_wrapper(semantic_arbiter_node, "semantic_arbiter"))
     g.add_node("playoff", node_wrapper(playoff_node, "playoff"))
+    g.add_node("substitute", node_wrapper(substitute_node, "substitute"))
     g.add_node("critic", node_wrapper(critic_node, "critic"))
     g.add_node("coordinator", node_wrapper(coordinator_node, "coordinator"))
 
@@ -39,13 +42,25 @@ def build_math_agent_graph():
         requested = state.get("next_node")
         if requested == "playoff":
             return "playoff"
+        # V2.6.1：match 的 medium/hard 计算题先进代回核验，再进 Critic。
+        if requested == "substitute":
+            return "substitute"
         if requested in {"reconciliation", "semantic_arbiter"}:
             return requested
         # match / 默认：原直达 coordinator，现必经 Critic 过程审计门
         return "critic"
     g.add_conditional_edges("solving", route_after_solving,
                             {"critic": "critic", "reconciliation": "reconciliation",
-                             "semantic_arbiter": "semantic_arbiter", "playoff": "playoff"})
+                             "semantic_arbiter": "semantic_arbiter", "playoff": "playoff",
+                             "substitute": "substitute"})
+
+    def route_after_substitute(state, config):
+        # FAIL → 带定向修复提示回调解重算；PASS/INCONCLUSIVE/跳过 → Critic 收尾。
+        if state.get("next_node") == "reconciliation":
+            return "reconciliation"
+        return "critic"
+    g.add_conditional_edges("substitute", route_after_substitute,
+                            {"reconciliation": "reconciliation", "critic": "critic"})
 
     def route_after_reconciliation(state, config):
         requested = state.get("next_node")

@@ -75,7 +75,7 @@ def _tangent_and_area_satisfied(answer):
 def _feasibility_count_satisfied(answer):
     """可行性 + 计数双问项：答案必须带一个具体数量。
 
-    2026-08-10 复测轮 idx 31："Is it possible to cover ...? If it is possible, what
+    2026-08-10 复测轮 真机实证："Is it possible to cover ...? If it is possible, what
     is the minimum number needed?" 的交付是光秃秃的"不可能"——由一个错误的整除性
     论证得出。题面把计数写成第二问，说明出题人预期可行；答案只有否定词而无数量时
     判为残缺，让更完整的候选（通常是 Python 分支或协调器正文）有机会胜出。
@@ -121,7 +121,7 @@ def required_components(problem):
     if _has(p, r"(?:确定|求出?|列出|写出|枚举|找出|给出)[^。\n]{0,16}所有") or "互不同构" in p:
         comps.append("enumerate_all")
     else:
-        # 英文题面的 "Find all the possible values of ..."（2026-08-10 复测轮 idx 14）
+        # 英文题面的 "Find all the possible values of ..."（2026-08-10 复测轮 真机实证）
         # 不匹配上面的中文模式，交付了三个值里的一个。复用题型画像的双语判定。
         from utils.problem_profile import requires_all_solutions
 

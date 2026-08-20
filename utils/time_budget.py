@@ -66,6 +66,10 @@ class TimeBudget:
         self._start = clock()
         self._lock = Lock()
         self._spend_log: list[dict] = []
+        # V2.6.2：单题 LLM 请求硬上限计数。图的每处循环都有结构性终止，但防御
+        # 深度上再加一道"无论哪条路径失控，LLM 调用总数封顶"的保险——超过后
+        # 所有调用（emergency 除外）以 DeadlineExceeded 快失败，走确定性兜底。
+        self._llm_calls = 0
         # VeritasMath 难度感知软预算：soft_total 是"可选工作"的购买力上限，
         # 由分类节点按难度画像调用 apply_difficulty_profile() 收紧；
         # self.total（平台硬限 1200s）永不下调，进行中的调用不会被提前杀死。
@@ -155,6 +159,25 @@ class TimeBudget:
     def spend_log(self) -> list[dict]:
         with self._lock:
             return list(self._spend_log)
+
+    # ---- V2.6.2 单题请求硬上限 ----
+
+    def bump_llm_call(self) -> None:
+        """LLMRetryWrapper 每次实际发起 chat 前计数。"""
+        with self._lock:
+            self._llm_calls += 1
+
+    def llm_calls_exhausted(self) -> bool:
+        """是否已触及单题 LLM 请求上限（0/未配置 = 不限制）。"""
+        cap = int(CONFIG.get("max_llm_calls_per_problem", 0) or 0)
+        if cap <= 0:
+            return False
+        with self._lock:
+            return self._llm_calls >= cap
+
+    def llm_call_count(self) -> int:
+        with self._lock:
+            return self._llm_calls
 
     def snapshot(self) -> dict:
         return {

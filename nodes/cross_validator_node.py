@@ -10,7 +10,7 @@ VeritasMath 升级：
 2. 计算题 mismatch 先进 deterministic playoff（代回复算裁决），季后赛无法
    裁决时才落入重算/仲裁——把"只能选"升级为"先算清楚再选"。
 3. 客观题低置信复核投票：空位覆盖不足等低置信形态触发一次独立短采样比对，
-   一致才提置信（评委报告 idx 86：三空答零空曾以 0.78 置信直接放行）。
+   一致才提置信（评委报告实证：三空答零空曾以 0.78 置信直接放行）。
 """
 from utils.answer_matcher import AnswerMatcher
 from utils.answer_contract import answer_part_count, missing_components
@@ -42,12 +42,24 @@ def _same_scalar_or_text(a: str, b: str) -> bool:
     return bool(ka) and ka == kb
 
 
+def _playoff_already_played(state: dict) -> bool:
+    """季后赛是否已经真实裁决过（V2.6.1 修复）。
+
+    原实现 `bool(playoff_trace)` 把"被 skipped 的记录"也当成"已跑过"：季后赛
+    因预算不足/候选不足被跳过时 trace 同样非空，之后再也不会路由 playoff——
+    把"跳过了"误判成"裁决过了"。改用 playoff_status：只有真正产生裁决的状态
+    （decisive/neither/indecisive/error）才阻止重入；skipped 允许重路由
+    （重新评估预算，仍不足时 playoff 节点会再次安全降级，不会死循环）。
+    """
+    return state.get("playoff_status") in {"decisive", "neither", "indecisive", "error"}
+
+
 def _preferred_answer(state: dict, match_result: dict) -> str:
     """Pick the answer to surface as validated_answer.
 
     证据优先序（2026-08-09 评委建议 1，最高优先级）：
     ``有枚举支撑且反驳对手的 Python 答案 > evidence=support 的分支 > 推理答案 >
-    结构化部分结论``。idx 20 事故——Python 枚举出 C(2k,k)² 且 evidence=contradict
+    结构化部分结论``。真机实证 事故——Python 枚举出 C(2k,k)² 且 evidence=contradict
     明确反驳了推理的 "4"，仲裁超时后系统仍输出被自家验证器反驳的 "4"——由第一
     条规则在架构上杜绝：证据指向谁，兜底就选谁。
 
@@ -176,7 +188,7 @@ def cross_validator_node(state, config):
     # VeritasMath 治本：实算填空题现在会扇出 Python 验证（verify_router）。
     # 当这类题拿到可用的 Python 候选时，必须走完整 computation 交叉验证
     # （matcher / playoff），而不是客观题快速路径的直接放行——否则 Python
-    # 证据被浪费，单采样错答（idx=13/40）仍会出厂。
+    # 证据被浪费，单采样错答仍会出厂。
     _fill_with_python = (
         question_mode == "fill"
         and bool(str(python_output.get("answer") or "").strip())
@@ -199,7 +211,7 @@ def cross_validator_node(state, config):
                       + ("；但分项数少于题面空位数，答案可能不完整" if blank_gap else ""))
             # VeritasMath 复核投票：低置信形态（空位覆盖不足）触发一次独立采样比对。
             # 一致 → 置信提到 0.9；分歧 → 维持 0.45 并保留更完整一方，留证待查。
-            # 真机扩展（ultra_112 idx=13/40）：填空题需实算且单采样易错（符号错/
+            # 真机扩展：填空题需实算且单采样易错（符号错/
             # 计数错），即使空位覆盖足也复核一次——独立重解是第二证据，
             # 一致提置信，分歧保留更完整候选。成本 ~45s/题，仅 fill 触发。
             need_revote = (blank_gap or question_mode == "fill")
@@ -334,12 +346,12 @@ def cross_validator_node(state, config):
     # A program can run successfully while proving that the candidate is false.
     if evidence_status == "contradict":
         match_result["routing_reason"] = "python_evidence_contradiction"
-        # VeritasMath 真机修复（ultra_112 idx=30）：contradict 证据可能是
+        # VeritasMath 真机修复：contradict 证据可能是
         # **假证据**——Python 自身算错（CRT 逆元求错）却自报"反驳了正确的推理"。
         # 原链路直接仲裁/重算，且 coordinator 证据闸门会强行采信 Python 错值。
         # 修复：计算题且有双候选时，先送 playoff 代回复算裁决谁对谁错，
         # 用确定性计算戳破假证据，而不是盲目信 Python 的自报证据。
-        already_played = bool(state.get("playoff_trace"))
+        already_played = _playoff_already_played(state)
         if problem_type == "computation" and CONFIG.get("enable_playoff", True) \
                 and not already_played:
             from nodes.playoff_node import playoff_candidates
@@ -393,7 +405,7 @@ def cross_validator_node(state, config):
     if status == "match" and _alt_ans and _a_ans \
             and not looks_incomplete_answer(_alt_ans) \
             and not _same_scalar_or_text(_alt_ans, _a_ans):
-        already_played = bool(state.get("playoff_trace"))
+        already_played = _playoff_already_played(state)
         if problem_type == "computation" and CONFIG.get("enable_playoff", True) \
                 and not already_played:
             status = "mismatch_playoff"
@@ -439,10 +451,19 @@ def cross_validator_node(state, config):
         else:
             validated_answer = _preferred_answer(state, match_result)
         next_node = "coordinator"
+        # V2.6.1 确定性验证前移：medium/hard 计算题 match 后先进单候选代回核验
+        # （substitution_trace 非空 = 已核验过，防重入；easy/客观题保持直通）。
+        # 核验只产生证据不改答案：PASS→critic 收尾；FAIL→定向修复重算。
+        if (problem_type == "computation" and validated_answer
+                and not state.get("substitution_trace")
+                and CONFIG.get("enable_substitution_check", True)
+                and str(state.get("difficulty") or "").lower() in {"medium", "hard"}):
+            next_node = "substitute"
+            match_result["routing_reason"] = "validated_match_substitution_check"
     elif status == "mismatch":
         # VeritasMath：计算题冲突先进 deterministic playoff（候选代回复算），
         # 季后赛已跑过/不适用时回落到既有的重算-仲裁通道。
-        already_played = bool(state.get("playoff_trace"))
+        already_played = _playoff_already_played(state)
         if problem_type == "computation" and CONFIG.get("enable_playoff", True) \
                 and not already_played:
             from nodes.playoff_node import playoff_candidates

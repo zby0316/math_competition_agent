@@ -125,7 +125,7 @@ def _extract_fallback_answer(cleaned: str, problem_type: str = "") -> str:
 
     优先级：\\boxed{}（模型显式提交的结论，选择题按选项字母归一化）→ 选择题
     结论句式（"正确的选项为 B 与 D"）→ 结论/答案标签行。标签行匹配排除
-    "基本结论"这类中缀命中——idx 87 的事故：正文里 B 项论证行"由群论基本
+    "基本结论"这类中缀命中——真机实证 的事故：正文里 B 项论证行"由群论基本
     结论：$p^2$ 阶群…"顶掉了文末的 \\boxed{BD}，最终交付丢失选项字母与 D 项。
     标签行取最后一个匹配：结论在文末，首个匹配常是正文引理。
     """
@@ -449,7 +449,7 @@ def build_steps_block(steps) -> str:
         if not isinstance(step, dict):
             continue
         line = _condense_step(step)
-        # 模板骨架步骤（2026-08-09 冒烟 idx 46："步骤1：[描述]（[具体公式]）"）
+        # 模板骨架步骤（2026-08-09 冒烟 真机实证："步骤1：[描述]（[具体公式]）"）
         # 不携带信息，附上只会拉低可读性与判分印象。
         if line and is_placeholder_answer(line.split("：", 1)[-1]):
             continue
@@ -493,7 +493,7 @@ _MIN_PROOF_BODY_CHARS = 80
 def build_proof_body(final_response: str, reasoning_result: dict) -> str:
     """证明题：把关键蕴含链（问题分析 + 完整步骤）附到结论之后。
 
-    2026-08-09 评委报告 idx 74：三类解全对，但验证与唯一性论证只存进 trace、
+    2026-08-09 评委报告实证：三类解全对，但验证与唯一性论证只存进 trace、
     未写入 final_response，按 §6.2"结论+必要过程"只得 0.3。证明题的过程即
     答卷主体，凡持有推理产物就必须随结论一起出厂——这是确定性拼装，不花
     任何 LLM 时间，降级路径同样负担得起。
@@ -574,8 +574,8 @@ def render_sentence_answer(fa: str, problem: str) -> str:
 def _clean_noise_head(fa: str) -> str:
     """噪声答案行截取句首的干净结论头；无可用头部时返回 ""。
 
-    2026-08-09 冒烟：idx 24 "3/4. Do we have 5/6 or 3/4? Not yet"（计算题）与
-    idx 34 "N_R + N_L. At collision, ... unchanged? Actually ..."（证明题结论）
+    2026-08-09 冒烟：真机实证 "3/4. Do we have 5/6 or 3/4? Not yet"（计算题）与
+    真机实证 "N_R + N_L. At collision, ... unchanged? Actually ..."（证明题结论）
     都是"干净结论 + 思维流尾巴"形态——保住头部即保住可判分内容。
     """
     if not fa or not is_noise_answer(fa):
@@ -586,7 +586,7 @@ def _clean_noise_head(fa: str) -> str:
     from utils.answer_cleanliness import _EXPLORATORY_LEAD_RE, looks_derivation_fragment
     if _EXPLORATORY_LEAD_RE.match(head) or looks_derivation_fragment(head):
         return ""
-    # 评估口癖修复（idx 2 "1/2 works."）：剥掉尾部评述词后若剩下干净数学本体则保留。
+    # 评估口癖修复（真机实证 "1/2 works."）：剥掉尾部评述词后若剩下干净数学本体则保留。
     head = re.sub(r"(?i)\s+(?:works?|holds?|fails?|seems|is\s+possible|"
                   r"is\s+enough|suffices)\s*$", "", head).strip()
     if head and not is_noise_answer(head) and not looks_incomplete_answer(head) \
@@ -606,12 +606,12 @@ def post_process_final_response(raw: str, validated_answer: str, problem_type: s
         # 证明题：结论在前，证明过程本身即答案主体（不可省略）
         fa = _prefer_complete_proof_answer(cleaned, fa)
         if not fa or looks_like_latex_fragment(fa):
-            # 结论是被截头的 LaTeX 残片（评委报告 idx=112）→ 换用文本回退，仍是残片则弃用
+            # 结论是被截头的 LaTeX 残片（评委报告实证）→ 换用文本回退，仍是残片则弃用
             candidate = _extract_fallback_answer(cleaned, problem_type)
             fa = "" if looks_like_latex_fragment(candidate) else candidate
         if len(cleaned.strip()) < 100:
             cleaned = f"根据推理与计算过程，得到结论：{fa or '无法确定'}"
-        # 证明题结论行同样不得携带思维流尾巴（idx 34）；证明过程正文不受影响。
+        # 证明题结论行同样不得携带思维流尾巴（真机实证）；证明过程正文不受影响。
         fa = _clean_noise_head(fa)
         return f"结论：{fa}\n\n{cleaned}" if fa else cleaned
     # 计算题：仅输出简洁最终答案，避免 final_response 过长（赛题明确要求"避免过长"）。
@@ -628,8 +628,8 @@ def post_process_final_response(raw: str, validated_answer: str, problem_type: s
             and _summary_subsumes_answer(structured_summary, fa):
         fa = structured_summary
     elif looks_incomplete_answer(fa) or fa == "无法确定":
-        # 答案是碎片（评委报告 idx=83/352："(Matrix(["、"…如下："；20260707 报告
-        # idx=260/254/255/272："1}^n X_i$" 等截头残片）→ 回退 coordinator 的最终答案章节
+        # 答案是碎片（评委报告实证："(Matrix(["、"…如下："；20260707 报告
+        # 真机实证："1}^n X_i$" 等截头残片）→ 回退 coordinator 的最终答案章节
         if section_ok:
             fa = section
         elif fa == "无法确定" or looks_incomplete_answer(fa):
@@ -637,13 +637,13 @@ def post_process_final_response(raw: str, validated_answer: str, problem_type: s
             if candidate and not looks_incomplete_answer(candidate):
                 fa = candidate
     elif problem and is_multi_part_problem(problem):
-        # 多问项题（评委报告 idx=172：漏答密度函数；20260707 idx=113：漏覆盖空间）：
+        # 多问项题（评委报告实证：漏答密度函数；20260707 真机实证：漏覆盖空间）：
         # 单一 validated 答案覆盖不了所有问项，coordinator 章节逐项列出 → 更完整时优先采用
         if section_ok and len(section) > len(fa):
             fa = section
     else:
         fa = _prefer_structured_final_section(problem, section, fa)
-    # 洁净度修复（2026-08-09 冒烟 idx 24：coordinator 自产答案行 "3/4. Do we have
+    # 洁净度修复（2026-08-09 冒烟 真机实证：coordinator 自产答案行 "3/4. Do we have
     # 5/6 or 3/4? Not yet" 曾出厂）：噪声答案行先截取句首的干净结论头，无头可用时
     # 退回干净的最终答案节。头部必须自身可判分（非噪声、非残片、有信息负载）。
     if fa and is_noise_answer(fa):
@@ -654,7 +654,7 @@ def post_process_final_response(raw: str, validated_answer: str, problem_type: s
             fa = section
     # 字段契约兜底（评委报告 §5：检验缺结论、区间缺端点、运输缺分配、枚举缺对象）：
     # fa 缺题面要求的组成部分时，先换更完整的 coordinator 最终答案节，再从正文回捞。
-    # 替换必须是**增量**的：契约放宽到英文"find all"后（2026-08-10 复测轮 idx 14），
+    # 替换必须是**增量**的：契约放宽到英文"find all"后（2026-08-10 复测轮 真机实证），
     # 单值答案会被判残缺，此时若换上的章节丢掉了原答案的数值就是降级替换。
     missing = missing_components(problem, fa)
     if missing and section_ok and len(missing_components(problem, section)) < len(missing) \

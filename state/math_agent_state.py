@@ -65,6 +65,9 @@ class MathAgentState(TypedDict):
     playoff_status: NotRequired[str]        # decisive | indecisive | skipped | error
     playoff_answer: NotRequired[str]
     playoff_trace: NotRequired[List[Dict]]
+    # 单候选代回核验（V2.6.1：match 后 medium/hard 计算题的第三种证据）
+    substitution_status: NotRequired[str]   # pass | fail | indecisive | skipped | error
+    substitution_trace: NotRequired[List[Dict]]
     # 客观题复核投票（低置信时追加一次独立采样比对）
     objective_revote_trace: NotRequired[List[Dict]]
     # 模结构守护命中标记（F_2 / Z_m 语境；提示注入与静态核查记录）

@@ -117,6 +117,15 @@ def _fallback_for_node(node: str, state: dict, error: dict, config: dict | None 
             + [{"status": "error", "reason": error["message"][:200]}],
             "next_node": "semantic_arbiter",
         }
+    if node == "substitute":
+        # 代回核验异常 = 无核验证据，放行进 critic 正常收尾（宁可漏核不可卡死）。
+        return {
+            **base,
+            "substitution_status": "error",
+            "substitution_trace": list(state.get("substitution_trace") or [])
+            + [{"status": "error", "reason": error["message"][:200]}],
+            "next_node": "critic",
+        }
     if node == "critic":
         # 审计异常不阻塞出答案：直接放行进 coordinator，宁可漏审不可卡死。
         return {
@@ -149,17 +158,6 @@ def _fallback_for_node(node: str, state: dict, error: dict, config: dict | None 
 
 
 class ErrorHandler:
-    @staticmethod
-    def safe_execute(func: Callable, *args: Any, **kwargs: Any) -> tuple[bool, Any]:
-        try:
-            return True, func(*args, **kwargs)
-        except Exception as exc:  # noqa: BLE001 - convert any node failure into state.
-            return False, {
-                "type": type(exc).__name__,
-                "message": str(exc),
-                "traceback": traceback.format_exc(limit=5),
-            }
-
     @staticmethod
     def node_wrapper(node_func: Callable, node_name: str | None = None) -> Callable:
         name = _node_name(node_func, node_name)
