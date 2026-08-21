@@ -83,6 +83,13 @@ class TestCountCombinatorics(unittest.TestCase):
     def test_negative(self):
         self.assertEqual(_solve("求组合数 C(n,k) 的值。"), {})
 
+    def test_binomial_statement_not_hijacked(self):
+        # V2.7.3 问目标守卫回归（官方 54.46 回溯根因）：题面陈述里顺带出现
+        # C(n,k)、但题问的是别的（概率）——绝不劫持作答组合数。
+        self.assertEqual(_solve(
+            "集合 {1,2,...,10} 的 3 元子集共有 C(10,3) 个，从中等可能任取一个，"
+            "求该子集包含元素 1 的概率。"), {})
+
 
 class TestMatrixEigen(unittest.TestCase):
     def test_positive(self):
@@ -94,6 +101,12 @@ class TestMatrixEigen(unittest.TestCase):
         # 非方阵 → 无法求特征值
         self.assertEqual(_solve("求矩阵 [[1,2],[3,4],[5,6]] 的特征值。"), {})
 
+    def test_diagonalizable_judgement_not_hijacked(self):
+        # V2.7.3 问目标守卫回归：问判定/参数条件，不是特征值列表
+        self.assertEqual(_solve("判断矩阵 [[4,1],[2,3]] 是否可对角化。"), {})
+        self.assertEqual(_solve(
+            "求使得矩阵 A = [[2, a], [0, 2]] 可对角化的实数 a 的所有取值。"), {})
+
 
 class TestLinearSystem(unittest.TestCase):
     def test_positive(self):
@@ -103,6 +116,17 @@ class TestLinearSystem(unittest.TestCase):
 
     def test_negative(self):
         self.assertEqual(_solve("解方程 x+y=3。"), {})
+
+    def test_derived_expression_not_hijacked(self):
+        # V2.7.3 问目标守卫回归：问的是导出表达式 2x+y，不是变量本身
+        self.assertEqual(_solve(
+            "解方程组 x+y=3, x-y=1，求 2x+y 的值。"), {})
+
+    def test_variable_ask_still_hits(self):
+        r = _assert_solved(self, "解方程组 x+y=3, x-y=1，求 x、y 的值。",
+                           "linear_system")
+        self.assertIn("x = 2", r["answer"])
+        self.assertIn("y = 1", r["answer"])
 
 
 class TestQuadrature(unittest.TestCase):

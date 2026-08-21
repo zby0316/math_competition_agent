@@ -515,6 +515,16 @@ def _binomial(problem: str) -> Optional[dict]:
     m = re.search(r"C\s*\(\s*(\d+)\s*,\s*(\d+)\s*\)", problem)
     if not m:
         return None
+    # V2.7.3 问目标守卫（官方 54.46 分回溯的根因级修复）：必须是"求/计算
+    # C(n,k)（的值）"形态才作答——题面陈述里顺带出现 C(n,k)（如"3 元子集
+    # 共有 C(10,3) 个，求含元素 1 的概率"）时，答案是题所问的概率而非组合
+    # 数本身；旧实现直接劫持作答 C(10,3)=120，确定性错误答案以置信 1.0 锁定。
+    ask_ok = bool(re.search(
+        r"(?:求|计算|算出)\s*[^。；;]{0,25}?C\s*\(\s*\d+\s*,\s*\d+\s*\)"
+        r"|C\s*\(\s*\d+\s*,\s*\d+\s*\)\s*(?:的值|等于|是多少|=)",
+        problem))
+    if not ask_ok:
+        return None
     n, k = int(m.group(1)), int(m.group(2))
     if k < 0 or k > n or n > 500:
         return None
@@ -635,6 +645,12 @@ def _permutation(problem: str) -> Optional[dict]:
 def _matrix_eigen(problem: str) -> Optional[dict]:
     if not re.search(r"特征值|特征向量|对角化|eigen", problem, re.IGNORECASE):
         return None
+    # V2.7.3 问目标守卫：问"是否可对角化/对角化条件/含参数判定"的题，答案
+    # 是判定/参数分析而非特征值列表——本管线只能答"求特征值/特征向量"型，
+    # 其余（含参数、Jordan、可对角化判定）交回 LLM，防确定性错误答案锁定。
+    if re.search(r"可对角化|是否对角化|对角化条件|Jordan|若尔当|参数", problem,
+                 re.IGNORECASE):
+        return None
     mat = _parse_matrix(problem)
     if mat is None:
         return None
@@ -726,6 +742,12 @@ def _linear_system(problem: str) -> Optional[dict]:
     if problem.count("=") < 2:
         return None
     if not re.search(r"方程|solve|联立|求解", problem, re.IGNORECASE):
+        return None
+    # V2.7.3 问目标守卫：末段"求 <含运算的表达式> 的值"问的是**导出表达式**
+    # （如"解方程组 x+y=3, x-y=1，求 2x+y 的值"——答案是 5 而非 x,y），本管线
+    # 只答变量本身，此类题交回 LLM，防确定性错误答案锁定。
+    _ask = re.search(r"求\s*([^。；;]{1,40}?)\s*(?:的值|的结果)?[。？?]?$", problem)
+    if _ask and re.search(r"[+\-*/^]", _ask.group(1)):
         return None
     eqs_raw = re.findall(r"([0-9A-Za-z_+\-*/^().\s]+?)\s*=\s*(-?[0-9A-Za-z_+\-*/^().\s]+)", problem)
     if not eqs_raw:
