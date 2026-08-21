@@ -11,6 +11,9 @@ class Deps:
     #: Per-problem wall-clock budget (utils.time_budget.TimeBudget). Optional so
     #: unit tests can omit it; every consumer treats None as "unbounded".
     time_budget: Any = None
+    #: V3.3 第二 Intern-S 模型复核 client（utils.review_model 解析产物，
+    #: None = 复核通道不可用，分歧路径回退主 client）。
+    review_client: Any = None
     logger: logging.Logger = field(default_factory=lambda: logging.getLogger("math_agent"))
 
 def get_deps(config: dict) -> "Deps":

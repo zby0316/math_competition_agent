@@ -206,7 +206,7 @@ def _form_align_reframe(client, deps, problem: str, answer: str,
         text = strip_cot_prefix(raw or "").strip()
         # 去掉可能的"最终答案："前缀与多余文字
         import re as _re
-        m = _re.search(r"最终答案[：:]\s*(.+)", text, re.DOTALL)
+        m = _re.search(r"最终答案[：:]\s*(.+)", text, _re.DOTALL)
         text = (m.group(1) if m else text).strip()
         text = text.splitlines()[0].strip() if text else ""
         # V2.4：选择题重述结果再做一次确定性归一化（仅保留字母），
@@ -391,13 +391,20 @@ def coordinator_node(state, config):
             + "。请在最终答案章节逐项补全（可从推理过程与程序输出中提取已有结论补齐），"
             "不得遗漏任何一项。")
     try:
-        raw = chat_with_retry(
+        # V3.0 短输出化：coordinator 是图内最大单次调用（原 16384 token 无 prefill，
+        # 官方 client 若丢弃 thinking_mode 会以全量 CoT 运行——实测 59s/请求的墙钟
+        # 主因之一）。改为 prefill 种子（抑制 CoT，与 probe 实测 4x 提速一致）+
+        # max_tokens 16384→8192：叙述性成稿 2-4k token 足够，post_process 对
+        # prefill 产物解析不变。
+        raw = chat_prefilled(
             client,
             messages=[{"role": "user", "content": prompt}],
+            prefix="## 解题说明\n",
             temperature=CONFIG["temperatures"]["coordinator"],
             max_tokens=CONFIG["max_tokens"]["coordinator"],
             logger=deps.logger,
             time_budget=time_budget,
+            expected_call_seconds=90,
             label="coordinator",
             thinking_mode=thinking_mode_flag(),
         )

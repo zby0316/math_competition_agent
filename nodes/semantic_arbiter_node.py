@@ -12,7 +12,6 @@ from utils.answer_contract import missing_components
 from utils.answer_extractor import looks_incomplete_answer
 from utils.cot_stripper import is_placeholder_answer
 from utils.deps import get_deps
-from utils.llm_retry import chat_prefilled, chat_with_retry
 from utils.prompt_templates import (
     SEMANTIC_ARBITER_PREFILL,
     SEMANTIC_ARBITER_PROMPT,
@@ -66,6 +65,10 @@ def _candidate_pool(state: dict) -> list[_Candidate]:
     # 独立，在两个原候选都被质疑（uncertain/mismatch 落入仲裁）时常常正是
     # 唯一正确的那个；下游去重逻辑保证答案相同时不重复占位。
     alt_answer = _usable_answer(alt.get("answer", ""))
+    # V2.7：快速采样投票的票选赢家是第四个候选（多票独立采样的多数意见，
+    # 与主路径/第二路径/程序验证三源独立）。
+    vote = state.get("answer_vote_result") or {}
+    vote_answer = _usable_answer(str(vote.get("winner") or ""))
 
     reasoning_steps = "\n".join(
         f"步骤{s.get('step_num', '')}: {s.get('description', '')}"
@@ -107,6 +110,11 @@ def _candidate_pool(state: dict) -> list[_Candidate]:
         candidates.append(_Candidate("python", python_answer, python_evidence))
     if alt_answer:
         candidates.append(_Candidate("reasoning_alt", alt_answer, alt_evidence))
+    if vote_answer:
+        candidates.append(_Candidate(
+            "answer_vote", vote_answer,
+            f"【该候选来自 V2.7 快速采样投票的多数意见：{vote.get('votes', 0)}/"
+            f"{len(state.get('answer_vote_trace') or [])} 个独立样本】"))
 
     unique = []
     seen = set()
@@ -299,11 +307,15 @@ def semantic_arbiter_node(state, config):
     # Prefilled fast path: the seed carries the nonce, so the model only has to
     # emit `SELECT:<id>` or `ABSTAIN` — ~0.8s and ~4 completion tokens versus ~70s
     # unprefilled. `stitch` restores the full marker for nonce verification.
+    # V3.3 多模型复核：仲裁是"候选选择"的分歧路径，交给第二 Intern-S 模型
+    # （与候选生成模型独立，跨模型分歧比同模型自评更有信息量）。复核 client
+    # 不可用/失败/配额尽时回退主 client，行为与单模型完全一致。
+    from utils.review_model import chat_prefilled_review, chat_with_retry_review, review_client_name
     raw = ""
     prefill_used = True
     try:
-        raw = chat_prefilled(
-            deps.client,
+        raw = chat_prefilled_review(
+            deps,
             messages=messages,
             prefix=SEMANTIC_ARBITER_PREFILL.format(nonce=nonce),
             temperature=CONFIG["temperatures"]["semantic_arbiter"],
@@ -327,8 +339,8 @@ def semantic_arbiter_node(state, config):
     if selected_id is None and not (time_budget and time_budget.fast_path()):
         prefill_used = False
         try:
-            raw = chat_with_retry(
-                deps.client,
+            raw = chat_with_retry_review(
+                deps,
                 messages=messages,
                 temperature=CONFIG["temperatures"]["semantic_arbiter"],
                 max_tokens=CONFIG["max_tokens"]["semantic_arbiter_fallback"],
@@ -364,12 +376,14 @@ def semantic_arbiter_node(state, config):
         (state.get("validation_details") or {}).get("unresolved_contradiction")
     )
     selection_status = "selected_unresolved" if unresolved_contradiction else "selected"
+    _review_name = review_client_name(deps)
     trace.append({
         "attempt": attempts,
         "status": selection_status,
         "candidate_count": len(candidates),
         "selected_source": selected.source,
         "prefill": prefill_used,
+        **({"review_model": _review_name} if _review_name else {}),
         **({"contract_override": override} if override else {}),
     })
     details = dict(state.get("validation_details") or {})

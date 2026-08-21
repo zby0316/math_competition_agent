@@ -350,6 +350,78 @@ def _raw_excerpt(text, head=600, tail=1400):
 _SYMPY_SOLVER = None
 
 
+_DET_SOLVER = None
+
+
+def _det_solve(state, deps):
+    """V2.7 确定性求解器矩阵（utils/det_solver.py）：通用管线 + 强制自验。
+
+    sympy 精确解析（_sympy_pre_solve）未命中时尝试；与 sympy 路径不同，
+    **hard 也触发**——历史硬题失败模式恰是"该确定性计算的地方 LLM 手算"
+    （划分枚举/模周期/特征值/数值解）。客观题/多问项仍不短路。
+    每条管线内部自验不通过即放弃，绝不产出未验证答案。
+    """
+    if not CONFIG.get("enable_det_solver", True):
+        return None
+    if is_objective_mode(state.get("question_mode", "computation")):
+        return None
+    if is_multi_ask(str(state.get("problem") or "")):
+        return None
+    global _DET_SOLVER
+    if _DET_SOLVER is None:
+        try:
+            from utils.det_solver import det_solve
+            _DET_SOLVER = det_solve
+        except Exception:  # noqa: BLE001 - 模块缺失/依赖不可用 → 静默关闭
+            _DET_SOLVER = False
+    if not _DET_SOLVER:
+        return None
+    try:
+        # V2.7.2 审计修复：det_solver_timeout_s 此前是死配置（无任何读取点），
+        # 而 det_solve 无超时包裹——个别管线死循环/指数暴力会把关键路径卡到
+        # 节点硬超时（1100s）。这里用守护线程 + join(timeout) 实现软超时：
+        # 超时返回 {}（交回 LLM），线程作为 daemon 残留（不再阻塞主流程）。
+        import threading
+        result_box: dict = {}
+
+        def _run_det():
+            try:
+                result_box["value"] = _DET_SOLVER(str(state.get("problem") or ""))
+            except Exception:  # noqa: BLE001
+                result_box["value"] = {}
+
+        worker = threading.Thread(target=_run_det, daemon=True)
+        worker.start()
+        worker.join(float(CONFIG.get("det_solver_timeout_s", 15)))
+        if worker.is_alive():
+            return None
+        result = result_box.get("value") or {}
+    except Exception:  # noqa: BLE001 - 确定性工具失败交回 LLM
+        return None
+    answer = str((result or {}).get("answer") or "").strip()
+    if not answer:
+        return None
+    if _reject_bad_answer(answer) == "" or looks_incomplete_answer(answer):
+        return None
+    kind = str((result or {}).get("kind") or "det_solver")
+    evidence = str((result or {}).get("evidence") or f"{kind} 自验通过")
+    parsed = {
+        "analysis": f"由确定性求解管线 {kind} 直接计算得出。",
+        "steps": [{"step_num": 1,
+                   "description": f"{kind} 确定性计算：{answer}（{evidence}）"}],
+        "answer": answer,
+        "validation_points": [evidence],
+        "answer_source": "det_solver",
+    }
+    return {
+        "reasoning_result": parsed,
+        "reasoning_trace": [{"attempt": 0, "status": "det_solver_direct",
+                             "reason": f"{kind}_verified"}],
+        "reasoning_attempts": 0,
+        "reasoning_raw_response": answer,
+    }
+
+
 def _sympy_pre_solve(state, deps):
     """V2.5a 主线 1：sympy 事前直接解，解出完整目标且非 hard → 跳过 LLM。
 
@@ -410,6 +482,11 @@ def _reasoning_agent_impl(state, config):
     pre = _sympy_pre_solve(state, deps)
     if pre is not None:
         return pre
+    # V2.7 确定性求解器矩阵：sympy 未命中时用通用管线（含 hard）再试一次，
+    # 命中且自验通过则同样跳过 LLM 求解。
+    det = _det_solve(state, deps)
+    if det is not None:
+        return det
     sl = deps.skills_loader
     client = deps.client
     budget = deps.token_budget
@@ -421,9 +498,11 @@ def _reasoning_agent_impl(state, config):
     # document's opening modules, so after 非基础及进阶课程 grew to 8949 chars its
     # number-theory (offset 3404) and game-theory (offset 5369) modules could never
     # reach the model — a game problem got Lebesgue measure instead.
+    # V3.0 注入放大：3000→12000 字符（probe 实测输入 120K 字符仅 ~12s，输入
+    # token 极便宜；窗口 ≥8 万 token）。放大后高难度题的定理/例题覆盖度 4 倍。
     base_prompt = REASONING_PROMPT.format(
         category=category,
-        skill_document=select_skill_excerpt(skill_doc, problem, 3000),
+        skill_document=select_skill_excerpt(skill_doc, problem, 12000),
         problem=problem)
     base_prompt += mode_instruction(question_mode, problem)
     base_prompt += structure_instruction(problem)
@@ -520,35 +599,39 @@ def _reasoning_agent_impl(state, config):
             f"{domain_guard}"
             f"{contract}\n\n"
             f"题型：{question_mode}\n学科：{category}\n技能参考：\n"
-            f"{select_skill_excerpt(skill_doc, problem, 2200)}\n\n题目：\n{problem}"
+            f"{select_skill_excerpt(skill_doc, problem, 8000)}\n\n题目：\n{problem}"
         )
         trace = []
         response = ""
         attempts = 0
+        # V3.0 短输出化：客观题首试从 plain（带 CoT，probe 实测 4x 慢）改为
+        # prefill 种子"答案："（抑制 CoT，~8s 级短调用）；解析失败才花 plain
+        # 兜底（保留模型完整推理的抢救机会）。
         try:
             attempts = 1
-            response = chat_with_retry(
+            response = chat_prefilled(
                 client,
                 messages=[{"role": "user", "content": objective_prompt}],
+                prefix="答案：",
                 temperature=CONFIG["temperatures"].get(
                     "objective_reasoning", CONFIG["temperatures"]["reasoning"]),
                 max_tokens=CONFIG["max_tokens"]["objective_reasoning"],
                 logger=deps.logger,
                 time_budget=deps.time_budget,
-                expected_call_seconds=45,
-                label="objective_reasoning_plain",
+                expected_call_seconds=30,
+                label="objective_reasoning_prefill",
                 thinking_mode=thinking_mode_flag(),
             )
             if budget:
                 budget.consume(estimate_tokens(objective_prompt), estimate_tokens(response))
-        except Exception as exc:  # noqa: BLE001 - degrade to the normal parser below.
-            deps.logger.warning("Objective reasoning failed: %s", exc)
+        except Exception as exc:  # noqa: BLE001 - degrade to the plain fallback below.
+            deps.logger.warning("Objective prefill failed: %s", exc)
             trace.append({"attempt": attempts, "status": "failed", "error": str(exc)[:200]})
         parsed = _parse_reasoning_output(response, question_mode=question_mode)
         fill_complete = question_mode != "fill" or fill_answer_matches_blanks(
             parsed.get("answer", ""), problem)
         if parsed.get("answer") and fill_complete:
-            trace.append({"attempt": attempts, "status": "objective_plain",
+            trace.append({"attempt": attempts, "status": "objective_prefill",
                           "response_chars": len(response or "")})
             return {"reasoning_result": parsed, "reasoning_trace": trace,
                     "reasoning_attempts": attempts, "reasoning_raw_response": response}
@@ -560,34 +643,31 @@ def _reasoning_agent_impl(state, config):
                           "raw_excerpt": _raw_excerpt(response, head=300, tail=500)})
         if parsed.get("answer") and not fill_complete:
             # 空位覆盖不足（评委报告实证：三空只答零空仍以 0.78 置信放行）。
-            # 保留这个不完整候选，但先花一次种子重试争取全空覆盖。
+            # 保留这个不完整候选，但先花一次 plain 重试争取全空覆盖。
             trace.append({"attempt": attempts, "status": "fill_blank_mismatch",
                           "blanks": count_blanks(problem),
                           "response_chars": len(response or "")})
         incomplete_first = parsed if parsed.get("answer") else None
-        # If the ordinary response violated the two-line contract, try a seeded
-        # assistant turn.  This remains bounded and is cheaper than a full proof
-        # generation; the generic parser keeps any answer it does emit.
+        # prefill 违反两行契约时，plain 兜底（V3.0：从首试降为兜底）。
         if not (deps.time_budget and deps.time_budget.fast_path()):
             try:
                 attempts += 1
-                response = chat_prefilled(
+                response = chat_with_retry(
                     client,
                     messages=[{"role": "user", "content": objective_prompt}],
-                    prefix="答案：",
                     temperature=CONFIG["temperatures"].get(
                         "objective_reasoning", CONFIG["temperatures"]["reasoning"]),
                     max_tokens=CONFIG["max_tokens"]["objective_reasoning"],
                     logger=deps.logger,
                     time_budget=deps.time_budget,
                     expected_call_seconds=60,
-                    label="objective_reasoning_prefill",
+                    label="objective_reasoning_plain",
                     thinking_mode=thinking_mode_flag(),
                 )
                 if budget:
                     budget.consume(estimate_tokens(objective_prompt), estimate_tokens(response))
             except Exception as exc:  # noqa: BLE001
-                deps.logger.warning("Objective reasoning retry failed: %s", exc)
+                deps.logger.warning("Objective plain retry failed: %s", exc)
                 trace.append({"attempt": attempts, "status": "failed", "error": str(exc)[:200]})
             retry_parsed = _parse_reasoning_output(response, question_mode=question_mode)
             retry_fill_complete = question_mode != "fill" or fill_answer_matches_blanks(
@@ -643,8 +723,22 @@ def _reasoning_agent_impl(state, config):
     # on mid-difficulty problems, 510-552s on an olympiad-level one). Under deadline
     # pressure a format-fix retry is not affordable.
     clock = deps.time_budget
+    # V3.0 light：python 确定性成功后的单次独立复核——恒单次、无重试。
+    light = bool(state.get("reasoning_light"))
+    if light:
+        max_attempts = 1
     if clock and clock.fast_path():
         max_attempts = 1
+    # V2.7 证明深度思考：证明/推导题且预算宽裕 → 原生 CoT 路径（judger 看
+    # 过程，证明质量=思考链深度）；预算不足自动回落标准 prefill 路径。
+    _proof_modes = set(CONFIG.get("proof_modes", ("proof", "derivation")))
+    if (CONFIG.get("enable_proof_deep_thinking", True) and not light
+            and question_mode in _proof_modes
+            and not state.get("reconciliation_round")
+            and (clock is None or clock.remaining_hard() >= float(
+                CONFIG.get("proof_deep_min_remaining_s", 900)))):
+        return _proof_deep_reasoning(
+            deps, state, prompt, coverage_clause, question_mode)
     for _ in range(max_attempts):
         # Fund the retry against what the previous attempt actually cost, not against
         # "time has not run out yet". Without this, a second 545s attempt was authorised
@@ -665,9 +759,11 @@ def _reasoning_agent_impl(state, config):
         try:
             # V2.4 token 分级：按难度给足推理空间（难题 16384，简单 8192），
             # 恢复 V2.1 一刀切 8192 砍掉的难题推理深度。
+            # V3.0 light：独立复核用轻额度（默认 8192），无深探索。
             _diff = str(state.get("difficulty") or "medium").lower()
-            _mt = CONFIG.get("reasoning_tokens_by_difficulty", {}).get(
-                _diff, CONFIG["max_tokens"]["reasoning"])
+            _mt = (CONFIG.get("reasoning_light_tokens", 8192) if light
+                   else CONFIG.get("reasoning_tokens_by_difficulty", {}).get(
+                       _diff, CONFIG["max_tokens"]["reasoning"]))
             # V2.4 prefill 抑制 CoT：intern-s2 的私有思维链（reasoning_content）
             # 计入 max_tokens 且慢 API 下生成极慢（16384 token ≈ 811s，真机实测）。
             # 用 prefill 让模型从"## 问题分析"直接作答、跳过 CoT——思考引导已由
@@ -690,6 +786,9 @@ def _reasoning_agent_impl(state, config):
         except Exception as exc:  # noqa: BLE001 - keep whatever we already parsed.
             deps.logger.warning("Reasoning attempt %s failed: %s", attempts, exc)
             trace.append({"attempt": attempts, "status": "failed", "error": str(exc)[:200]})
+            # V3.0 light：单次复核不买压缩重试——python 答案已在校验池兜底。
+            if light:
+                break
             # 传输失败（8 路并发下 780s 读超时为主）不再直接弃分支（2026-08-10
             # 评委报告模式 B，9/30 题）：压缩 prefill 重试输出短、在拥堵下更可能
             # 按时返回，且按 reserve_margin 定价——放弃只该发生在时间真不够时。
@@ -735,6 +834,11 @@ def _reasoning_agent_impl(state, config):
         if _is_complete(parsed):
             return {"reasoning_result": parsed, "reasoning_trace": trace,
                     "reasoning_attempts": attempts, "reasoning_raw_response": resp}
+        if light:
+            # V3.0 light：单次复核结果即为最终推理输出（不完整也返回——
+            # 交叉验证会与 python 候选比对，mismatch 仍走全套补救链）。
+            return {"reasoning_result": parsed, "reasoning_trace": trace,
+                    "reasoning_attempts": attempts, "reasoning_raw_response": resp}
         # Two different failures need two different retries. A *format* slip is worth
         # re-asking with a format reminder. Token exhaustion is not: on a hard problem
         # this model can spend its whole budget on reasoning_content and emit no
@@ -776,6 +880,74 @@ def _reasoning_agent_impl(state, config):
         prompt = (base_prompt + "\n\n注意：上一次输出缺少必需章节（必须含 '## 问题分析'、'## 详细解题步骤'、"
                   "'## 最终答案'）。'## 最终答案' 下必须按题面要求完整列出各字段/各问项的结果"
                   "（含检验结论、区间上下限、全部枚举对象等），不得只给单个数值。请重新严格按格式输出。")
+    return {"reasoning_result": parsed, "reasoning_trace": trace,
+            "reasoning_attempts": attempts, "reasoning_raw_response": resp}
+
+
+def _proof_deep_reasoning(deps, state, prompt, coverage_clause, question_mode):
+    """V2.7 证明/推导题深度思考路径：原生 CoT ON + 无 prefill + 大额度。
+
+    历史权衡：V2.4 用 prefill 关 CoT 拿 59.82 最佳分，但那是计算题口径；
+    官方 judger 对证明题"结合参考答案与**解题过程**综合判断"（FAQ 原话），
+    证明质量 = CoT 深度，prefill 关 CoT 直接砍掉证明的思考链。本路径在预算
+    宽裕时给证明题开原生深度思考（thinking_mode=None），单次调用，不完整/
+    失败回落压缩重试；预算不足时调用方根本不进本路径（回落标准 prefill）。
+    """
+    clock = deps.time_budget
+    budget = deps.token_budget
+    client = deps.client
+    trace = []
+    resp = ""
+    attempts = 1
+    try:
+        resp = chat_with_retry(
+            client,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=CONFIG["temperatures"]["reasoning"],
+            max_tokens=int(CONFIG.get("proof_tokens", 16384)),
+            logger=deps.logger,
+            time_budget=clock,
+            expected_call_seconds=600,
+            label="reasoning_proof_deep",
+            thinking_mode=None,  # 原生深度思考（区别于全局 thinking_mode=False）
+        )
+    except Exception as exc:  # noqa: BLE001
+        deps.logger.warning("Proof deep reasoning failed: %s", exc)
+        trace.append({"attempt": attempts, "status": "failed",
+                      "error": str(exc)[:200]})
+    if budget:
+        budget.consume(estimate_tokens(prompt), estimate_tokens(resp))
+    parsed = _parse_reasoning_output(resp, question_mode=question_mode)
+    if _is_complete(parsed):
+        parsed["answer_source"] = "proof_deep"
+        trace.append({"attempt": attempts, "status": "success",
+                      "reason": "proof_deep_thinking",
+                      "response_chars": len(resp or "")})
+        return {"reasoning_result": parsed, "reasoning_trace": trace,
+                "reasoning_attempts": attempts, "reasoning_raw_response": resp}
+    trace.append({"attempt": attempts,
+                  "status": "success" if parsed.get("answer") else "failed",
+                  "reason": "proof_deep_incomplete",
+                  "response_chars": len(resp or "")})
+    # 不完整/传输失败 → 压缩答案先行重试（保留标准抢救通道）
+    compressed_resp, fail_reason = _compressed_reasoning_retry(
+        deps, prompt, failure="证明输出不完整或未返回",
+        coverage=coverage_clause)
+    if compressed_resp is None:
+        trace.append({"attempt": attempts + 1, "status": "skipped",
+                      "reason": fail_reason or "proof_compressed_failed"})
+    else:
+        resp = compressed_resp
+        compressed_parsed = _parse_reasoning_output(resp, question_mode=question_mode)
+        if compressed_parsed.get("answer") or compressed_parsed.get("steps"):
+            if not compressed_parsed.get("answer") and parsed.get("answer"):
+                compressed_parsed["answer"] = parsed["answer"]
+            parsed = compressed_parsed
+            parsed["answer_source"] = parsed.get("answer_source") or "compressed_prefill"
+        trace.append({"attempt": attempts + 1,
+                      "status": "success" if _is_complete(compressed_parsed) else "failed",
+                      "reason": "proof_compressed_retry",
+                      "response_chars": len(resp or "")})
     return {"reasoning_result": parsed, "reasoning_trace": trace,
             "reasoning_attempts": attempts, "reasoning_raw_response": resp}
 
@@ -862,6 +1034,10 @@ def reasoning_agent_node(state, config):
     """
     variant = str(state.get("method_variant") or "").strip().upper()
     if variant != "B":
+        # V3.0 light（python 确定性成功后的独立复核）：跳过采样投票与重试链，
+        # 单次调用即可——python 答案已在校验池里兜底。
+        if state.get("reasoning_light"):
+            return _reasoning_agent_impl(state, config)
         # V2.5 小 N 自洽投票：hard/低置信计算题首轮，先多温度采样投票
         if _should_sample_vote(state):
             return _sample_vote_reasoning(state, config)

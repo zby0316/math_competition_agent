@@ -24,6 +24,7 @@
 
 from __future__ import annotations
 
+import os
 import time
 from threading import Lock
 
@@ -64,7 +65,11 @@ class PaperPacer:
         self.total = float(
             total_seconds if total_seconds is not None
             else CONFIG.get("paper_total_seconds", 6 * 3600))
-        self.planned = int(planned if planned is not None else 112)
+        # V3.1：官方全卷恒 112；本地小规模基准（如本地基准）用环境变量
+        # PAPER_PLANNED 覆盖，避免"剩余题数按 112 计算"过度收紧软预算。
+        _env_planned = os.environ.get("PAPER_PLANNED", "")
+        self.planned = int(planned if planned is not None
+                           else (_env_planned if _env_planned.isdigit() else 112))
         self._start = time.monotonic()
         self._done = 0
         self._started: set[int] = set()
@@ -97,7 +102,10 @@ class PaperPacer:
         with self._lock:
             elapsed = time.monotonic() - self._start
             remaining_time = max(0.0, self.total - elapsed)
-            remaining_problems = max(1, self.planned - self._done)
+            # V2.7 审计修复：用"已启动"（started）而非"已完成"（done）计剩余题数。
+            # 并发 3 下任一时刻有 2~3 题已启动未完成，按 done 计数会把剩余题数
+            # 高估 2~3、per_problem 偏低、提前命中 lagging 过度收紧软预算。
+            remaining_problems = max(1, self.planned - len(self._started))
             if self._done > 0 and elapsed > 0:
                 pace = elapsed / self._done  # 实际速度（s/题）
                 predicted_total = pace * self.planned
@@ -126,7 +134,7 @@ class PaperPacer:
 
     def remaining_planned(self) -> int:
         with self._lock:
-            return max(0, self.planned - self._done)
+            return max(0, self.planned - len(self._started))
 
     def elapsed(self) -> float:
         return time.monotonic() - self._start
@@ -136,7 +144,7 @@ class PaperPacer:
         with self._lock:
             elapsed = time.monotonic() - self._start
             remaining_time = max(0.0, self.total - elapsed)
-            remaining_problems = max(1, self.planned - self._done)
+            remaining_problems = max(1, self.planned - len(self._started))
             per_problem = remaining_time / remaining_problems
             return per_problem >= self.MIN_SOFT
 
@@ -144,7 +152,7 @@ class PaperPacer:
         with self._lock:
             elapsed = time.monotonic() - self._start
             remaining_time = max(0.0, self.total - elapsed)
-            remaining_problems = max(1, self.planned - self._done)
+            remaining_problems = max(1, self.planned - len(self._started))
             per_problem = remaining_time / remaining_problems
             return {
                 "total_planned": self.planned,

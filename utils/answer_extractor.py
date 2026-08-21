@@ -190,6 +190,10 @@ _MULTI_ASK_RE = re.compile(
     r"%s[^。；;]*?%s\s*[^。；;]*?(?:%s[^。；;]*|[^。；;，,]{2,})"
     % (_ASK_VERB, _ASK_CONJUNCTION, _ASK_VERB)
 )
+# V2.7："求 A 和 B 的值/结果" 型双问项（"和"不在 _ASK_CONJUNCTION 里——
+# "和"在数学题面太常见（求和/乘积/和式），只有以"的值/结果"收尾才是明确的
+# 两个并列目标；"求 A 和 B 的乘积"不含"的值"不会误判）。
+_VALUE_PAIR_RE = re.compile(r"%s[^。；;]{0,60}?和[^。；;]{0,60}?的(?:值|结果)" % (_ASK_VERB,))
 
 
 def is_multi_part_problem(problem: str) -> bool:
@@ -200,6 +204,8 @@ def is_multi_part_problem(problem: str) -> bool:
     if len(_ENUM_MARK_RE.findall(p)) >= 2:
         return True
     if "分别" in p and re.search(r"求|计算|写出|给出|证明|讨论", p):
+        return True
+    if _VALUE_PAIR_RE.search(p):
         return True
     if _MULTI_ASK_RE.search(p):
         return True

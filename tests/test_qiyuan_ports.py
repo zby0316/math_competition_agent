@@ -44,16 +44,29 @@ class TestJudgeConfirmUtils(unittest.TestCase):
         self.assertEqual(out["final_word"], "是")
 
     def test_run_confirm_reverse_with_resolve(self):
+        from utils.time_budget import TimeBudget
         from utils.judge_confirm import run_judge_confirmation
         deps = _Deps([
             "反例：n=1 时不成立。\n结论:否",          # 自证反向
-            "逐步推导……\n答案:否",                      # 温度0重解第三票
+            "答案:否",                                  # 温度0重解第三票（单行，归一化器可提取）
         ])
+        # V2.7.2 修复：resolve 路径需要真实时钟（旧测试 time_budget=None 使
+        # 该路径被跳过、意外走了 fallback 分支——现在两个分支分别测试）。
+        deps.time_budget = TimeBudget(total_seconds=1200, reserve_seconds=300)
         out = run_judge_confirmation(
             "该命题是否成立？", "是", deps,
             main_prompt_builder=lambda: "重解提示")
         self.assertEqual(out["action"], "reverse")
         self.assertEqual(out["final_word"], "否")
+
+    def test_run_confirm_reverse_fallback_maps_polarity(self):
+        # V2.7.2 审计修复：重解通道不可用时采纳自证结论，极性必须映射回
+        # 判断词（"是"→"正确"、"否"→"错误"），与客观题归一化约定一致。
+        from utils.judge_confirm import run_judge_confirmation
+        deps = _Deps(["反例：n=1 时不成立。\n结论:否"])
+        out = run_judge_confirmation("该命题是否成立？", "是", deps)
+        self.assertEqual(out["action"], "reverse")
+        self.assertEqual(out["final_word"], "错误")
 
     def test_run_confirm_failure_keeps_answer(self):
         class Raiser:

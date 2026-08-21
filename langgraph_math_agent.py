@@ -4,6 +4,7 @@ from graph.solving_subgraph import build_solving_subgraph
 from nodes import (
     input_node, classifier_node, reconciliation_node, semantic_arbiter_node,
     coordinator_node, critic_node, playoff_node, substitute_node,
+    answer_vote_node,
 )
 from utils.error_handler import node_wrapper
 
@@ -31,6 +32,10 @@ def build_math_agent_graph():
     g.add_node("substitute", node_wrapper(substitute_node, "substitute"))
     g.add_node("critic", node_wrapper(critic_node, "critic"))
     g.add_node("coordinator", node_wrapper(coordinator_node, "coordinator"))
+    # V2.7.1 投票节点（外图）：match 出厂前 与 语义仲裁选定后 的第三证据。
+    # 主流路径实证（16-cal 9/16、hard12 10/12 走 uncertain_arbitrating）：
+    # 大多数题由仲裁单选，故投票必须跟在仲裁之后才真正生效。
+    g.add_node("answer_vote", node_wrapper(answer_vote_node, "answer_vote"))
 
     g.add_edge(START, "input")
     g.add_edge("input", "classifier")
@@ -47,20 +52,20 @@ def build_math_agent_graph():
             return "substitute"
         if requested in {"reconciliation", "semantic_arbiter"}:
             return requested
-        # match / 默认：原直达 coordinator，现必经 Critic 过程审计门
-        return "critic"
+        # match / 默认：先过 V2.7 快速采样投票（第三证据），再进 Critic
+        return "answer_vote"
     g.add_conditional_edges("solving", route_after_solving,
                             {"critic": "critic", "reconciliation": "reconciliation",
                              "semantic_arbiter": "semantic_arbiter", "playoff": "playoff",
-                             "substitute": "substitute"})
+                             "substitute": "substitute", "answer_vote": "answer_vote"})
 
     def route_after_substitute(state, config):
-        # FAIL → 带定向修复提示回调解重算；PASS/INCONCLUSIVE/跳过 → Critic 收尾。
+        # FAIL → 带定向修复提示回调解重算；PASS/INCONCLUSIVE/跳过 → 投票 → Critic。
         if state.get("next_node") == "reconciliation":
             return "reconciliation"
-        return "critic"
+        return "answer_vote"
     g.add_conditional_edges("substitute", route_after_substitute,
-                            {"reconciliation": "reconciliation", "critic": "critic"})
+                            {"reconciliation": "reconciliation", "answer_vote": "answer_vote"})
 
     def route_after_reconciliation(state, config):
         requested = state.get("next_node")
@@ -74,10 +79,20 @@ def build_math_agent_graph():
     def route_after_semantic_arbiter(state, config):
         if state.get("next_node") == "reconciliation":
             return "reconciliation"
-        # 仲裁选定/兜底后同样过审计门（仲裁只看候选间相对完整性，Critic 看题面契约）
-        return "critic"
+        # 仲裁选定/兜底后先进 V2.7 快速采样投票（对仲裁答案的第三证据），
+        # 再按投票结果决定：反证 → 仲裁重选（一次），否则 → Critic 审计门。
+        return "answer_vote"
     g.add_conditional_edges("semantic_arbiter", route_after_semantic_arbiter,
-                            {"reconciliation": "reconciliation", "critic": "critic"})
+                            {"reconciliation": "reconciliation", "answer_vote": "answer_vote"})
+
+    def route_after_answer_vote(state, config):
+        # 投票反证（本轮次内）→ 票选赢家已进候选池，仲裁重选一次；
+        # 轮次守卫已耗尽的 contested 不会走到这里（节点直接返回 {}）。
+        if state.get("answer_vote_status") == "contested":
+            return "semantic_arbiter"
+        return "critic"
+    g.add_conditional_edges("answer_vote", route_after_answer_vote,
+                            {"semantic_arbiter": "semantic_arbiter", "critic": "critic"})
 
     def route_after_playoff(state, config):
         requested = state.get("next_node")
@@ -119,7 +134,9 @@ class MathAgentGraph:
         try:
             pacer = PaperPacer.get_instance()
             idx = -1
-            meta = initial_state.get("meta") if isinstance(initial_state, dict) else None
+            # 状态键是 "metadata"（不是 "meta"）——错键曾使 idx 恒为 -1、
+            # mark_started 的 _started 集合全部坍缩到同一元素（审计 2026-08-21）。
+            meta = initial_state.get("metadata") if isinstance(initial_state, dict) else None
             if isinstance(meta, dict):
                 idx = meta.get("idx", -1)
             paper_cap = pacer.budget_for(idx)
@@ -132,6 +149,22 @@ class MathAgentGraph:
             pass
         deps = Deps(client=self.client, skills_loader=self.skills_loader,
                     mcp_client=self.mcp_client, token_budget=tb, time_budget=clock)
+        # V3.3 第二 Intern-S 模型复核通道：每题解析一次（配额按题隔离）。
+        # 解析失败/不可用 → review_client=None，分歧路径静默回退主 client，
+        # 与单模型行为完全一致。绝不外溢异常。
+        self.review_client_name = None
+        try:
+            from utils.review_model import resolve_review_client
+            deps.review_client = resolve_review_client(self.client, logger=deps.logger)
+            self.review_client_name = getattr(
+                deps.review_client, "review_model_name", None)
+        except Exception as exc:  # noqa: BLE001 - 复核通道锦上添花，不拖垮单题
+            deps.review_client = None
+            self.review_client_name = None
+            try:
+                deps.logger.warning("review client resolution failed: %s", exc)
+            except Exception:  # noqa: BLE001
+                pass
         try:
             final_state = self.app.invoke(initial_state, config={"configurable": {"deps": deps}})
         finally:

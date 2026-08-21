@@ -38,10 +38,7 @@ class TestExpectedForm(unittest.TestCase):
 class TestCheckFormAlignment(unittest.TestCase):
 
     def test_idx94_confidence_interval_scenario(self):
-        """真实失分复现：问半长（单值），答区间 → 错配。
-
-        标准答案 0.49，智能体答 [2.01, 2.99]（数学对但形式不合）。
-        """
+        """真实失分复现：问半长（单值），答区间 → 错配。"""
         problem = ("设 X~N(mu,1)，n=16，求 mu 的 95% 置信区间长度的一半"
                    "（即 z_{0.025}*1/sqrt(n) 的数值）")
         # 智能体答了完整区间

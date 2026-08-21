@@ -135,6 +135,100 @@ _COMPRESSED_RESERVE_MARGIN_S = CONFIG.get("compressed_reserve_margin_s", 150)
 _COMPRESSED_PREFILL = "```python\n"
 
 
+def _dual_method_eligible(state, enriched, deps) -> bool:
+    """V2.7-3 数值双方法自洽守卫的触发闸门（保守：慢 API/预算紧不触发）。
+
+    条件全满足才做第二次独立方法复算：
+    - 开关开启、hard 计算题、python 执行成功且有可解析数值答案；
+    - 硬上限剩余 ≥ dual_method_min_remaining_s（留足收尾）；
+    - 观测 API 均价 ≤ dual_method_max_api_s（慢 API 下第二次调用是纯增量
+      墙钟——V3.2 python_retries_hard=2 的 8/12→7/12 回退教训）；
+    - 请求硬上限余量 ≥ 1。
+    """
+    if not CONFIG.get("enable_dual_method_check", True):
+        return False
+    if str(state.get("difficulty") or "").lower() not in \
+            {"hard", "very_hard", "extremely_hard"}:
+        return False
+    if not enriched.get("success"):
+        return False
+    from utils.numeric_crosscheck import _extract_scalar_expression
+    _, ok = _extract_scalar_expression(str(enriched.get("answer") or ""))
+    if not ok:
+        return False
+    clock = deps.time_budget
+    if clock is None:
+        return True
+    if clock.remaining_hard() < float(CONFIG.get("dual_method_min_remaining_s", 700)):
+        return False
+    try:
+        spend = clock.spend_log() or []
+        costs = [float(item.get("seconds") or item.get("elapsed") or 0)
+                 for item in spend if item.get("seconds") or item.get("elapsed")]
+        if costs and sum(costs) / len(costs) > float(CONFIG.get("dual_method_max_api_s", 45)):
+            return False
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        if clock.llm_calls_exhausted():
+            return False
+    except Exception:  # noqa: BLE001
+        pass
+    return True
+
+
+def _dual_method_check(deps, state, enriched, problem):
+    """独立第二方法复算数值答案；不一致 → 证据降级 contradict。
+
+    与 V3.2 无条件 hard 重试的区别：只在第一方法**成功产出数值**后触发
+    （不是失败重试），且慢 API/预算紧时完全不触发——零回归风险。
+    一致 → 双方法自洽留证；不一致 → 下游 playoff/仲裁重查（真机实证）
+    型"LLM 代码算错但自报 PASS"事故的架构级拦截）。
+    """
+    first = str(enriched.get("answer") or "")
+    try:
+        from utils.llm_retry import chat_prefilled
+        from utils.numeric_crosscheck import _extract_scalar_expression, numeric_crosscheck
+        prompt = (
+            "你是数值计算专家。请用与上次**完全不同的独立方法**复算下面这道题的"
+            "最终数值答案（上次用解析推导就换数值求解；上次用数值方法就换解析/"
+            "枚举/符号计算）。只输出最终答案，不要输出过程。\n\n"
+            f"题目：\n{problem}\n\n最终答案：")
+        raw = chat_prefilled(
+            deps.client,
+            messages=[{"role": "user", "content": prompt}],
+            prefix="最终答案：",
+            temperature=0.3,
+            max_tokens=256,
+            logger=deps.logger,
+            time_budget=deps.time_budget,
+            expected_call_seconds=float(CONFIG.get("dual_method_estimate_s", 40)),
+            label="python_dual_method",
+        )
+    except Exception as exc:  # noqa: BLE001 - 守卫失败不改变现状
+        deps.logger.warning("Dual-method check failed: %s", exc)
+        return
+    second = str(raw or "").replace("最终答案：", "").strip()
+    expr, ok = _extract_scalar_expression(second)
+    if not ok:
+        return
+    xc = numeric_crosscheck(first, second)
+    enriched["dual_method"] = {
+        "second_answer": str(expr), "status": xc.get("status", "inconclusive"),
+    }
+    if xc.get("status") == "match":
+        enriched["evidence_summary"] = (
+            str(enriched.get("evidence_summary") or "") + "；独立第二方法数值一致")
+        return
+    if xc.get("status") == "mismatch":
+        reason = f"独立第二方法得 {str(expr)}，与代码结果 {first} 不一致"
+        enriched["evidence_status"] = "contradict"
+        existing = [c for c in (enriched.get("contradictions") or [])
+                    if reason not in c]
+        enriched["contradictions"] = existing + [reason]
+        deps.logger.warning("双方法自洽守卫: %s", reason)
+
+
 def _compressed_python_call(deps, problem, candidate_answer,
                             failure="因长度超限在代码之前被截断"):
     """CoT 耗尽/传输超时后的熔断重生成（评委建议 4；2026-08-10 建议 2/3）。
@@ -183,7 +277,11 @@ def python_agent_node(state, config):
     budget = deps.token_budget
     # V2.6.1 修复：is_tight 是方法，漏括号时 bound method 恒 truthy，
     # max_attempts 被锁死为 1（即使预算宽裕也不重试）。
+    # V3.2：hard 题允许 2 次代码生成尝试（真机实证：数值精度题单次
+    # 代码生成命中率低，第二次独立尝试显著提高精度；预算门禁仍全程保护）。
     max_attempts = 1 if budget and budget.is_tight() else CONFIG["max_retries_per_node"]
+    if str(state.get("difficulty") or "").lower() in {"hard", "very_hard", "extremely_hard"}:
+        max_attempts = max(max_attempts, CONFIG.get("python_retries_hard", 2))
     problem, category = state["problem"], state["category"]
     question_mode = state.get("question_mode", "computation")
     if is_objective_mode(question_mode):
@@ -299,6 +397,14 @@ def python_agent_node(state, config):
                         xc["reason"])
             except Exception:  # noqa: BLE001 - 兜底失败不影响主流程
                 pass
+        # V2.7-3 数值双方法自洽守卫：hard 计算题在 python 成功产出数值后，
+        # 用独立第二方法复算（慢 API/预算紧自动跳过）；不一致 → 证据降级
+        # contradict，下游 playoff/仲裁重查（拦截"LLM 代码算错但自报 PASS"）。
+        if _dual_method_eligible(state, enriched, deps):
+            try:
+                _dual_method_check(deps, state, enriched, problem)
+            except Exception:  # noqa: BLE001 - 守卫失败不改变现状
+                pass
         return {
             "python_code": last_code,
             "python_output": enriched,
@@ -344,7 +450,7 @@ def python_agent_node(state, config):
                     and not can_afford_retry(clock, "python"):
                 deps.logger.warning(
                     "Skipping Python retry: %.0fs left, last attempt cost %.0fs",
-                    clock.remaining, last_attempt_cost(clock, "python"))
+                    clock.remaining(), last_attempt_cost(clock, "python"))
                 trace.append({"attempt": attempts + 1, "status": "skipped",
                               "reason": "retry_unaffordable"})
                 break
@@ -491,8 +597,10 @@ def python_agent_node(state, config):
         if not exec_fix_used:
             exec_fix_used = True
             if not can_afford_retry(clock, "python"):
+                # V3.1 修复：remaining 是方法（漏括号族第 5 处——日志格式化
+                # 直接 TypeError，静默污染日志流）
                 deps.logger.warning(
-                    "Skipping Python exec-fix retry: %.0fs left", clock.remaining)
+                    "Skipping Python exec-fix retry: %.0fs left", clock.remaining())
                 trace.append({"attempt": attempts, "status": "exec_fix_skipped",
                               "reason": "retry_unaffordable"})
                 break

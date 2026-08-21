@@ -13,9 +13,16 @@
 进一步升级为 **V2（全卷完成率 + 资源分级）**、**V2.1（证明结构对齐 + 提速）**、
 **V2.3（初解质量 + 证明自检 + 难题兜底）**、**V2.4（prefill 抑制 CoT 提速 +
 判分口径对齐 + 客观题格式兜底）**、**V2.5（sympy 事前短路，官方 61.61 分）**、
-**V2.6（截断续写雪球治理 + sympy 自然语言化）** 与 **V2.6.1/V2.6.2（单候选代回
-核验 + 全代码审查修复 + 困难题校准集）**：累计 **M1-M16 十六个机制**（详见第 10 节），
-V2.6.2 现状 **178 项单测全绿** + 16 题困难题校准集真机两轮 **16/16 全对**。
+**V2.6（截断续写雪球治理 + sympy 自然语言化）**、**V2.6.1/V2.6.2（单候选代回
+核验 + 全代码审查修复 + 困难题校准集）**、**V3.0-3.2（python-first + light 推理 +
+sympy 确定性直通 + 全链路短输出化）**、**V3.3（多模型复核通道）** 与
+**V2.7/V2.7.1（确定性求解器矩阵 + 自适应快速采样投票 + 数值双方法自洽 +
+证明题深度思考）**：累计 M1-M16 与 V3/V2.7 全部机制（详见第 10 节）。
+
+**当前交付状态（最终提交版）**：主模型 `intern-s2-preview-397b`（397B 旗舰，
+提交页可同时确认 `intern-latest`）、复核模型 `intern-s1-pro`；**302 项单测全绿**；
+16 题困难校准集真机 **16/16**；hard12 科研级基准 **9/12（75%）**（vs V3.1 的
+8/12，确定性求解器修复划分枚举/模周期两道历史连错题）。
 
 竞赛接口保持约定：评测侧导入 `user_agent.py` 的 `ReasoningAgent`，平台以其官方 client 构造，
 调用 `solve(problem, metadata)` 取得 `final_response` 与 `trace`。
@@ -79,16 +86,27 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    S([START]) --> FanOut{fan_out}
-    FanOut -->|FastLane 单路径直出 M8| R1[reasoning_agent]
-    FanOut -->|主路径 直接法| R1
-    FanOut -->|method_variant=B<br/>异构方法 8选1| R2[reasoning_agent]
-    FanOut -->|非客观题| P[python_agent]
+    S([START]) --> FanIn{fan_in}
+    FanIn -->|计算题/实算填空| P[python_agent<br/>先行求解]
+    FanIn -->|纯概念客观题| D[solver_decision]
+    P --> D
+    D -->|python 确定性成功| R1[reasoning_agent<br/>light 单次复核]
+    D -->|python 失败/客观题| R2[reasoning_agent<br/>full 路径]
+    D -->|高风险/hard 保 B| R3[reasoning_agent<br/>异构 B 路径]
     R1 --> V[cross_validator]
     R2 --> V
-    P --> V
+    R3 --> V
     V --> E([END])
 ```
+
+**V3.0 python-first**：计算题先跑 python（1 次代码生成 + 本地 sympy 执行）；
+`solver_decision` 判 python 确定性成功（success + evidence support/pass + 完整
+答案 + 非近似算法题）时置 `reasoning_light`——推理降为**单次独立复核**
+（省采样投票/重试/压缩通道），B 路径仅高风险/hard/重算轮保留；python 失败
+或客观题走完整路径（fast lane / deep solver / diverse 原逻辑）。**V3.1 sympy
+确定性直通**：`answer_source == "sympy_pre_solve"` 的答案不参与任何 LLM 裁决
+（真机事故：python 错误代码 5/7 曾被 playoff 判 decisive 锁定，覆盖 sympy 的
+x=10——符号计算结果高于一切 LLM 产物）。
 
 第二推理路径（`method_variant="B"`）通过 `DIVERSE_METHOD_HINT` 强制切换方法论，
 从八类独立方法中选一（V2.3 M11 由 4 类扩充）：构造枚举 / 不变量极端原理 /
@@ -208,7 +226,7 @@ flowchart LR
 │   └── answer_matcher.py         # 【改】+ 限时代简、符号对齐、≤4 维采样
 ├── mcp_servers/python_executor/server.py  # 【改】+ 静态安全扫描 + 资源限额
 ├── graph/solving_subgraph.py     # 【改】+ 条件扇出异构第二路径
-├── tests/                        # 【新】178 项离线回归测试（基线未随仓附带）
+├── tests/                        # 【新】302 项离线回归测试（基线未随仓附带）
 │   ├── test_veritas_upgrades.py
 │   ├── test_integration_graph.py
 │   ├── test_integration_repair_loop.py
@@ -223,7 +241,12 @@ flowchart LR
 │   ├── test_form_align.py         # 【新】形式对齐（含客观题格式）
 │   ├── test_substitute_check.py   # 【新·V2.6.1】代回核验节点 + match 路由
 │   ├── test_request_cap.py        # 【新·V2.6.2】单题请求硬上限/emergency 豁免
-│   └── test_truncation_and_sympy.py # 【新·V2.6.2】截断启发式 + sympy 预解器守卫
+│   ├── test_truncation_and_sympy.py # 【新·V2.6.2】截断启发式 + sympy 预解器守卫
+│   ├── test_review_model.py       # 【新·V3.3】多模型复核通道（24 项）
+│   ├── test_answer_vote.py        # 【新·V2.7】快速采样投票（31 项）
+│   ├── test_dual_method.py        # 【新·V2.7】数值双方法自洽守卫（13 项）
+│   ├── test_det_solver.py         # 【新·V2.7】确定性求解器矩阵（45 项）
+│   └── test_det_integration.py    # 【新·V2.7】det_solver 推理节点集成（8 项）
 └── （以下与基线一致）state/、skills_pythonscripts/（18 领域手册+验证知识）、
     main.py、user_agent.py、llm_client.py、config.py、requirements.txt
 ```
@@ -256,9 +279,9 @@ python main.py --input_file input.jsonl --output_dir outputs
 python -B -m unittest discover -s tests -v
 ```
 
-**178 项测试**（`pytest tests/` 全绿），零 API 调用：升级机制单测
-（审计解析/模守护/季后赛裁决/软预算/matcher 加固/执行器拦截/判断题双向确认/
-计数枚举守护/平台防线三形态加载/PaperPacer/置信门控/形式对齐/
+**302 项测试**（`python -B -m unittest discover -s tests` 全绿），零 API 调用：
+升级机制单测（审计解析/模守护/季后赛裁决/软预算/matcher 加固/执行器拦截/
+判断题双向确认/计数枚举守护/平台防线三形态加载/PaperPacer/置信门控/形式对齐/
 限流退避/ProofDeepener/V2.4 数值比对/客观题格式/V2.6.1 代回核验/V2.6.2 请求上限
 与截断启发式）+ 多条全图集成链路（happy path；
 双证伪→异构重算翻盘；contradict 假证据→playoff 裁决）+ 题面滥用/故障注入/ReDoS 压测。
@@ -288,18 +311,26 @@ python local_test/server.py --port 8000                                     # �
 
 | 配置项 | 默认 | 作用 |
 |---|---:|---|
-| `difficulty_soft_budgets` | 600/840/1200 | 难度三档软预算（秒；V2.6.2 easy 480→600 安全垫） |
+| `difficulty_soft_budgets` | 480/840/1200 | 难度三档软预算（秒；V2.6.3 回滚 easy 至 480——官方慢 API 下 600 是纯增量墙钟） |
 | `enable_diverse_reasoning` | True | 异构第二推理路径总开关 |
 | `high_risk_domains` | 离散数学等 5 领域 | 首轮即扇出第二路径的领域（V2.6.1 +数值分析） |
 | `enable_critic` / `critic_reserve_margin_s` | True / 60 | 过程审计开关与预留配额 |
 | `enable_playoff` / `playoff_max_seconds` | True / 240 | 复算季后赛开关与预算 |
-| `enable_substitution_check` | True | 单候选代回核验（V2.6.1；match 后 medium/hard 计算题第三证据） |
+| `enable_substitution_check` | **False** | 单候选代回核验（V2.6.3 默认关：官方 59s/请求下核验是增量成本；API 快时开） |
 | `enable_objective_revote` | True | 客观题低置信复核投票 |
 | `matcher_simplify_timeout_s` / `matcher_max_sample_symbols` | 8 / 4 | 等价判定加固 |
 | `enable_modular_guard` | True | 模结构三重守护 |
 | `enable_judge_confirm` | True | 判断题双向确认（结论→自证→反向重解） |
 | `enable_counting_guard` | True | 计数题小规模枚举对照守护 |
 | `max_llm_calls_per_problem` | 24 | 单题 LLM 请求硬上限（V2.6.2；0=不限；emergency 豁免） |
+| `paper_total_seconds` | 16200 | 全卷预算池目标（V2.6.3 收紧至 4.5h，尾波留 1.5h 余量） |
+| `enable_python_first` | True | python-first + light 推理（V3.0；计算题从 ~12 次调用压到 ~4 次） |
+| `reasoning_light_tokens` | 8192 | light 独立复核的 max_tokens（V3.0） |
+| `python_retries_hard` | 1 | hard 题 python 代码生成重试（V3.2 实测 2 次在慢 API 下负资产） |
+| `enable_contract_probe` | False | contract probe 开关（V3.0 默认关：官方每进程一题时每题省 2 次调用） |
+| `enable_review_model` | True | V3.3 多模型复核总开关（不可用时自动降级，与单模型等价） |
+| `review_model` | intern-s1-pro | V3.3 复核模型名（提交前按评分系统实际可选项核对） |
+| `review_max_calls_per_problem` | 3 | V3.3 每题复核调用封顶（超出回退主 client） |
 | `truncation_continue_max_rounds` | 1 | 截断续写轮数（V2.6 消除续写雪球） |
 | `node_timeouts.critic` / `playoff` / `substitute` | 120 / 300 / 240 | 新节点上限（仍受 deadline 钳制） |
 
@@ -375,7 +406,15 @@ python local_test/server.py --port 8000                                     # �
 - 复核投票在两票同错时不提升正确率（独立性只能降低、不能消除相关错误）；
 - 模结构守护的检出是保守的，未命中的变体语境仍依赖提示层清单；
 - sympy 短路只认无歧义的可机械解析题（多条件/近似算法/未定值结果均不短路），
-  命中率依赖题面措辞（官方全集约 1-20%）。
+  命中率依赖题面措辞（官方全集约 1-20%）；
+- det_solver 每条管线强制自验且保守模式匹配（问非所答不触发），命中则
+  确定性正确；未命中的"该确定性计算处"题仍可能 LLM 手算错（hard12 残余
+  idx=2/4/10 属模型能力边界，三版连错）；
+- 快速采样投票在科研级难题上常呈 scattered（快采样噪声大、不改变原答案，
+  无害）；收益主体在 medium 档（官方 112 题的主体）；
+- **官方分诚实预期**（9 轮历史 53-62 + 本地回归外推）：API 健康 75-82、
+  中等 70-76、慢速日 65-70；"保守 80"依赖提交页选到最强模型 + API 状态，
+  架构侧已无剩余杠杆（见 docs/升级方案_V2.6.md V2.7 章）。
 
 ## 9. 平台兼容性修复（2026-08-11）
 
@@ -626,7 +665,8 @@ LLM 判分（与官方 Judger 同口径）：
 - `high_risk_domains` 补入**数值分析**（官方第二大池子 13 题，且全是可确定性
   核验的计算题）；`deep_solver_domains` 的"数论/组合数学"死配置（非官方领域名）
   改为"离散数学/非基础及进阶课程"
-- `difficulty_soft_budgets.easy` 480→600（可选工作窗口 180s→300s 安全垫）
+- `difficulty_soft_budgets.easy` 480→600 后 **V2.6.3 回滚至 480**（官方实测
+  59s/请求下 600 是纯增量墙钟）；`paper_total_seconds` 收紧至 16200（4.5h）
 
 **C. 全代码审查修复的 4 处漏括号 bug**
 - `python_agent_node` 三处（`.lower`、`budget.is_tight`、`clock.fast_path`，
@@ -657,3 +697,65 @@ LLM 判分（与官方 Judger 同口径）：
 - lerchphi 未定值垃圾（∫₀¹xⁿ/(1+x)dx）与"梯形近似题被算成精确值"两类
   "确定性错误答案"被新守卫拦截
 - MockClient 每关键词队列路由，根治集成测试的并发响应竞态
+
+### 10.10 V3.0/3.1/3.2：确定性优先 + 全链路短输出（2026-08-21）
+
+- **V3.0 短输出化**：API 探针实证（输入窗口 ≥120K 字符、max_tokens 65536
+  接受、thinking_off 4x 提速、长输出是官方慢 API 主因）→ 推理 light 模式、
+  coordinator 16384→8192、prefill 全面铺开；知识注入 3K→12K/2.2K→8K
+- **V3.0 python-first**：计算题先跑 python（sympy 本地执行），确定性成功即
+  light 复核——调用数 ~12→~4，把预算还给证明题
+- **V3.1 sympy 确定性直通**：sympy 预解器答案高于一切 LLM 裁决（真机 5/7
+  事故根治）；16 题校准 16/16
+- **V3.2 高精度数值专项**：PYTHON_PROMPT 高精度条款（残差<1e-6/10 位有效
+  数字/模运算）；hard12 科研级基准 8/12（66.7% ≈ 模型能力边界）
+- 181 项测试全绿；hard12 与 16 题校准数据见 `docs/升级方案_V2.6.md`
+
+### 10.11 V3.3：多模型复核通道（2026-08-21 · 唯一合规能力杠杆）
+
+- 官方 FAQ 确认可**组合多个 Intern-S 系列模型**（混用允许；仅限 Intern-S，
+  外部 API 禁止）——这是规则内突破单模型能力边界的唯一杠杆
+- **第二模型只在分歧路径介入**：语义仲裁（候选选择）+ 客观题低置信复核
+  投票，作为**跨模型独立法官**；主链路仍由 s2-preview 主力
+- 双路径激活全自动降级：官方 client 接受 `model=` 逐调用覆盖（路径 A，
+  零配置）/ `INTERN_REVIEW_MODEL` 显式自建（路径 B，本地调试）；模型名
+  无效、不支持覆盖、配额尽（3 次/题）、调用失败 → 静默回退主 client，
+  与单模型完全等价，零风险
+- 实现：`utils/review_model.py`（新增）+ `Deps.review_client` +
+  `semantic_arbiter_node`/`cross_validator_node` 分歧路径切换 + trace 留证；
+  24 项新单测，全量 205 项全绿 + 图级冒烟
+- **提交前**：在评分系统模型选择页核对 `config.review_model`（默认
+  `intern-s1-pro`）与实际可用名一致
+
+### 10.12 V2.7：深度优化（2026-08-21 · 穷尽资料后针对正确率瓶颈）
+
+> 9 轮官方评测日志（同一题集 sha 稳定）53-62 分徘徊的根因不是完成率，是
+> 答案正确率；hard12 实证 4 道错题全是"该确定性计算的地方 LLM 手算"。
+> V2.7 四个机制直击这两类瓶颈（详见 `docs/升级方案_V2.6.md` V2.7 章节）。
+
+- **V2.7-1 自适应快速采样投票（`nodes/answer_vote_node.py`）**：match 后
+  出厂前的第三证据——medium 2/hard 4 次 prefill 短采样（~10-20s/次），多数
+  确认白捡置信、≥半数聚类反证则票选赢家作为第 4 候选交仲裁；N 按剩余预算+
+  观测 API 速度自适应降级，慢 API 自动不投（完成率铁律）
+- **V2.7-2 确定性求解器矩阵（`utils/det_solver.py`）**：15 条通用确定性
+  管线（划分+hook长度/模周期/递推/特征值/插值/求积/图优化/计数/概率/ODE/
+  BVP 打靶/留数/级数/方程组/期望），每条**强制自验**（自验不过即放弃）；
+  命中即以 `answer_source=det_solver` 短路 LLM（hard 也触发）
+- **V2.7-3 数值双方法自洽守卫（`python_agent_node._dual_method_check`）**：
+  hard 计算题 python 成功后独立第二方法复算，不一致 → 证据降级 contradict；
+  慢 API/预算紧/请求上限尽时零触发（V3.2 无条件重试回归的修正版）
+- **V2.7-4 证明题深度思考**：证明/推导题预算宽裕（剩余 ≥900s）时原生 CoT
+  路径（无 prefill、16384 token），judger 看过程、证明质量=思考链深度；
+  预算不足自动回落标准 prefill 路径
+- **V2.7.1 投票重定位（真机实证驱动）**：首轮回归发现主流路径不是 match 而是
+  uncertain_arbitrating（16-cal 9/16、hard12 10/12）——投票原挂在 match 后是
+  死代码。现移到**外图仲裁之后**：match 出厂前与仲裁选定后都投票（轮次守卫
+  防投票-仲裁循环）；重定位后投票在 hard12 上 8/12 题实际触发
+- **V2.7.2 交付前全面审计**：三个审计子代理逐行审读 1.5 万行 + 合规红线
+  逐条核对，14 项修复全部落地（确定性错误答案风险 2 项【高】：sympy 约束词
+  缺口 + det_solver frac 死循环；性能/正确性 8 项；契约/死代码/参数 4 项），
+  详见 `docs/升级方案_V2.6.md` V2.7.2 章节
+- 全量 **302 项全绿**；真机回归（新 key）：**16 题校准 16/16**、
+  **hard12 9/12（75%，一次判分 0 异常）**（vs V3.1 的 8/12，det_solver
+  确定性修复划分枚举/模周期两道历史连错题；真机还修出 matcher list 崩溃、
+  poly_interp 问非所答、投票死代码三个隐藏丢分 bug）

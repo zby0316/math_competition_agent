@@ -188,7 +188,7 @@ _EVAL_LHS_MARK_RE = re.compile(
 def _strip_function_label(s: str):
     """剥离函数式标签前缀；不是该形态时返回 None（调用方保持原值）。
 
-    真机压测（ultra_112）实证的三类"方程形答案 vs 裸值"形态，按序尝试：
+    真机压测实证的三类"方程形答案 vs 裸值"形态，按序尝试：
     1. `\\text{tr}(A^3) = 48`（\\text/\\mathrm 包装标签）；
     2. `y(x) = (1+x)e^{-x}`、`P(Z>1) = 1/2`、`\\det(A) = 0`（函数调用式标签）；
     3. `$\\int_0^\\infty x e^{-x} dx = 1$`（左侧含求值标记的完整算式）——
@@ -516,6 +516,14 @@ class AnswerMatcher:
         """
         import sympy as sp
 
+        # V2.7 形态守卫：sympify 对 list/tuple 形态答案（如 "[1,1,5,5]"、
+        # "x=1, y=2" 的多部件解析产物）可能返回 Python 容器而非 sympy 表达式，
+        # 无 free_symbols 属性——直接判不可采样（交上层字符串相似度通道），
+        # 绝不抛 AttributeError（真机实证：list 形态答案
+        # 在此崩溃，整题被 error_handler 替换为空状态、连出厂都失败）。
+        if not (hasattr(e1, "free_symbols") and hasattr(e2, "free_symbols")):
+            return None
+
         symbols = sorted(e1.free_symbols | e2.free_symbols, key=str)
         if not symbols or e1.free_symbols != e2.free_symbols:
             return None
@@ -565,8 +573,10 @@ class AnswerMatcher:
         映射判定比同名判定略弱（理论上可能张冠李戴），故只在同名判定
         返回 None 后启用，且要求全部采样点一致。
         """
-        s1 = sorted(e1.free_symbols, key=str)
-        s2 = sorted(e2.free_symbols, key=str)
+        s1 = sorted(e1.free_symbols, key=str) \
+            if hasattr(e1, "free_symbols") else []
+        s2 = sorted(e2.free_symbols, key=str) \
+            if hasattr(e2, "free_symbols") else []
         if not s1 or len(s1) != len(s2):
             return None
         if s1 == s2:
@@ -733,7 +743,12 @@ class AnswerMatcher:
             from Levenshtein import ratio
             return ratio(a, b)
         except Exception:
+            # V2.7.2 审计修复：旧回退是"字符集合重叠率"而非相似度
+            # （"1.5" 与 "5.1" 会算出 1.0），且 similarity>0.9 即判 match——
+            # Levenshtein 依赖缺失时会静默放行错误答案。改用 difflib
+            # SequenceMatcher（标准库、真实序列相似度），并把 0.9 阈值
+            # 语义保住（"1.5" vs "5.1" ≈ 0.75 不再假匹配）。
+            from difflib import SequenceMatcher
             if not a or not b:
                 return 0.0
-            s = sum(1 for c in a if c in b)
-            return s / max(len(a), len(b))
+            return SequenceMatcher(None, str(a), str(b)).ratio()

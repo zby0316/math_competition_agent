@@ -64,6 +64,14 @@ class TestSympyPreSolver(unittest.TestCase):
         self.assertEqual(out["hints"], [])
         self.assertEqual(out["whole_answer"], "")
 
+    def test_constraint_words_blocked(self):
+        # V2.7.2 审计补强：单字约束词（正根/整数解等）无法机械应用——
+        # "x²=4 的正根"若短路会把两个根全交出去并被确定性直通锁死。
+        for problem in ("求方程 x^2=4 的正根", "求 x^2=2 的整数解",
+                        "求方程 x^2=4 的非负解", "求 x^2=4 的实根"):
+            out = self.solver.pre_solve(problem)
+            self.assertEqual(out["whole_answer"], "", problem)
+
     def test_pretty_multiplication(self):
         # V2.6.2：输出美化 * → ·
         out = self.solver.pre_solve("求 x^2+1 的导数")

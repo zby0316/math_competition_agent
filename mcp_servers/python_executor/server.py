@@ -166,10 +166,19 @@ def _exec_in_process(code: str, timeout: int = 30) -> dict:
     """Fallback: exec code in a restricted in-process namespace (no subprocess).
 
     Thread-based timeout (daemon thread; cannot hard-kill — acceptable for fallback).
+    V2.7.2 审计修复：主路径（subprocess）有 _static_safety_scan 拦截危险 import，
+    本回退此前没有——一旦走到会在智能体自身进程内执行未净化 LLM 代码。入口处
+    补同一道静态扫描（与主路径同口径：命中危险能力直接拒绝执行）。
     """
     import io
     import contextlib
     import threading
+
+    scan = _static_safety_scan(code)
+    if scan:
+        return {"success": False, "stdout": "",
+                "stderr": f"静态安全检查拦截：{scan}",
+                "answer": "", "execution_time": 0.0}
 
     namespace = {"__builtins__": __builtins__}
     for mod in ("sympy", "numpy", "math", "scipy"):

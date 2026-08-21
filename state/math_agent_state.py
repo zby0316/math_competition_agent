@@ -23,7 +23,6 @@ class MathAgentState(TypedDict):
     classification_stages_used: NotRequired[List[str]]
     # 难度画像（VeritasMath：分类 prefill 顺带输出，驱动软预算与双路径触发）
     difficulty: NotRequired[str]            # easy | medium | hard
-    difficulty_confidence: NotRequired[float]
     # 推理阶段
     reasoning_result: NotRequired[Optional[Dict[str, Any]]]
     reasoning_trace: NotRequired[List[Dict]]
@@ -34,6 +33,9 @@ class MathAgentState(TypedDict):
     reasoning_trace_alt: NotRequired[List[Dict]]
     reasoning_raw_response_alt: NotRequired[str]
     method_variant: NotRequired[str]        # "" | "B"，由 Send 扇出携带
+    # V3.0 python-first：python 确定性成功时降级为轻推理（单次独立复核，
+    # 省采样投票/重试/压缩通道）
+    reasoning_light: NotRequired[bool]
     # Python 验证阶段
     python_code: NotRequired[str]
     python_output: NotRequired[Optional[Dict[str, Any]]]
@@ -70,8 +72,17 @@ class MathAgentState(TypedDict):
     substitution_trace: NotRequired[List[Dict]]
     # 客观题复核投票（低置信时追加一次独立采样比对）
     objective_revote_trace: NotRequired[List[Dict]]
+    # V2.7 快速采样投票（match 后/仲裁选定后的第三证据：多数确认或反证）
+    answer_vote_status: NotRequired[str]    # all_agree | contested | scattered | skipped | insufficient
+    answer_vote_trace: NotRequired[List[Dict]]
+    answer_vote_result: NotRequired[Dict[str, Any]]  # {"winner": str, "votes": int} 反证时注入仲裁候选
+    answer_vote_round: NotRequired[int]     # 投票轮次守卫（防投票-仲裁循环，每题上限见 config）
     # 模结构守护命中标记（F_2 / Z_m 语境；提示注入与静态核查记录）
     modular_guard: NotRequired[Dict[str, Any]]
+    # 计数题枚举对照守护命中标记（与 modular_guard 成对；python 节点留证）
+    counting_guard: NotRequired[Dict[str, Any]]
+    # playoff 优先第二路径标记（cross_validator 写、playoff 节点读）
+    playoff_prefer_alt: NotRequired[bool]
     # 定向修复提示来源标记（critic/playoff → reconciliation 直通用，一次性消费）
     repair_hint_source: NotRequired[Optional[str]]
     # 输出阶段
@@ -82,7 +93,6 @@ class MathAgentState(TypedDict):
     branch_hint: NotRequired[Optional[str]]  # Send() 扇出携带的重试提示（solving 子图内）
     next_node: NotRequired[Optional[str]]
     should_terminate: NotRequired[bool]
-    token_budget_consumed: NotRequired[int]
     # 各节点实测耗时。必须是 reducer 字段：solving 子图内 reasoning_agent 与
     # python_agent 并行扇出，两条分支会同时写入。
     node_timings: NotRequired[Annotated[List[Dict], operator.add]]

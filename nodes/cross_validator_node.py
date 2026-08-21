@@ -80,6 +80,11 @@ def _preferred_answer(state: dict, match_result: dict) -> str:
     python_ok = bool(po.get("success")) and bool(python_answer)
     reasoning_ok = bool(reasoning_answer) and not looks_incomplete_answer(reasoning_answer)
     question_mode = state.get("question_mode") or ""
+    # V3.1 确定性优先：sympy 预解器的符号计算结果高于任何 LLM 产物
+    # （真机实证：python 错误代码 5/7 曾被 LLM 裁决链锁定，覆盖 sympy 的 x=10）。
+    # V2.7：det_solver（通用确定性管线，强制自验）与 sympy 同权重。
+    if rr.get("answer_source") in {"sympy_pre_solve", "det_solver"} and reasoning_answer:
+        return reasoning_answer
     if is_objective_mode(question_mode):
         # Keep every degradation path canonical.  In particular, an invalid or
         # unavailable objective candidate may still reach the semantic arbiter's
@@ -140,15 +145,21 @@ def _objective_revote(state: dict, config, current_answer: str, question_mode: s
     )
     clock = deps.time_budget
     try:
-        from utils.llm_retry import chat_with_retry
-        raw = chat_with_retry(
-            deps.client,
+        # V3.0 短输出化：prefill "答案：" 抑制 CoT（probe 实测 4x 提速），
+        # 解析正则不变（prefill 产物仍以"答案："开头）。
+        # V3.3 多模型复核：独立复核样本交给第二 Intern-S 模型（跨模型独立
+        # 采样 > 同模型重采样，能打破主模型的系统性偏向）；复核不可用时
+        # 自动回退主 client，行为与单模型完全一致。
+        from utils.review_model import chat_prefilled_review
+        raw = chat_prefilled_review(
+            deps,
             messages=[{"role": "user", "content": prompt}],
+            prefix="答案：",
             temperature=CONFIG["temperatures"].get("objective_reasoning", 0.2),
             max_tokens=CONFIG["max_tokens"]["objective_reasoning"],
             logger=deps.logger,
             time_budget=clock,
-            expected_call_seconds=45,
+            expected_call_seconds=30,
             label="objective_revote",
         )
     except Exception as exc:  # noqa: BLE001 - 复核失败不改变现状
@@ -178,6 +189,8 @@ def _objective_revote(state: dict, config, current_answer: str, question_mode: s
 def cross_validator_node(state, config):
     reasoning_result = state.get("reasoning_result") or {}
     revote_trace = []  # 客观题复核投票留证（仅低置信触发时有内容）
+    # V3.1：sympy 确定性直通标记，全函数共享（客观题分支也引用），必须在此初始化
+    sympy_override = False
     raw_python_output = state.get("python_output") or {}
     python_output = parse_verification_evidence(
         raw_python_output,
@@ -298,13 +311,40 @@ def cross_validator_node(state, config):
             reasoning_result=reasoning_result,
             python_result=python_output,
         ))
+        # V3.1 确定性直通：sympy 预解器的确定性答案不参与 LLM 裁决。
+        # 真机实证：sympy 确定性算对 x=10，但 python 的 LLM
+        # 代码算出 5/7（support 证据），playoff 的 LLM 验证代码又把 5/7 判
+        # decisive 锁定——LLM 验证 LLM 的链条会在确定性答案正确时反噬。
+        # sympy 答案是纯符号计算结果，可信度高于任何 LLM 产物：直接成稿，
+        # 程序候选不一致时仅在 reason 中留证。
+        # V2.7：det_solver（通用确定性管线，强制自验）与 sympy 同权重直通。
+        sympy_override = False
+        if (reasoning_result.get("answer_source") in {"sympy_pre_solve", "det_solver"}
+                and _clean_answer(reasoning_result.get("answer"))):
+            sympy_override = True
+            match_result.update({
+                "status": "match",
+                "verdict": True,
+                "comparison_verdict": True,
+                "method": "sympy_direct",
+                "routing_reason": "sympy_deterministic_override",
+                "reason": ("sympy 确定性直接解，优先于程序候选"
+                           + (f"（程序答案：{str(python_output.get('answer') or '')[:60]}）"
+                              if str(python_output.get("answer") or "").strip() else "")),
+                "confidence": 1.0,
+                "text_similarity": 1.0,
+                "matched_fields": [],
+                "mismatched_fields": [],
+                "field_coverage": 1.0,
+            })
         # VeritasMath 三路交叉验证：主路径与 Python 未达成一致时，若第二推理
         # 路径（异构方法）存在且与 Python 达成一致，直接采纳第二路径——
-        # 这是方法论独立的双证据，强于任何单路径。
+        # 这是方法论独立的双证据，强于任何单路径。sympy 直通时不覆盖。
         alt = state.get("reasoning_result_alt") or {}
         alt_answer = _clean_answer(alt.get("answer", ""))
-        if match_result.get("status") != "match" and alt_answer \
-                and not looks_incomplete_answer(alt_answer):
+        if (not sympy_override
+                and match_result.get("status") != "match" and alt_answer
+                and not looks_incomplete_answer(alt_answer)):
             alt_match = dict(AnswerMatcher.match_answers(
                 problem=state["problem"],
                 reasoning_result=alt,
@@ -344,7 +384,9 @@ def cross_validator_node(state, config):
 
     # Explicit evidence of a counterexample outranks textual/symbolic agreement.
     # A program can run successfully while proving that the candidate is false.
-    if evidence_status == "contradict":
+    # V3.1：sympy 确定性直通时跳过——程序候选（含其 contradict 自报）都是
+    # LLM 产物，不得推翻符号计算的真值（真机实证 5/7 事故）。
+    if evidence_status == "contradict" and not sympy_override:
         match_result["routing_reason"] = "python_evidence_contradiction"
         # VeritasMath 真机修复：contradict 证据可能是
         # **假证据**——Python 自身算错（CRT 逆元求错）却自报"反驳了正确的推理"。
@@ -402,7 +444,9 @@ def cross_validator_node(state, config):
     # 一致无意义）。纯字符串比对，零 LLM 成本。
     _alt_ans = _clean_answer((state.get("reasoning_result_alt") or {}).get("answer", ""))
     _a_ans = _clean_answer(reasoning_result.get("answer", ""))
-    if status == "match" and _alt_ans and _a_ans \
+    # V3.1：sympy 确定性直通时，异构 B 路径的反对票同样不触发 playoff——
+    # 符号计算结果高于一切 LLM 采样。
+    if status == "match" and not sympy_override and _alt_ans and _a_ans \
             and not looks_incomplete_answer(_alt_ans) \
             and not _same_scalar_or_text(_alt_ans, _a_ans):
         already_played = _playoff_already_played(state)

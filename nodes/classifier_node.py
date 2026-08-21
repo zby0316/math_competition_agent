@@ -594,10 +594,6 @@ def _domain_override(problem: str, categories: list[str]) -> str | None:
     return None
 
 
-# Compatibility for the unfinished 2026-08-08 test branch that used this name.
-_objective_domain_override = _domain_override
-
-
 def _decision_payload(problem, categories, category, confidence, candidates, stages,
                       difficulty=None):
     """Apply the same calibrated boundary decision on every classifier exit."""

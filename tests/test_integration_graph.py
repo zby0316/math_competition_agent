@@ -80,37 +80,82 @@ class TestHappyPathWithCritic(unittest.TestCase):
         self.assertEqual(final.get("critic_status"), "pass")
         self.assertTrue(final.get("final_response", "").strip())
         self.assertIn("5", final.get("final_response", ""))
-        # 难度画像已应用（easy → 软预算 600，V2.6.2）
+        # 难度画像已应用（easy → 软预算 480，V2.6.3 回滚）
         self.assertEqual(final.get("difficulty"), "easy")
-        self.assertEqual(final.get("_time_budget", {}).get("soft_total_s"), 600.0)
+        self.assertEqual(final.get("_time_budget", {}).get("soft_total_s"), 480.0)
         # 数学分析不在高风险领域：不应扇出第二推理路径
         self.assertIsNone(final.get("reasoning_result_alt"))
 
 
 class TestPlayoffDecisive(unittest.TestCase):
     def test_mismatch_routes_to_playoff_and_locks_winner(self):
+        # V3.1 用"求 2x+3 在 x=5 处的值"（sympy 预解器不可短路）保持 playoff
+        # 链路可测；"计算 2+3 的值"现会被 sympy 确定性直通（新正确行为）。
         playoff_code = (
             "```python\n"
-            "# 代回核验：候选A=5 候选B=6，真值由独立计算给出\n"
-            "truth = 2 + 3\n"
-            'print("候选A核验:", "PASS" if 5 == truth else "FAIL 5 != %s" % truth)\n'
+            "# 代回核验：候选A=13 候选B=6，真值由独立计算给出\n"
+            "truth = 2 * 5 + 3\n"
+            'print("候选A核验:", "PASS" if 13 == truth else "FAIL 13 != %s" % truth)\n'
             'print("候选B核验:", "PASS" if 6 == truth else "FAIL 6 != %s" % truth)\n'
             'print("PLAYOFF_RESULT:", "A")\n```'
         )
         routes = [
             ("可选类别", _CLS),
-            ("你是一个数学专家，使用", _four_sections("5")),
+            ("你是一个数学专家，使用", _four_sections("13")),
             ("你是Python数学计算专家", _code_block("3+3")),
             ("你是数学裁判工程师", playoff_code),
+            ("请审计下面这道题", _CRITIC_PASS),
+            ("你是一个数学教学专家", "最终答案：13"),
+        ]
+        final, client = _run_graph("求 2x+3 在 x=5 处的值。", routes=routes)
+        self.assertEqual(final.get("validation_status"), "mismatch_playoff")
+        self.assertEqual(final.get("playoff_status"), "decisive")
+        self.assertEqual(final.get("playoff_answer"), "13")
+        self.assertEqual(final.get("validated_answer"), "13")
+        self.assertEqual(final.get("critic_status"), "pass")
+        self.assertIn("13", final.get("final_response", ""))
+
+
+class TestPythonFirstLight(unittest.TestCase):
+    """V3.0：python 确定性成功（真实计算 + 自验证）→ 推理降级为单次 light 复核。"""
+
+    def test_python_first_light_reasoning(self):
+        # python 代码真实计算并自验证（反伪造检查要求真实比较），
+        # evidence=support → solver_decision 置 light → 推理单次、无 B 路径。
+        # 题目避开 sympy 预解器可解析形态（"求 2x+3 在 x=5 处的值"不会被短路）。
+        verify_code = (
+            "```python\nimport sympy as sp\nx=sp.symbols('x')\n"
+            "val=int((2*x+3).subs(x,5))\n"
+            'print("验证状态:", "PASS" if val==13 else "FAIL")\n'
+            'print("验证证据:", "sympy 代入计算")\n'
+            'print("最终答案:", val)\n```'
+        )
+        routes = [
+            ("可选类别", _CLS),                       # easy 数学分析
+            ("你是Python数学计算专家", [verify_code]),
+            ("你是一个数学专家，使用", [_four_sections("13")]),
+            ("请审计下面这道题", _CRITIC_PASS),
+            ("你是一个数学教学专家", "最终答案：13"),
+        ]
+        final, client = _run_graph("求 2x+3 在 x=5 处的值。", routes=routes)
+        self.assertEqual(final.get("reasoning_light"), True)
+        self.assertEqual(final.get("reasoning_attempts"), 1)
+        self.assertEqual(final.get("validation_status"), "match")
+        self.assertIsNone(final.get("reasoning_result_alt"))  # easy 非高风险 → 无 B
+        self.assertIn("13", final.get("final_response", ""))
+
+    def test_python_first_full_path_when_python_fails(self):
+        # python 执行失败 → light 不触发 → 完整推理路径（含 B 路径判断）
+        bad_code = "```python\nraise RuntimeError('boom')\n```"
+        routes = [
+            ("可选类别", _CLS),
+            ("你是Python数学计算专家", [bad_code]),
+            ("你是一个数学专家，使用", [_four_sections("5")]),
             ("请审计下面这道题", _CRITIC_PASS),
             ("你是一个数学教学专家", "最终答案：5"),
         ]
         final, client = _run_graph("计算 2+3 的值。", routes=routes)
-        self.assertEqual(final.get("validation_status"), "mismatch_playoff")
-        self.assertEqual(final.get("playoff_status"), "decisive")
-        self.assertEqual(final.get("playoff_answer"), "5")
-        self.assertEqual(final.get("validated_answer"), "5")
-        self.assertEqual(final.get("critic_status"), "pass")
+        self.assertNotEqual(final.get("reasoning_light"), True)
         self.assertIn("5", final.get("final_response", ""))
 
 

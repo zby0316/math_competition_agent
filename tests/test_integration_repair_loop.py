@@ -58,8 +58,9 @@ class TestNeitherThenDiverseRescue(unittest.TestCase):
         self.assertEqual(final.get("playoff_status"), "neither")
         self.assertEqual(final.get("reconciliation_round"), 1)
         self.assertEqual(final.get("validation_status"), "match")
-        # V2.6.1：重算后 match 先经代回核验（PASS）再进 Critic
-        self.assertEqual(final.get("substitution_status"), "pass")
+        # V2.6.3：生产默认关闭代回核验，match 直通 Critic（核验机制由
+        # test_substitute_check 单独覆盖；此处验证生产配置下的默认链路）
+        self.assertNotEqual(final.get("substitution_status"), "fail")
         self.assertEqual(final.get("critic_status"), "pass")
         self.assertIn("6", final.get("final_response", ""))
         # 异构第二路径确实被扇出并产出（首轮与重算轮各一次）

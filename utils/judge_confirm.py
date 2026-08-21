@@ -144,7 +144,10 @@ def run_judge_confirmation(problem: str, answer: str, deps,
                         "note": f"确认轮反向（{polarity}→{confirm_polarity}），温度0重解判定"}
         except Exception as exc:  # noqa: BLE001
             deps.logger.warning("Judge resolve call failed: %s", exc)
-    # 重解不可用：采纳自证结论（它附带了反例/理由，是独立判断）
-    new_word = "是" if confirm_polarity == "是" else "否"
+    # 重解不可用：采纳自证结论（它附带了反例/理由，是独立判断）。
+    # V2.7.2 审计修复：极性需映射回判断词（"是"→"正确"、"否"→"错误"），
+    # 与 confirm 路径及 form_align/客观题归一化约定一致，避免 true_false
+    # 答卷以"是/否"形式出厂的形式漂移。
+    new_word = "正确" if confirm_polarity == "是" else "错误"
     return {"action": "reverse", "final_word": new_word,
             "note": f"确认轮反向（{polarity}→{confirm_polarity}），采纳自证"}

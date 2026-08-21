@@ -87,6 +87,9 @@ def _fallback_for_node(node: str, state: dict, error: dict, config: dict | None 
             "python_retry_hint": None,
             "next_node": "coordinator",
         }
+    if node == "solver_decision":
+        # V3.0：决策异常 = 不 light，走完整推理路径（保守方向）。
+        return {**base, "reasoning_light": False}
     if node == "semantic_arbiter":
         from nodes.cross_validator_node import _preferred_answer
         from utils.reconciliation_policy import reconciliation_retry_available

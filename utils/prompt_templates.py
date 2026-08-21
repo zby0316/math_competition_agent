@@ -269,6 +269,25 @@ PYTHON_PROMPT = """你是Python数学计算专家。用 sympy 解决下列数学
   * 优先精确符号结果（分数/根式/pi），避免不必要的小数
 - 常见 API 陷阱（务必核对）：A.jordan_form() 返回 (P, J)，Jordan 标准形是第二个返回值；
   A.diagonalize() 返回 (P, D)；sp.solve 返回列表，取值前先判空
+- **高精度数值题（ODE/BVP/特征值/无穷级数/数值积分/摄动）专项（V3.2，真机实证：
+  打靶法只准到 4 位、级数截断过早、周期算错是主要失分形态）**：
+  * BVP/边值特征值：优先 scipy.integrate.solve_bvp 或高分辨率有限差分（网格 ≥ 400 点），
+    特征值必须把本征函数代回方程打印**残差范数**并要求 <1e-6；打靶法结果要扫描验证
+    相邻猜测不改变结论
+  * 无穷级数/傅里叶和：必须做收敛检查——连续两次部分和之差 <1e-10，或 Richardson
+    外推；严禁固定小项数截断（如 n≤50）就报数值
+  * 数值答案打印 **10 位以上有效数字**（如 λ1 = 12.025085597），并在"验证证据"里
+    写明验证方式（残差/外推/独立方法重算）
+  * 模运算/同余：负数取模用 pow(base, exp, mod) 或 (x % m + m) % m；周期类问题
+    必须显式计算各因子周期再求 lcm，不得凭直觉报周期
+- **确定性工具菜单（V2.7：按题型直接用成熟库实现，不要手写易错算法）**：
+  * 整数划分/Young 图/hook 长度 → sympy.utilities.iterables.partitions + 钩长公式
+  * 组合计数（组合数/错排/卡特兰/斯特林数）→ sympy.functions.combinatorial.*
+  * 图最短路/最小割/最大流/匹配 → networkx（shortest_path / minimum_cut / max_weight_matching）
+  * 模周期/阶/中国剩余 → sympy.ntheory.residue_ntheory.n_order + crt；递推通项 → sympy.rsolve
+  * 矩阵特征值 → sympy.Matrix.eigenvals（对称矩阵再用 numpy.linalg 交叉验证）
+  * 插值/拟合 → numpy.polyfit；数值求积 → scipy.integrate；ODE 初值 → solve_ivp；BVP → solve_bvp
+  * 复分析留数 → sympy.residue；级数展开系数 → sympy.series
 - 不要在代码块外加任何说明
 - 如果提示中出现“待核验候选”，必须把该候选与独立计算结果比较，并在“验证状态/验证证据”中明确说明是否支持；不得只重复候选答案。
 

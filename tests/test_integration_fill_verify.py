@@ -16,11 +16,12 @@ class TestFillComputationDoublePath(unittest.TestCase):
         from langgraph_math_agent import MathAgentGraph
 
         # 填空：定积分 ∫₀¹ 2x dx = __。推理短路径答错(-2)，Python 算对(1)。
+        # V3.0 python-first：python 先消费响应，故代码块排在第 2 位。
         responses = [
             '数学分析", "confidence": 0.95, "difficulty": "easy"}',   # 分类
-            "答案：-2\n依据：计算略。",                                 # reasoning 短路径（错）
             "```python\nimport sympy as sp\nx=sp.symbols('x')\n"
-            "print('最终答案:', sp.integrate(2*x,(x,0,1)))\n```",      # python（对：1）
+            "print('最终答案:', sp.integrate(2*x,(x,0,1)))\n```",      # python 先行（对：1）
+            "答案：-2\n依据：计算略。",                                 # reasoning 短路径（错）
             "```python\nimport sympy as sp\nx=sp.symbols('x')\n"
             "truth=int(sp.integrate(2*x,(x,0,1)))\n"
             'print("候选A核验:", "PASS" if -2==truth else "FAIL")\n'

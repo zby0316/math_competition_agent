@@ -64,6 +64,14 @@ def _match_state(difficulty="hard"):
 
 
 class TestSubstituteNode(unittest.TestCase):
+    """substitute 节点机制测试：显式开启开关（生产默认 False，V2.6.3）。"""
+
+    def setUp(self):
+        self._saved = CONFIG.get("enable_substitution_check")
+        CONFIG["enable_substitution_check"] = True
+
+    def tearDown(self):
+        CONFIG["enable_substitution_check"] = self._saved
 
     def _deps(self, responses, reserve=0):
         return Deps(client=MockClient(responses), skills_loader=None,
@@ -109,6 +117,14 @@ class TestSubstituteNode(unittest.TestCase):
 
 
 class TestMatchRoutesToSubstitute(unittest.TestCase):
+    """match 路由测试：显式开启开关（生产默认 False，V2.6.3）。"""
+
+    def setUp(self):
+        self._saved = CONFIG.get("enable_substitution_check")
+        CONFIG["enable_substitution_check"] = True
+
+    def tearDown(self):
+        CONFIG["enable_substitution_check"] = self._saved
 
     def test_hard_match_routes_to_substitute(self):
         out = cross_validator_node(_match_state("hard"), _Cfg(
@@ -138,6 +154,18 @@ class TestMatchRoutesToSubstitute(unittest.TestCase):
             Deps(client=MockClient([]), skills_loader=None, mcp_client=None,
                  token_budget=None, time_budget=None)))
         self.assertEqual(out["next_node"], "coordinator")
+
+    def test_disabled_by_default_keeps_fast_path(self):
+        # V2.6.3：生产默认关闭时，hard match 也直通（不买核验）
+        saved = CONFIG.get("enable_substitution_check")
+        CONFIG["enable_substitution_check"] = False
+        try:
+            out = cross_validator_node(_match_state("hard"), _Cfg(
+                Deps(client=MockClient([]), skills_loader=None, mcp_client=None,
+                     token_budget=None, time_budget=None)))
+            self.assertEqual(out["next_node"], "coordinator")
+        finally:
+            CONFIG["enable_substitution_check"] = saved
 
 
 if __name__ == "__main__":

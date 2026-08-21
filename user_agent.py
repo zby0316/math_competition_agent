@@ -105,12 +105,18 @@ if _BACKEND == "graph":
                 self.logger.info(f"Solving problem {idx}")
                 # 低成本契约探测：首次 solve 时各发一次最小调用（返回形态 +
                 # finish_reason + prefill），结果类级缓存，112 题只探测一次。
-                if ReasoningAgent._contract_probe_cache is None:
+                # V3.0：官方 runner"每进程解一题"时类级缓存失效，探测会每题
+                # 白花 2 次调用（112 题 ≈ 12min 墙钟）；默认关闭（probe_signature
+                # 零成本已足够诊断），需要诊断时设 enable_contract_probe=True。
+                from config import CONFIG as _CFG
+                if (_CFG.get("enable_contract_probe", False)
+                        and ReasoningAgent._contract_probe_cache is None):
                     ReasoningAgent._contract_probe_cache = probe_contract(self.client)
                     self.logger.info(
                         "client contract probe: %s",
                         ReasoningAgent._contract_probe_cache)
-                self.client_probe["contract"] = ReasoningAgent._contract_probe_cache
+                if ReasoningAgent._contract_probe_cache is not None:
+                    self.client_probe["contract"] = ReasoningAgent._contract_probe_cache
                 initial = create_initial_state(str(problem or ""), meta)
                 final_state = self.graph.run(initial, token_budget=TokenBudget())
                 result = {
@@ -339,6 +345,22 @@ if _BACKEND == "graph":
                         }
                     ],
                 })
+            # V2.7 快速采样投票：match 后的第三证据（多数确认/反证→仲裁第 4 候选）
+            if state.get("answer_vote_trace"):
+                trace.append({
+                    "step": "answer_vote",
+                    "status": state.get("answer_vote_status", ""),
+                    "thinking": {
+                        "purpose": "出厂前独立短采样多数投票：多数确认或反证（反证时票选赢家进仲裁候选池）。",
+                    },
+                    "tools": [
+                        {
+                            "name": "answer_vote_llm",
+                            "rounds": state.get("answer_vote_trace", []),
+                            "result": state.get("answer_vote_result", {}),
+                        }
+                    ],
+                })
             if state.get("modular_guard", {}) and state.get("modular_guard", {}).get("hit"):
                 trace.append({
                     "step": "modular_guard",
@@ -433,6 +455,10 @@ if _BACKEND == "graph":
                             "name": "client_probe",
                             "signature": getattr(self, "client_probe", {}),
                             "chat_mode": read_chat_mode(self.client),
+                            # V3.3 多模型复核：本题实际解析到的复核模型名
+                            # （None = 通道不可用，分歧路径回退主 client）
+                            "review_model": getattr(
+                                self.graph, "review_client_name", None),
                         }
                     ],
                 })

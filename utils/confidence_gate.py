@@ -38,25 +38,6 @@ def confidence_level(confidence: float | None) -> str:
     return "standard"
 
 
-def can_skip_python_verify(question_mode: str, confidence: float | None,
-                           problem: str = "") -> bool:
-    """高置信客观题是否可跳过 Python 验证（省资源）。
-
-    仅对"纯概念客观题"生效（术语/定义/选项题，Python 标量无法表达），
-    且置信度必须高。实算填空/计算题永远保留 Python 验证（治本机制）。
-    """
-    if question_mode not in ("choice", "true_false", "fill"):
-        return False
-    if confidence_level(confidence) != "fast":
-        return False
-    # 实算填空必须验证（verify_router 原有判定）
-    if question_mode == "fill":
-        from utils.verify_router import needs_python_verify
-        if needs_python_verify(problem or "", question_mode):
-            return False
-    return True
-
-
 def fast_lane_eligible(question_mode: str, confidence: float | None,
                        difficulty: str = "", problem: str = "") -> bool:
     """V2.1 M8 FastLane：L1 客观题高置信 → 单路径快速答。
