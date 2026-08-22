@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """V2 M4 答案形式对齐测试。
 
-覆盖：单值/区间/判断/枚举形态识别 + idx=94 真实失分场景复现。
+覆盖：单值/区间/判断/枚举形态识别 + 真机实证 真实失分场景复现。
 """
 import unittest
 
@@ -37,7 +37,7 @@ class TestExpectedForm(unittest.TestCase):
 
 class TestCheckFormAlignment(unittest.TestCase):
 
-    def test_idx94_confidence_interval_scenario(self):
+    def test_confidence_interval_scenario(self):
         """真实失分复现：问半长（单值），答区间 → 错配。
 
         标准答案 0.49，智能体答 [2.01, 2.99]（数学对但形式不合）。

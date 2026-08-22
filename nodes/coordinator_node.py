@@ -19,12 +19,12 @@ from utils.problem_profile import is_objective_mode
 def _evidence_override(state: dict, validated: str) -> tuple[str, str]:
     """证据优先的最终闸门（2026-08-09 评委建议 1，最高优先级）。
 
-    idx 20 事故的架构性杜绝：当 Python 证据（evidence=contradict）明确反驳的
+    真机实证 事故的架构性杜绝：当 Python 证据（evidence=contradict）明确反驳的
     正是即将输出的推理答案、且 Python 自己持有一个不同的、可用的、非伪造的
     答案时，无论上游（仲裁超时/跳过）留下了什么，最终输出都必须切换到携带
     证据的一方。返回 (最终答案, 覆盖说明)；不满足条件时原样返回。
 
-    VeritasMath 真机修复（ultra_112 idx=30）：该闸门假设"Python 的 contradict
+    VeritasMath 真机修复（真机实证）：该闸门假设"Python 的 contradict
     自报证据必可信"，但 Python 也会算错（CRT 逆元求错后自报反驳了正确的推理）。
     当 playoff 已经做过确定性复算裁决（decisive）时，playoff 的代回验证比
     Python 的自报证据更可信——此时豁免本闸门，尊重 playoff 裁决。
@@ -109,7 +109,7 @@ def _partial_response(state: dict) -> tuple[str, str]:
 def _emergency_direct_answer(state: dict, deps) -> str:
     """双分支全灭时的最后一搏：动用 reserve 做一次种子直答（~30s）。
 
-    评委报告：idx 2/54/64/69/82/85 双分支 900s 全灭后以 generic_error 收尾。
+    评委报告：真机实证 双分支 900s 全灭后以 generic_error 收尾。
     与其交白卷，不如用剩余硬时限发一次 prefill 直答——助手种子抑制私有推理，
     模型基于题面与已获线索给出最可信结论。失败或产出噪声时返回 ""。
     """
@@ -203,7 +203,7 @@ def _form_align_reframe(client, deps, problem: str, answer: str,
         text = strip_cot_prefix(raw or "").strip()
         # 去掉可能的"最终答案："前缀与多余文字
         import re as _re
-        m = _re.search(r"最终答案[：:]\s*(.+)", text, re.DOTALL)
+        m = _re.search(r"最终答案[：:]\s*(.+)", text, _re.DOTALL)
         text = (m.group(1) if m else text).strip()
         text = text.splitlines()[0].strip() if text else ""
         # V2.4：选择题重述结果再做一次确定性归一化（仅保留字母），
@@ -234,7 +234,7 @@ def coordinator_node(state, config):
     if is_placeholder_answer(validated):
         validated = ""
     ptype = (state.get("validation_details") or {}).get("problem_type", "computation")
-    # V2 M4 答案形式对齐：数学对但形式不合（idx=94 答区间而非半长）会被
+    # V2 M4 答案形式对齐：数学对但形式不合（真机实证 答区间而非半长）会被
     # judger 判 partial。错配且时间有余量时，用低成本 LLM 重述修正。
     if validated and CONFIG.get("enable_form_align", True):
         try:
@@ -266,9 +266,9 @@ def coordinator_node(state, config):
     evidence_note = ""
     if not state.get("answer_locked"):
         validated, evidence_note = _evidence_override(state, validated)
-        # 洁净度终门（2026-08-09 冒烟 idx 43）：交叉验证在双分支皆弱时可能放行一段
+        # 洁净度终门（2026-08-09 冒烟 真机实证）：交叉验证在双分支皆弱时可能放行一段
         # 探索散文；deadline 路径会把它原样出厂。修复优先于丢弃——"1/2 works." 这类
-        # 正确值+口癖要剥尾保值（idx 2），修不出干净头部才置空。仲裁锁定的选择不经
+        # 正确值+口癖要剥尾保值（真机实证），修不出干净头部才置空。仲裁锁定的选择不经
         # 此门（已过仲裁自己的噪声门），证明题的结论体裁不同也不经此门。
         if validated and ptype != "proof" and is_noise_answer(validated):
             repaired = _clean_noise_head(validated)
@@ -288,7 +288,7 @@ def coordinator_node(state, config):
         if state.get("semantic_arbiter_decision") == "reasoning":
             if ptype == "proof":
                 # 证明题按 §6.2 判"结论+必要过程"：关键蕴含链必须写入
-                # final_response 而非仅存 trace（评委建议 10，idx 74 仅得 0.3）。
+                # final_response 而非仅存 trace（评委建议 10，真机实证 仅得 0.3）。
                 final = build_proof_body(final, rr)
                 # V2.1 M7 ProofDeepener：证明结构补强（定理陈述→步骤链→结论），
                 # 解决 L3/L4 证明题"内容对但结构不被 judger 认可"的失分。

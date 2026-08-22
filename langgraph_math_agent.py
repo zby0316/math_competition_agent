@@ -3,7 +3,7 @@ from state.math_agent_state import MathAgentState
 from graph.solving_subgraph import build_solving_subgraph
 from nodes import (
     input_node, classifier_node, reconciliation_node, semantic_arbiter_node,
-    coordinator_node, critic_node, playoff_node,
+    coordinator_node, critic_node, playoff_node, answer_vote_node,
 )
 from utils.error_handler import node_wrapper
 
@@ -15,6 +15,8 @@ def build_math_agent_graph():
                   ├─► critic（过程审计，必经）───┤
       arbiter ────┘                              └─► reconciliation（带定向修复提示）
       mismatch ─► playoff（确定性复算裁决）─► critic / reconciliation / arbiter
+      answer_vote（V2.5.5）：match 出厂前与仲裁选定后做快速采样投票（第三证据），
+      反证 → 票选赢家进候选池、仲裁重选一次。
 
     所有进入 coordinator 的答案都必须先过 Critic 审计门——这是"题面契约完整性"
     在架构上的强制保证，而不是依赖提示词自觉。
@@ -28,6 +30,8 @@ def build_math_agent_graph():
     g.add_node("playoff", node_wrapper(playoff_node, "playoff"))
     g.add_node("critic", node_wrapper(critic_node, "critic"))
     g.add_node("coordinator", node_wrapper(coordinator_node, "coordinator"))
+    # V2.5.5 快速采样投票：match 出厂前 与 语义仲裁选定后 的第三证据
+    g.add_node("answer_vote", node_wrapper(answer_vote_node, "answer_vote"))
 
     g.add_edge(START, "input")
     g.add_edge("input", "classifier")
@@ -41,11 +45,12 @@ def build_math_agent_graph():
             return "playoff"
         if requested in {"reconciliation", "semantic_arbiter"}:
             return requested
-        # match / 默认：原直达 coordinator，现必经 Critic 过程审计门
-        return "critic"
+        # match / 默认：先过 V2.5.5 快速采样投票（第三证据），再进 Critic
+        return "answer_vote"
     g.add_conditional_edges("solving", route_after_solving,
                             {"critic": "critic", "reconciliation": "reconciliation",
-                             "semantic_arbiter": "semantic_arbiter", "playoff": "playoff"})
+                             "semantic_arbiter": "semantic_arbiter", "playoff": "playoff",
+                             "answer_vote": "answer_vote"})
 
     def route_after_reconciliation(state, config):
         requested = state.get("next_node")
@@ -59,10 +64,19 @@ def build_math_agent_graph():
     def route_after_semantic_arbiter(state, config):
         if state.get("next_node") == "reconciliation":
             return "reconciliation"
-        # 仲裁选定/兜底后同样过审计门（仲裁只看候选间相对完整性，Critic 看题面契约）
-        return "critic"
+        # 仲裁选定/兜底后先进 V2.5.5 快速采样投票（对仲裁答案的第三证据）
+        return "answer_vote"
     g.add_conditional_edges("semantic_arbiter", route_after_semantic_arbiter,
-                            {"reconciliation": "reconciliation", "critic": "critic"})
+                            {"reconciliation": "reconciliation", "answer_vote": "answer_vote"})
+
+    def route_after_answer_vote(state, config):
+        # 投票反证（本轮次内）→ 票选赢家已进候选池，仲裁重选一次；
+        # 轮次守卫耗尽的 contested 不会走到这里（节点返回 contested_final）。
+        if state.get("answer_vote_status") == "contested":
+            return "semantic_arbiter"
+        return "critic"
+    g.add_conditional_edges("answer_vote", route_after_answer_vote,
+                            {"semantic_arbiter": "semantic_arbiter", "critic": "critic"})
 
     def route_after_playoff(state, config):
         requested = state.get("next_node")
@@ -104,7 +118,8 @@ class MathAgentGraph:
         try:
             pacer = PaperPacer.get_instance()
             idx = -1
-            meta = initial_state.get("meta") if isinstance(initial_state, dict) else None
+            # V2.5.3 修复：状态键是 "metadata"（不是 "meta"）——错键使 idx 恒 -1
+            meta = initial_state.get("metadata") if isinstance(initial_state, dict) else None
             if isinstance(meta, dict):
                 idx = meta.get("idx", -1)
             paper_cap = pacer.budget_for(idx)
@@ -117,6 +132,21 @@ class MathAgentGraph:
             pass
         deps = Deps(client=self.client, skills_loader=self.skills_loader,
                     mcp_client=self.mcp_client, token_budget=tb, time_budget=clock)
+        # V2.5.4 第二 Intern-S 模型复核通道：每题解析一次（配额按题隔离）。
+        # 解析失败/不可用 → review_client=None，分歧路径静默回退主 client。
+        self.review_client_name = None
+        try:
+            from utils.review_model import resolve_review_client
+            deps.review_client = resolve_review_client(self.client, logger=deps.logger)
+            self.review_client_name = getattr(
+                deps.review_client, "review_model_name", None)
+        except Exception as exc:  # noqa: BLE001 - 复核通道锦上添花，不拖垮单题
+            deps.review_client = None
+            self.review_client_name = None
+            try:
+                deps.logger.warning("review client resolution failed: %s", exc)
+            except Exception:  # noqa: BLE001
+                pass
         try:
             final_state = self.app.invoke(initial_state, config={"configurable": {"deps": deps}})
         finally:

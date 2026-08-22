@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import os as _os
 import sys as _sys
-from typing import Any, Dict
 
 # ── 防线 1：sys.path 自举（任何加载形态不抛异常）──
 _HERE = ""
@@ -321,6 +320,22 @@ if _BACKEND == "graph":
                         {
                             "name": "objective_revote_llm",
                             "rounds": state.get("objective_revote_trace", []),
+                        }
+                    ],
+                })
+            # V2.5.5 快速采样投票：match 出厂前/仲裁选定后的第三证据
+            if state.get("answer_vote_trace"):
+                trace.append({
+                    "step": "answer_vote",
+                    "status": state.get("answer_vote_status", ""),
+                    "thinking": {
+                        "purpose": "出厂前独立短采样多数投票：多数确认或反证（反证时票选赢家进仲裁候选池）。",
+                    },
+                    "tools": [
+                        {
+                            "name": "answer_vote_llm",
+                            "rounds": state.get("answer_vote_trace", []),
+                            "result": state.get("answer_vote_result", {}),
                         }
                     ],
                 })

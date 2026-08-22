@@ -93,7 +93,7 @@ def extract_answer_fallback_with_source(text: str) -> tuple:
     for line in reversed(lines):
         if len(line) > 600 or re.match(r"^#{1,6}\s", line):
             continue
-        # 真机压测（ultra_112 idx=63）：思维流中的"Line 2: 依据：当 z=1 时…故"
+        # 真机压测（真机实证）：思维流中的"Line 2: 依据：当 z=1 时…故"
         # 被当成答案——它是**证据行**（依据/理由/说明）且**话说一半**（"故"收尾），
         # 两类都不是结论。剥掉行号前缀后命中证据标签、或以 dangling 词收尾的行跳过。
         core = _LINE_NO_PREFIX_RE.sub("", line)
@@ -190,16 +190,22 @@ _MULTI_ASK_RE = re.compile(
     r"%s[^。；;]*?%s\s*[^。；;]*?(?:%s[^。；;]*|[^。；;，,]{2,})"
     % (_ASK_VERB, _ASK_CONJUNCTION, _ASK_VERB)
 )
+# V2.7："求 A 和 B 的值/结果" 型双问项（"和"不在 _ASK_CONJUNCTION 里——
+# "和"在数学题面太常见（求和/乘积/和式），只有以"的值/结果"收尾才是明确的
+# 两个并列目标；"求 A 和 B 的乘积"不含"的值"不会误判）。
+_VALUE_PAIR_RE = re.compile(r"%s[^。；;]{0,60}?和[^。；;]{0,60}?的(?:值|结果)" % (_ASK_VERB,))
 
 
 def is_multi_part_problem(problem: str) -> bool:
-    """检测题目是否包含多个问项（评委报告问题 4：多问只答一问，如 idx=172）。"""
+    """检测题目是否包含多个问项（评委报告问题 4：多问只答一问，如 真机实证）。"""
     p = (problem or "").strip()
     if not p:
         return False
     if len(_ENUM_MARK_RE.findall(p)) >= 2:
         return True
     if "分别" in p and re.search(r"求|计算|写出|给出|证明|讨论", p):
+        return True
+    if _VALUE_PAIR_RE.search(p):
         return True
     if _MULTI_ASK_RE.search(p):
         return True

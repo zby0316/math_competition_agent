@@ -1,4 +1,4 @@
-"""真机实证 bug 的回归测试（ultra_112 idx=30）：
+"""真机实证 bug 的回归测试（真机实证）：
 
 链路缺陷：Python 算错 CRT 得 803 却自报 contradict 反驳正确的推理 423；
 原链路 contradict 直接仲裁且 coordinator 证据闸门强行采信 Python 错值 → 输出错答。
@@ -15,7 +15,7 @@ from utils.deps import MockClient
 
 
 def _crt_state():
-    """idx=30 现场：推理 423（对），Python 803（错）+ 自报 contradict。"""
+    """真机实证 现场：推理 423（对），Python 803（错）+ 自报 contradict。"""
     return {
         "problem": "求满足 x≡2(mod 3), x≡3(mod 5), x≡2(mod 7) 的最小正整数。",
         "question_mode": "computation",

@@ -118,7 +118,7 @@ def is_property_judge(problem: str) -> bool:
     - 对错判断题："判断下列说法是否正确"、"命题是否成立" → 答案 正确/错误。
     - 性质判断题："判断系统是否稳定"、"判断函数列是否一致收敛" → 答案须给
       具体结论（稳定/不稳定、一致收敛/不一致收敛），笼统答"正确/错误"判错。
-      （U-02 基准实测实证：idx=9 "判断系统稳定性" 模型答"正确"、idx=14
+      （U-02 基准实测实证：真机实证 "判断系统稳定性" 模型答"正确"、真机实证
       "判断是否一致收敛" 模型答"错误"，数学对但格式错，judger 判错。）
 
     判别：题面含"判断/是否/判定"且含性质名词，同时不含对错判断标志。
@@ -201,7 +201,7 @@ def asks_feasibility_then_count(problem: str) -> bool:
 def count_blanks(problem: str) -> int:
     """题面可见空位数（填空题输出契约用）。检测不到显式空位记号时返回 0。
 
-    评委报告 idx 86：三空只答零空、置信 0.78 直接放行——缺的就是这个计数。
+    评委报告实证：三空只答零空、置信 0.78 直接放行——缺的就是这个计数。
     """
     return len(_BLANK_MARK_RE.findall(str(problem or "")))
 
@@ -227,7 +227,7 @@ def is_extremal_problem(problem: str) -> bool:
 def has_mod2_valued_sum(problem: str) -> bool:
     """函数值域为 F₂/模 2 且所求为函数值之和（和必须在该结构内聚合）。
 
-    评委报告 idx 7：六个 f 值全对，最后按整数相加得 3；题面 f:Q→F₂，
+    评委报告实证：六个 f 值全对，最后按整数相加得 3；题面 f:Q→F₂，
     和应在 F₂ 中为 1。通用口径清单不足以扭转，这里做题面条件触发的定向注入。
     """
     text = str(problem or "")
@@ -345,7 +345,7 @@ def structure_instruction(problem: str) -> str:
 def answer_coverage_clause(problem: str) -> str:
     """压缩重试专用：必须保全的**答案覆盖度**（不是推导篇幅）。
 
-    2026-08-10 复测轮 idx 14：截断后压缩重试的指令写着"沿最可行的一条路线、
+    2026-08-10 复测轮 真机实证：截断后压缩重试的指令写着"沿最可行的一条路线、
     每章从简"，模型据此只报了三个可能值中的一个。压缩针对的是推导过程，
     答案该覆盖的分支一个都不能少——这句提醒随压缩指令一起发出。
     """
@@ -412,7 +412,7 @@ def normalize_objective_answer(answer: str, mode: str) -> str:
     if mode == "choice":
         text = text.translate(_FULLWIDTH_TRANSLATION)
         # 连写形态（"BD"、"\boxed{BD}" 剥壳后）：字母间无分隔符时逐字母展开。
-        # 单词边界正则对连写必然失配（B 的后瞻撞上 D），评委报告 idx 87 的
+        # 单词边界正则对连写必然失配（B 的后瞻撞上 D），评委报告实证 的
         # \boxed{BD} 曾因此归一化为空。仅限 2-5 个纯 A-E 字母的短串，避免把
         # 普通英文单词错当选项串。
         if re.fullmatch(r"[A-E](?:\s*[A-E]){1,4}", text, flags=re.I):
@@ -435,7 +435,7 @@ def normalize_objective_answer(answer: str, mode: str) -> str:
             return "正确" if value in {"正确", "对", "√"} else "错误"
         # 性质判断题（"判断是否一致收敛"）：答案是对具体性质的结论（"不一致收敛"、
         # "稳定"），不含判断词。找不到判断词时保留清洗后的原文，绝不能返回空——
-        # 否则答案被丢弃，退到 emergency 兜底答"是/否"（U-02 实证 idx=1 因此丢分）。
+        # 否则答案被丢弃，退到 emergency 兜底答"是/否"（U-02 实证 真机实证 因此丢分）。
         return text
     return text
 
@@ -462,13 +462,13 @@ def objective_answer_is_usable(answer: str, mode: str) -> bool:
 
         if looks_incomplete_answer(normalized):
             return False
-        # 元指令回显 / 思维碎片（评委报告 idx 105 "Count blanks: 1"）与
-        # 非答案术语（idx 108 "不确定"）都不是可提交的填空内容。
+        # 元指令回显 / 思维碎片（评委报告实证 "Count blanks: 1"）与
+        # 非答案术语（真机实证 "不确定"）都不是可提交的填空内容。
         if is_noise_answer(normalized):
             return False
         if re.fullmatch(r"不确定|不一定|视情况(?:而定)?|无法判断", normalized):
             return False
-        # 带"空N:"前缀的不确定类回答（2026-08-09 冒烟回归 idx 108："空1: 不确定"）：
+        # 带"空N:"前缀的不确定类回答（2026-08-09 冒烟回归 真机实证："空1: 不确定"）：
         # 逐空剥掉前缀后检查；全部空位都是不承诺答案时整体拒收，混合时保留部分得分。
         parts = [re.sub(r"^\s*空\s*\d+\s*[:：]\s*", "", part).strip()
                  for part in re.split(r"[；;]", normalized)]
@@ -479,7 +479,7 @@ def objective_answer_is_usable(answer: str, mode: str) -> bool:
         ):
             return False
         # 填空答案是术语/数值/短表达式；成段英文散句只可能是泄漏的思考文本
-        # （2026-08-09 冒烟回归：idx 108 的答题纠结独白曾以 fill 答案形态出厂）。
+        # （2026-08-09 冒烟回归：真机实证 的答题纠结独白曾以 fill 答案形态出厂）。
         # LaTeX 表达式的词数远低于此阈值（\frac/\partial 等 2-3 词）。
         if len(re.findall(r"[A-Za-z]{2,}", normalized)) > 6:
             return False

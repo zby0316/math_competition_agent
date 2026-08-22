@@ -15,7 +15,6 @@ LLM 判定是采样判断，会失手；所以 LLM 说 pass 而确定性契约�
 from __future__ import annotations
 
 import json
-import re
 
 _VALID_VERDICTS = {"pass", "incomplete", "calc_error"}
 

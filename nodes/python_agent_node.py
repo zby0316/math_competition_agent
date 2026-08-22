@@ -7,7 +7,7 @@ code is found — never executes CoT as code.
 """
 import re
 from utils.deps import get_deps
-from utils.llm_retry import chat_prefilled, chat_with_retry, thinking_mode_flag
+from utils.llm_retry import chat_prefilled, thinking_mode_flag
 from utils.prompt_templates import PYTHON_PROMPT
 from utils.token_budget import estimate_tokens
 from utils.cot_stripper import strip_cot_prefix
@@ -143,7 +143,8 @@ def _compressed_python_call(deps, problem, candidate_answer,
     失败返回 (None, 原因)。
     """
     clock = deps.time_budget
-    if clock and clock.remaining_hard - _COMPRESSED_RESERVE_MARGIN_S \
+    # V2.7.3 恢复修复：remaining_hard 是方法（漏括号族第 3 处）
+    if clock and clock.remaining_hard() - _COMPRESSED_RESERVE_MARGIN_S \
             < _COMPRESSED_CALL_ESTIMATE_S:
         return None, "compressed_retry_unaffordable"
     instruction = _retry_prompt(
@@ -179,7 +180,9 @@ def python_agent_node(state, config):
     client = deps.client
     mcp_client = deps.mcp_client
     budget = deps.token_budget
-    max_attempts = 1 if budget and budget.is_tight else CONFIG["max_retries_per_node"]
+    # V2.7.3 恢复修复：is_tight 是方法（漏括号族——bound method 恒 truthy
+    # 会把 max_attempts 永远锁死在 1，Python 重试/压缩路径静默失效）
+    max_attempts = 1 if budget and budget.is_tight() else CONFIG["max_retries_per_node"]
     problem, category = state["problem"], state["category"]
     question_mode = state.get("question_mode", "computation")
     if is_objective_mode(question_mode):
@@ -306,7 +309,8 @@ def python_agent_node(state, config):
             "python_evidence_summary": enriched.get("evidence_summary", ""),
             "python_contradictions": enriched.get("contradictions", []),
         }
-    if clock and clock.fast_path:
+    # V2.7.3 恢复修复：fast_path 是方法（漏括号族）
+    if clock and clock.fast_path():
         max_attempts = 1
     compressed_next = False
     compressed_used = False
@@ -338,7 +342,7 @@ def python_agent_node(state, config):
                     and not can_afford_retry(clock, "python"):
                 deps.logger.warning(
                     "Skipping Python retry: %.0fs left, last attempt cost %.0fs",
-                    clock.remaining, last_attempt_cost(clock, "python"))
+                    clock.remaining(), last_attempt_cost(clock, "python"))
                 trace.append({"attempt": attempts + 1, "status": "skipped",
                               "reason": "retry_unaffordable"})
                 break
@@ -461,8 +465,9 @@ def python_agent_node(state, config):
                 repaired_probe = parse_verification_evidence(
                     repaired_output, candidate_answer=candidate_answer, code=repaired)
                 answer_text = str(repaired_probe.get("answer") or "").strip()
+                # V2.7.3 恢复修复：lower 是方法（漏括号族）
                 if repaired_output.get("success") and answer_text \
-                        and answer_text.lower not in {"none", "null"}:
+                        and answer_text.lower() not in {"none", "null"}:
                     last_code = repaired
                     trace.append({"attempt": attempts,
                                   "status": "deterministic_print_repair"})
@@ -486,7 +491,8 @@ def python_agent_node(state, config):
             exec_fix_used = True
             if not can_afford_retry(clock, "python"):
                 deps.logger.warning(
-                    "Skipping Python exec-fix retry: %.0fs left", clock.remaining)
+                    # V2.7.3 恢复修复：remaining 是方法（漏括号族第 5 处）
+                    "Skipping Python exec-fix retry: %.0fs left", clock.remaining())
                 trace.append({"attempt": attempts, "status": "exec_fix_skipped",
                               "reason": "retry_unaffordable"})
                 break

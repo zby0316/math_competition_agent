@@ -1,6 +1,6 @@
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any
 
 @dataclass
 class Deps:
@@ -11,6 +11,9 @@ class Deps:
     #: Per-problem wall-clock budget (utils.time_budget.TimeBudget). Optional so
     #: unit tests can omit it; every consumer treats None as "unbounded".
     time_budget: Any = None
+    #: V3.3 第二 Intern-S 模型复核 client（utils.review_model 解析产物，
+    #: None = 复核通道不可用，分歧路径回退主 client）。
+    review_client: Any = None
     logger: logging.Logger = field(default_factory=lambda: logging.getLogger("math_agent"))
 
 def get_deps(config: dict) -> "Deps":
@@ -23,13 +26,20 @@ class MockClient:
     python 节点并发消费 pop(0) 时序不定）。为此支持**关键词路由**：
     ``route(keyword, response)`` 注册的特征词命中 prompt 时优先生效；
     未命中才按 pop(0) 顺序兜底（兼容既有单线程测试）。
+
+    V2.6.2：``route(keyword, [r1, r2, ...])`` 支持**每关键词队列**——同一
+    关键词被多次命中时按注册顺序逐个弹出，弹尽后返回兜底字符串。用于消除
+    多轮调用（采样投票/重算轮）与并发扇出的响应竞态。
     """
     def __init__(self, responses=None):
         self.responses = list(responses) if responses else []
         self.routes = {}
         self.calls = []
     def route(self, keyword, response):
-        self.routes[keyword] = response
+        if isinstance(response, (list, tuple)):
+            self.routes[keyword] = list(response)  # 每关键词队列
+        else:
+            self.routes[keyword] = response
         return self
     def chat(self, messages, temperature=0.2, max_tokens=4096):
         self.calls.append({"messages": messages, "temperature": temperature, "max_tokens": max_tokens})
@@ -37,6 +47,8 @@ class MockClient:
             str(m.get("content") or "") for m in messages if isinstance(m, dict))
         for keyword, response in self.routes.items():
             if keyword and keyword in prompt:
+                if isinstance(response, list):
+                    return response.pop(0) if response else "mock response"
                 return response
         if self.responses:
             return self.responses.pop(0)

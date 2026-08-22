@@ -172,4 +172,40 @@ CONFIG = {
     # 软预算定价时压缩重试 30 题 0 次放行，6 题以捞回残片出厂。
     "compressed_reserve_margin_s": 150,
     "log_level": "INFO", "log_dir": "logs",
+    # ==================== V2.7.3 确定性求解器矩阵（恢复版） ====================
+    # utils/det_solver.py：15 条通用确定性管线（枚举/模周期/递推/特征值/插值/
+    # 求积/图优化/计数/概率/ODE/BVP/留数/级数/方程组/期望），每条强制自验 +
+    # 问目标守卫（题面陈述顺带出现 C(n,k)/矩阵/方程组但题问别的时绝不劫持）。
+    # 命中且自验通过 → answer_source=det_solver 作为推理候选进入 V2.5 原生
+    # 交叉验证流程（不锁定、不跳过反证——官方 54.46 回溯后的安全设计）。
+    "enable_det_solver": True,
+    "det_solver_timeout_s": 15,
+    # ==================== V2.5.4 多模型复核通道 ====================
+    # 官方知识库 FAQ 允许"按需选择或组合多个 Intern-S 系列模型"。第二模型
+    # 只在**分歧路径**介入（语义仲裁选择候选、客观题低置信复核投票），主解题
+    # 链路仍由主模型负责；与候选生成模型跨模型独立，分歧信号比同模型自评更
+    # 可信。任何不可用（模型名无效/不支持逐调用覆盖/配额尽/调用失败）都静默
+    # 回退主 client，与单模型行为完全一致。
+    # 激活条件（满足其一）：① 官方注入 client 的 chat 接受 model= 参数（自动，
+    # 零配置）；② 设环境变量 INTERN_REVIEW_MODEL + INTERN_API_KEY（本地调试）。
+    "enable_review_model": True,
+    # 复核模型名（提交前按评分系统实际可选项核对；intern-s1-pro 已实测可用）
+    "review_model": "intern-s1-pro",
+    # 每题复核调用封顶（防慢 API 下复核拖垮墙钟；超出后回退主 client）。
+    "review_max_calls_per_problem": 3,
+    # ==================== V2.5.5 快速采样投票（第三证据） ====================
+    # 投票节点位于外图：match 出厂前 与 语义仲裁选定后都触发。prefill 答案先行
+    # 的独立短采样（~10-20s/次）做多数确认/反证；反证（≥半数样本聚类同一反方
+    # 答案）→ 票选赢家作为第 4 候选交仲裁重选一次（answer_vote_max_rounds 轮次
+    # 守卫防循环）。N 按难度+剩余硬预算+API 实测速度自适应（慢 API 自动降 N）。
+    "enable_answer_vote": True,
+    "answer_vote_n": {"medium": 2, "hard": 3},
+    "answer_vote_estimate_s": 20,
+    "answer_vote_max_tokens": 512,
+    # 每题投票-仲裁循环轮次上限（1 = 反证后仲裁重选一次即止）
+    "answer_vote_max_rounds": 1,
+    # 单题 LLM 请求硬上限（逻辑调用数）：防御深度保险，只拦失控路径。
+    # V2.5.5 版补上（配合 llm_retry/time_budget 的计数机制）：官方实测最重题
+    # 29 次，26 给合法路径留足余量、仍拦 30+ 雪球。0 = 不限制。
+    "max_llm_calls_per_problem": 26,
 }

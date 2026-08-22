@@ -51,7 +51,7 @@ def _cue_bonus(module: str, problem: str) -> int:
     """Weight a module by domain cues present in the problem statement.
 
     单模块封顶 9 分：博弈类速查条目共享"博弈"标题，线索加成不封顶时同族条目
-    会集体霸榜，把真正对口但标题不带关键词的条目挤出预算（2026-08-09 idx 48）。
+    会集体霸榜，把真正对口但标题不带关键词的条目挤出预算（2026-08-09 真机实证）。
     """
     heading = module.split("\n", 1)[0]
     text = (problem or "").casefold()

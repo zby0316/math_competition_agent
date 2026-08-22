@@ -31,16 +31,21 @@ class InternChatClient:
         timeout: int = 120,
         retry: int = 3,
         default_args: Optional[Mapping[str, Any]] = None,
+        model: Optional[str] = None,
+        api_base: Optional[str] = None,
+        api_key: Optional[str] = None,
         **request_args: Any,
     ) -> None:
-        raw_api_key = os.environ.get("INTERN_API_KEY")
+        # V3.3 多模型复核通道（路径 B）：允许显式指定 model/api_base/api_key
+        # 构造第二 Intern-S 模型的 client；不传时行为与官方 baseline 完全一致。
+        raw_api_key = api_key or os.environ.get("INTERN_API_KEY")
         if not raw_api_key:
             raise RuntimeError("Missing API key. Set INTERN_API_KEY.")
         self.authorization = (
             raw_api_key if raw_api_key.startswith("Bearer ") else f"Bearer {raw_api_key}"
         )
-        self.api_base = os.environ.get("INTERN_API_BASE", DEFAULT_API_BASE)
-        self.model = os.environ.get("INTERN_MODEL", DEFAULT_MODEL)
+        self.api_base = api_base or os.environ.get("INTERN_API_BASE", DEFAULT_API_BASE)
+        self.model = model or os.environ.get("INTERN_MODEL", DEFAULT_MODEL)
         self.timeout = timeout
         self.retry = retry
         self.default_args = dict(default_args or {})

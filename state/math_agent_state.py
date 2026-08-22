@@ -67,6 +67,11 @@ class MathAgentState(TypedDict):
     playoff_trace: NotRequired[List[Dict]]
     # 客观题复核投票（低置信时追加一次独立采样比对）
     objective_revote_trace: NotRequired[List[Dict]]
+    # V2.5.5 快速采样投票（match 出厂前 / 仲裁选定后的第三证据：多数确认或反证）
+    answer_vote_status: NotRequired[str]    # all_agree | contested | contested_final | scattered | skipped | insufficient
+    answer_vote_trace: NotRequired[List[Dict]]
+    answer_vote_result: NotRequired[Dict[str, Any]]  # {"winner": str, "votes": int} 反证时注入仲裁候选
+    answer_vote_round: NotRequired[int]     # 投票轮次守卫（防投票-仲裁循环）
     # 模结构守护命中标记（F_2 / Z_m 语境；提示注入与静态核查记录）
     modular_guard: NotRequired[Dict[str, Any]]
     # 定向修复提示来源标记（critic/playoff → reconciliation 直通用，一次性消费）

@@ -304,7 +304,7 @@ def _compressed_reasoning_retry(deps, base_prompt,
     已尽也放行，只要硬上限前还容得下本次调用 + 收尾余量。
 
     ``coverage`` 是必须保全的答案覆盖度（全部解支/多问项/计数）——压缩针对推导
-    篇幅，绝不针对答案本身该覆盖的内容（2026-08-10 复测轮 idx 14 漏值事故）。
+    篇幅，绝不针对答案本身该覆盖的内容（2026-08-10 复测轮 真机实证 漏值事故）。
     失败时返回 (None, 原因)。
     """
     clock = deps.time_budget
@@ -345,6 +345,76 @@ def _raw_excerpt(text, head=600, tail=1400):
 
 #: sympy 预解器的惰性单例（进程内复用，避免每题重新 import sympy）。
 _SYMPY_SOLVER = None
+
+
+#: det_solver 确定性求解器矩阵的惰性引用（V2.7.3 恢复版，含问目标守卫）。
+_DET_SOLVER = None
+
+
+def _det_solve(state, deps):
+    """确定性求解器矩阵（utils/det_solver.py，15 条管线强制自验 + 问目标守卫）。
+
+    sympy 精确解析未命中时尝试；与 sympy 路径不同，**hard 也触发**（硬题恰是
+    "该确定性计算处 LLM 手算"的重灾区）。客观题/多问项不短路。任何失败/
+    超时（det_solver_timeout_s 软超时，守护线程实现）返回 None 交回 LLM。
+    """
+    if not CONFIG.get("enable_det_solver", True):
+        return None
+    if is_objective_mode(state.get("question_mode", "computation")):
+        return None
+    if is_multi_ask(str(state.get("problem") or "")):
+        return None
+    global _DET_SOLVER
+    if _DET_SOLVER is None:
+        try:
+            from utils.det_solver import det_solve
+            _DET_SOLVER = det_solve
+        except Exception:  # noqa: BLE001 - 模块缺失/依赖不可用 → 静默关闭
+            _DET_SOLVER = False
+    if not _DET_SOLVER:
+        return None
+    try:
+        # 守护线程 + join(timeout) 软超时：个别管线异常慢时不阻塞关键路径
+        # （超时后线程残留为 daemon，不再拖慢解题）。
+        import threading
+        result_box: dict = {}
+
+        def _run_det():
+            try:
+                result_box["value"] = _DET_SOLVER(str(state.get("problem") or ""))
+            except Exception:  # noqa: BLE001
+                result_box["value"] = {}
+
+        worker = threading.Thread(target=_run_det, daemon=True)
+        worker.start()
+        worker.join(float(CONFIG.get("det_solver_timeout_s", 15)))
+        if worker.is_alive():
+            return None
+        result = result_box.get("value") or {}
+    except Exception:  # noqa: BLE001 - 确定性工具失败交回 LLM
+        return None
+    answer = str((result or {}).get("answer") or "").strip()
+    if not answer:
+        return None
+    if _reject_bad_answer(answer) == "" or looks_incomplete_answer(answer):
+        return None
+    kind = str((result or {}).get("kind") or "det_solver")
+    evidence = str((result or {}).get("evidence") or f"{kind} 自验通过")
+    parsed = {
+        "analysis": f"由确定性求解管线 {kind} 直接计算得出。",
+        "steps": [{"step_num": 1,
+                   "description": f"{kind} 确定性计算：{answer}（{evidence}）"}],
+        "answer": answer,
+        "validation_points": [evidence],
+        "answer_source": "det_solver",
+    }
+    return {
+        "reasoning_result": parsed,
+        "reasoning_trace": [{"attempt": 0, "status": "det_solver_direct",
+                             "reason": f"{kind}_verified"}],
+        "reasoning_attempts": 0,
+        "reasoning_raw_response": answer,
+    }
 
 
 def _sympy_pre_solve(state, deps):
@@ -400,6 +470,11 @@ def _reasoning_agent_impl(state, config):
     pre = _sympy_pre_solve(state, deps)
     if pre is not None:
         return pre
+    # V2.7.3 确定性求解器矩阵：sympy 未命中时用通用管线（含 hard）再试一次，
+    # 命中且自验通过（含问目标守卫）则同样跳过 LLM 求解。
+    det = _det_solve(state, deps)
+    if det is not None:
+        return det
     sl = deps.skills_loader
     client = deps.client
     budget = deps.token_budget
@@ -428,7 +503,7 @@ def _reasoning_agent_impl(state, config):
             base_prompt += plan_hint
     except Exception:  # noqa: BLE001 - 提示注入失败不影响主路径
         pass
-    # 压缩重试要压的是推导篇幅，不是答案该覆盖的分支（评委复测 idx 14）。
+    # 压缩重试要压的是推导篇幅，不是答案该覆盖的分支（评委复测 真机实证）。
     coverage_clause = answer_coverage_clause(problem)
 
     if is_objective_mode(question_mode):
@@ -442,7 +517,7 @@ def _reasoning_agent_impl(state, config):
         if category == "抽象代数" and re.search(
             r"分裂域|Galois|伽罗瓦|域扩张|扩张次数|单位根", problem, flags=re.I
         ):
-            # 2026-08-10 复测轮 idx 86：本守卫已存在，模型仍答 Q(∜5, i) 与次数 8。
+            # 2026-08-10 复测轮 真机实证：本守卫已存在，模型仍答 Q(∜5, i) 与次数 8。
             # 补上可机械执行的判据（ζ_n 的实部/虚部展开、√2 的归属、塔次数乘积
             # 与根个数的对账），把"要检查"变成"照着算"。
             domain_guard = (
@@ -454,8 +529,8 @@ def _reasoning_agent_impl(state, config):
                 "并核对 [E:Q] 必须能被单个根的次数整除、且不小于根的个数；"
                 "(4) 特征零上的可分多项式，其分裂域必为 Galois 扩张。"
             )
-        # 空位数由代码侧数好写进提示（评委报告 idx 105：提示里的"先数空位"元指令
-        # 被模型原样回显成了答案 "Count blanks: 1"；idx 86：三空只答零空未被拦截）。
+        # 空位数由代码侧数好写进提示（评委报告实证：提示里的"先数空位"元指令
+        # 被模型原样回显成了答案 "Count blanks: 1"；真机实证：三空只答零空未被拦截）。
         from utils.problem_profile import count_blanks, fill_answer_matches_blanks
 
         blank_count = count_blanks(problem) if question_mode == "fill" else 0
@@ -484,7 +559,7 @@ def _reasoning_agent_impl(state, config):
             )
         # 两行契约把"答案"排在"依据"前面，模型先承诺后核对——对需要实算的客观题
         # （域扩张次数、维数、阶、收敛半径等）这个顺序恰好是反的：2026-08-10 复测轮
-        # idx 86 就是先写下 Q(∜5,i);8 再补依据。检出实算标记时改为"先核对后作答"，
+        # 真机实证 就是先写下 Q(∜5,i);8 再补依据。检出实算标记时改为"先核对后作答"，
         # 输出契约不变（解析取最后一个"答案："标签），成本只多几行核对文字。
         needs_derivation = bool(re.search(
             r"分裂域|扩张次数|\[E\s*[:：]\s*(?:Q|\\mathbb\{Q\})\]|Galois|伽罗瓦|"
@@ -549,7 +624,7 @@ def _reasoning_agent_impl(state, config):
                           "response_chars": len(response or ""),
                           "raw_excerpt": _raw_excerpt(response, head=300, tail=500)})
         if parsed.get("answer") and not fill_complete:
-            # 空位覆盖不足（评委报告 idx 86：三空只答零空仍以 0.78 置信放行）。
+            # 空位覆盖不足（评委报告实证：三空只答零空仍以 0.78 置信放行）。
             # 保留这个不完整候选，但先花一次种子重试争取全空覆盖。
             trace.append({"attempt": attempts, "status": "fill_blank_mismatch",
                           "blanks": count_blanks(problem),
@@ -826,7 +901,7 @@ def reasoning_agent_node(state, config):
     """调度入口：主路径直走实现；method_variant="B" 时跑异构第二解法。
 
     VeritasMath 升级：单样本推理的系统性强偏差无法靠"同样提示再跑一次"消除
-    （评委报告 idx 7/14/31：模型在同一思路上重复同一个错）。第二路径通过
+    （评委报告实证：模型在同一思路上重复同一个错）。第二路径通过
     DIVERSE_METHOD_HINT 强制切换方法论（构造枚举/不变量/反向归谬/生成函数），
     与主路径（直接代数法）形成独立证据源，结果写入 *_alt 字段参与三路交叉验证。
 

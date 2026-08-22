@@ -111,8 +111,8 @@ def _resolve_category(raw, valid_categories, fallback):
             return tied[0]
         # LCS 并列时用 Levenshtein ratio 精排（best-effort，区分长短不同的候选）
         try:
-            from Levenshtein import ratio as lev_ratio
-            return max(tied, key=lambda c: lev_ratio(s, c))
+            from Levenshtein import ratio as lev_ratio_tie
+            return max(tied, key=lambda c: lev_ratio_tie(s, c))
         except ImportError:
             return tied[0]
     # 5. Levenshtein 模糊匹配（兜底）
@@ -588,10 +588,6 @@ def _domain_override(problem: str, categories: list[str]) -> str | None:
         return "离散数学"
 
     return None
-
-
-# Compatibility for the unfinished 2026-08-08 test branch that used this name.
-_objective_domain_override = _domain_override
 
 
 def _decision_payload(problem, categories, category, confidence, candidates, stages,

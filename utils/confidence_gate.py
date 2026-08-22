@@ -65,7 +65,7 @@ def fast_lane_eligible(question_mode: str, confidence: float | None,
       - 题型为客观题（选择/判断/概念填空，计算填空排除）；
       - 置信度 fast 档（≥ high_threshold）；
       - 难度为 L1/L2（非 hard 显式标记，防止难题被误省）。
-    实算填空永远不省 Python（治本机制，idx=13 教训）。
+    实算填空永远不省 Python（治本机制，真机实证 教训）。
     """
     if question_mode in ("choice", "true_false"):
         pass

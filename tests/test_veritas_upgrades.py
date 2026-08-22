@@ -110,6 +110,7 @@ class TestDifficultyBudget(unittest.TestCase):
         from utils.time_budget import TimeBudget
         budget = TimeBudget(total_seconds=1200, reserve_seconds=300)
         budget.apply_difficulty_profile("easy")
+        # V2.6.3 回滚：easy 600→480（官方慢 API 下 600 是纯增量墙钟）
         self.assertEqual(budget.soft_total, 480.0)
         # 后到的更难画像不会把已收紧的预算放回去
         budget.apply_difficulty_profile("hard")
@@ -163,6 +164,25 @@ class TestMatcherHardening(unittest.TestCase):
         from utils.answer_matcher import AnswerMatcher
         self.assertFalse(AnswerMatcher._sympy_equivalent("5", "6", 1e-6))
 
+    def test_list_shaped_answers_never_crash(self):
+        # V2.7 真机事故回归：本地基准 真机实证 的 list 形态答案在
+        # _numeric_sample_equivalent 里 AttributeError 崩溃，整题被
+        # error_handler 替换为空状态、连出厂都失败。必须保守返回 None
+        # （交字符串相似度通道），绝不抛异常。
+        from utils.answer_matcher import AnswerMatcher
+        import sympy as sp
+        lst = sp.sympify("[1, 1, 5, 5]")  # sympify 可产出 list
+        self.assertIsNone(AnswerMatcher._numeric_sample_equivalent(
+            lst, sp.sympify("x"), 1e-6))
+        self.assertIsNone(AnswerMatcher._numeric_sample_equivalent(
+            sp.sympify("x"), lst, 1e-6))
+        self.assertIsNone(AnswerMatcher._numeric_sample_with_alignment(
+            lst, lst, 1e-6))
+        d = AnswerMatcher._match_computation_detailed(
+            "[1, 1, 5, 5, 5, 5, 9, 9, 10, 10, 16]", "1, 1, 5, 5, 5, 5, 9, 9, 10, 10, 16")
+        self.assertIsInstance(d, dict)
+        self.assertIn("verdict", d)
+
     def test_function_label_stripped(self):
         # 真机压测发现：`\text{tr}(A^3) = 48$` 与 `48` 曾因标签无法消费落仲裁
         from utils.answer_matcher import AnswerMatcher
@@ -174,7 +194,7 @@ class TestMatcherHardening(unittest.TestCase):
         self.assertTrue(d2["verdict"], d2.get("reason"))
 
     def test_equation_shaped_answer_vs_bare_value(self):
-        # ultra_112 真机压测实证的 10 组真实答案对（修复后全部正确判定）
+        # 真机压测实证实证的 10 组真实答案对（修复后全部正确判定）
         from utils.answer_matcher import AnswerMatcher
         pairs = [
             ("$\\det(A) = 0$", "det(A) = 0", True),
