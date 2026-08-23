@@ -257,7 +257,7 @@ def python_agent_node(state, config):
         counting = {"hit": detect_counting(problem)}
         if counting["hit"]:
             prompt += counting_clause(problem)
-    # V2.5.7 复参数化积分守卫（idx=28 根因）：sympy 对含 e^{e^{it}} 的复数
+    # V2.5.7 复参数化积分守卫（真机实证 根因）：sympy 对含 e^{e^{it}} 的复数
     # 参数化围道积分（∮_C e^z/z dz 之类）符号积分会**错误返回 0**（本地已复现），
     # 验证代码盲目采信 → 把 LLM 的正确答案 2πi 覆盖成 0（playoff 循环论证）。
     # 检出围道/复积分语境时注入强制条款：符号积分结果必须用数值积分对照，

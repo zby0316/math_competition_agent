@@ -31,7 +31,7 @@ class TestCountingGuard(unittest.TestCase):
 
 class TestOutputLayerFix(unittest.TestCase):
     def test_evidence_line_rejected(self):
-        # ultra_112 idx=63：思维流中"Line 2: 依据：…故"不得被当成答案
+        # 真机实证 真机实证：思维流中"Line 2: 依据：…故"不得被当成答案
         evil = "Thinking Process:\n1. Analyze...\nLine 2: `依据：当 z=1 时 |z|=1 且 z⁴−2z+1=0，故"
         ans, src = extract_answer_fallback_with_source(evil)
         self.assertEqual(ans, "")

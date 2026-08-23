@@ -6,7 +6,6 @@
 2. run_process_verifier：多数票聚合（2/3 采样判某步无效 → flawed）
 3. 触发条件：hard/冲突触发，medium 快速路径不触发（经 critic_node 逻辑）
 """
-import sys
 import unittest
 from unittest.mock import MagicMock
 
@@ -94,7 +93,7 @@ class TestRunProcessVerifier(unittest.TestCase):
         self.assertIn("漏了正根", out["flawed_steps"][0]["flaw"])
 
     def test_minor_does_not_escalate(self):
-        # 2 次采样一致判步骤 minor 无效 → sound（不升级，idx=8 干跑教训）
+        # 2 次采样一致判步骤 minor 无效 → sound（不升级，真机实证 干跑教训）
         samples = [
             '{"step_verdicts": [{"step": 1, "valid": false, "severity": "minor",'
             ' "flaw": "表述不清"}], "overall": "sound"}',

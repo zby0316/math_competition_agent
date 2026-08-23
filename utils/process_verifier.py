@@ -81,7 +81,7 @@ def _parse_verdict(raw: str) -> dict | None:
         })
     overall = str(parsed.get("overall") or "").strip().lower()
     # severity 优先：模型可能报 overall=flawed 但漏洞全为 minor——
-    # 按"是否存在 critical 无效步骤"重算，避免 minor 表述问题升级（idx=8 教训）。
+    # 按"是否存在 critical 无效步骤"重算，避免 minor 表述问题升级（真机实证 教训）。
     has_critical = any(not s["valid"] and s["severity"] == "critical" for s in steps)
     if has_critical:
         overall = "flawed"

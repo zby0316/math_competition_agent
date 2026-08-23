@@ -2,8 +2,8 @@
 
 基线架构的缺口：交叉验证只回答"两路答案是否一致"，仲裁只回答"哪个候选更完整"，
 没有任何环节系统性地回答"**答案是否覆盖了题面的全部要求**"。评委报告显示这是
-稳定失分源——多问漏答（idx 14 三值报一）、契约缺项（idx 86 三空答零空）、
-证明过程留在 trace 没进 final_response（idx 74 仅得 0.3）。
+稳定失分源——多问漏答（真机实证 三值报一）、契约缺项（真机实证 三空答零空）、
+证明过程留在 trace 没进 final_response（真机实证 仅得 0.3）。
 
 Critic 在 coordinator 之前运行，做两级审计：
 1. 确定性契约（answer_contract，零成本）+ LLM 契约审计（prefill，~15s）合并判定；
@@ -115,7 +115,6 @@ def critic_node(state, config):
     deps = get_deps(config)
     trace = list(state.get("critic_trace") or [])
     rounds = state.get("critic_rounds", 0)
-    ptype = (state.get("validation_details") or {}).get("problem_type", "computation")
     question_mode = state.get("question_mode", "")
 
     answer = str(state.get("validated_answer") or "").strip()

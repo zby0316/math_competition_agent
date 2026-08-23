@@ -265,8 +265,8 @@ def semantic_arbiter_node(state, config):
 
     # V2.5.7：仲裁前的过程验证第三路证据——推理链逐步骤检查（PV）。
     # 适用场景：uncertain_arbitrating（语义判定无法确定）+ python 证据为
-    # support/inconclusive（"执行成功"可能掩盖验证代码自身的错误——bench_hard12
-    # idx=10 实证：python 输出 [0.1,10,30] 的错误特征值却以 support 姿态进入仲裁，
+    # support/inconclusive（"执行成功"可能掩盖验证代码自身的错误——bench_本地基准
+    # 真机实证 实证：python 输出 [0.1,10,30] 的错误特征值却以 support 姿态进入仲裁，
     # 仲裁被"代码证据"带偏）。此时给仲裁者注入"推理链逻辑是否成立"的独立结论，
     # 让它能识别"推理对、验算工具错"的情形。
     # 成本控制：仅 n=1 短调用（~3-5s），且只在本场景触发；hard/playoff 冲突的

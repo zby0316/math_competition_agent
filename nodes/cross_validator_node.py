@@ -10,7 +10,7 @@ VeritasMath 升级：
 2. 计算题 mismatch 先进 deterministic playoff（代回复算裁决），季后赛无法
    裁决时才落入重算/仲裁——把"只能选"升级为"先算清楚再选"。
 3. 客观题低置信复核投票：空位覆盖不足等低置信形态触发一次独立短采样比对，
-   一致才提置信（评委报告 idx 86：三空答零空曾以 0.78 置信直接放行）。
+   一致才提置信（评委报告实证：三空答零空曾以 0.78 置信直接放行）。
 """
 from utils.answer_matcher import AnswerMatcher
 from utils.answer_contract import answer_part_count, missing_components
@@ -47,7 +47,7 @@ def _preferred_answer(state: dict, match_result: dict) -> str:
 
     证据优先序（2026-08-09 评委建议 1，最高优先级）：
     ``有枚举支撑且反驳对手的 Python 答案 > evidence=support 的分支 > 推理答案 >
-    结构化部分结论``。idx 20 事故——Python 枚举出 C(2k,k)² 且 evidence=contradict
+    结构化部分结论``。真机实证 事故——Python 枚举出 C(2k,k)² 且 evidence=contradict
     明确反驳了推理的 "4"，仲裁超时后系统仍输出被自家验证器反驳的 "4"——由第一
     条规则在架构上杜绝：证据指向谁，兜底就选谁。
 
@@ -176,7 +176,7 @@ def cross_validator_node(state, config):
     # VeritasMath 治本：实算填空题现在会扇出 Python 验证（verify_router）。
     # 当这类题拿到可用的 Python 候选时，必须走完整 computation 交叉验证
     # （matcher / playoff），而不是客观题快速路径的直接放行——否则 Python
-    # 证据被浪费，单采样错答（idx=13/40）仍会出厂。
+    # 证据被浪费，单采样错答（真机实证）仍会出厂。
     _fill_with_python = (
         question_mode == "fill"
         and bool(str(python_output.get("answer") or "").strip())
@@ -199,7 +199,7 @@ def cross_validator_node(state, config):
                       + ("；但分项数少于题面空位数，答案可能不完整" if blank_gap else ""))
             # VeritasMath 复核投票：低置信形态（空位覆盖不足）触发一次独立采样比对。
             # 一致 → 置信提到 0.9；分歧 → 维持 0.45 并保留更完整一方，留证待查。
-            # 真机扩展（ultra_112 idx=13/40）：填空题需实算且单采样易错（符号错/
+            # 真机扩展（真机实证）：填空题需实算且单采样易错（符号错/
             # 计数错），即使空位覆盖足也复核一次——独立重解是第二证据，
             # 一致提置信，分歧保留更完整候选。成本 ~45s/题，仅 fill 触发。
             need_revote = (blank_gap or question_mode == "fill")
@@ -334,7 +334,7 @@ def cross_validator_node(state, config):
     # A program can run successfully while proving that the candidate is false.
     if evidence_status == "contradict":
         match_result["routing_reason"] = "python_evidence_contradiction"
-        # VeritasMath 真机修复（ultra_112 idx=30）：contradict 证据可能是
+        # VeritasMath 真机修复（真机实证）：contradict 证据可能是
         # **假证据**——Python 自身算错（CRT 逆元求错）却自报"反驳了正确的推理"。
         # 原链路直接仲裁/重算，且 coordinator 证据闸门会强行采信 Python 错值。
         # 修复：计算题且有双候选时，先送 playoff 代回复算裁决谁对谁错，

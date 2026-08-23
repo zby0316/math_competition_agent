@@ -7,7 +7,6 @@
 3. PV=flawed 且当前 pass → 升 calc_error（追加 calc_checks）
 4. PV 不可用/失败 → 不阻塞，保持原判定
 """
-import sys
 import unittest
 from unittest.mock import MagicMock, patch
 

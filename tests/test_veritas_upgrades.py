@@ -6,7 +6,6 @@ matcher 加固（符号对齐/限时）、分类难度解析、异构路径调�
 import time
 import unittest
 
-from config import CONFIG
 
 
 class TestCriticAudit(unittest.TestCase):
@@ -165,7 +164,7 @@ class TestMatcherHardening(unittest.TestCase):
         self.assertFalse(AnswerMatcher._sympy_equivalent("5", "6", 1e-6))
 
     def test_list_shaped_answers_never_crash(self):
-        # V2.7 真机事故回归：hard12 idx=11/12 的 list 形态答案在
+        # V2.7 真机事故回归：本地基准 真机实证 的 list 形态答案在
         # _numeric_sample_equivalent 里 AttributeError 崩溃，整题被
         # error_handler 替换为空状态、连出厂都失败。必须保守返回 None
         # （交字符串相似度通道），绝不抛异常。
@@ -194,7 +193,7 @@ class TestMatcherHardening(unittest.TestCase):
         self.assertTrue(d2["verdict"], d2.get("reason"))
 
     def test_equation_shaped_answer_vs_bare_value(self):
-        # ultra_112 真机压测实证的 10 组真实答案对（修复后全部正确判定）
+        # 真机压测实证实证的 10 组真实答案对（修复后全部正确判定）
         from utils.answer_matcher import AnswerMatcher
         pairs = [
             ("$\\det(A) = 0$", "det(A) = 0", True),

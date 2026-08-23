@@ -30,13 +30,13 @@ _META_NARRATION_RE = re.compile(
     r"tells? me|the skill manual|i am the teacher|not yet\b|do we\b)\b"
 )
 
-#: 提示词内部指令被回显为答案（评委报告 idx 105："Count blanks: 1"）。
+#: 提示词内部指令被回显为答案（评委报告实证："Count blanks: 1"）。
 _INTERNAL_INSTRUCTION_RE = re.compile(
     r"(?i)count\s+blanks?|数空位|空位数量|按选项(?:逐项)?核对|逐项核对题面|"
     r"先数清|请判断|请问|按顺序列出全部结果"
 )
 
-#: 中文自我怀疑/过程叙述（评委报告 idx 36："哪里出错了？啊！"）。
+#: 中文自我怀疑/过程叙述（评委报告实证："哪里出错了？啊！"）。
 _SELF_DOUBT_RE = re.compile(
     r"哪里出错|出错了|怎么回事|矛盾了|不对啊|再试一次|等一下|让我们|我们先试|重新来"
 )
@@ -55,7 +55,7 @@ _PURE_MATH_RE = re.compile(
 _SENTENCE_SPLIT_RE = re.compile(r"(?:[。；;!?！？\n]|(?<!\d)\.(?!\d))+")
 
 #: 英文探索句的句首引导词。单独一句（"We conclude ..."）是合法结论文体，
-#: 连续多句才是解题现场的思维流（2026-08-09 冒烟 idx 43："We need 4 players
+#: 连续多句才是解题现场的思维流（2026-08-09 冒烟 真机实证："We need 4 players
 #: A,B,C,D. All intervals must contain day c. Suppose c=3. ..."）。
 _EXPLORATORY_LEAD_RE = re.compile(
     r"(?i)^(?:let'?s?|suppose|assume|now|then|consider|try|maybe|perhaps|say|"
@@ -96,24 +96,24 @@ def is_noise_answer(text: str) -> bool:
     # 疑问/感叹收尾：结论不以问句结束。（允许内部含 '?' 的合法记号，如 "P(X>1)"）
     if re.search(r"[？?！!]\s*$", s):
         return True
-    # 句首疑问句（2026-08-09 冒烟 idx 14："Are there any other ... sequences?
+    # 句首疑问句（2026-08-09 冒烟 真机实证："Are there any other ... sequences?
     # The known theorem says..."）：答案不会以问句开场；含 boxed 结论时除外。
     first_stop = re.search(r"[。；;!?！？\n]|(?<!\d)\.(?!\d)", s)
     if "\\boxed" not in s and first_stop and first_stop.group(0) in "？?" \
             and first_stop.start() <= 160:
         return True
-    # "数字. 英文评述句" 形态（评委报告 idx 17："-177. Strict. So equality only
+    # "数字. 英文评述句" 形态（评委报告实证："-177. Strict. So equality only
     # when all equal."）：裸数值后接英文散句、且全文无等式/boxed 绑定 → 思维流。
     if re.match(r"^[-+]?\d+(?:\.\d+)?\s*[.,;]\s+[A-Za-z]", s) \
             and not re.search(r"\\boxed|=", s):
         return True
-    # 裸数 + 评估动词（2026-08-09 冒烟 idx 33/2："3 works"、"1/2 works."）：
+    # 裸数 + 评估动词（2026-08-09 冒烟 真机实证："3 works"、"1/2 works."）：
     # 结论不带评估口吻；分数/小数同样适用。answer_formatter 的头部修复会剥掉
     # 评述词保留数值本体。
     if re.match(r"(?i)^[-+]?\d+(?:[./]\d+)?\s+(?:works?|holds?|fails?|seems|"
                 r"is\s+possible|is\s+enough|suffices)\b", s):
         return True
-    # 对局/模拟日志行（2026-08-09 冒烟 idx 48："Move 2: A picks 3 and 1. B
+    # 对局/模拟日志行（2026-08-09 冒烟 真机实证："Move 2: A picks 3 and 1. B
     # chooses min(4,2) = 2. State {2,2} -> 1 cookie."）：过程记录不是结论。
     if re.match(r"(?i)^\s*(?:move|round|turn|step)\s+\d+\s*[:：]", s):
         return True
@@ -153,25 +153,25 @@ def looks_committed_result(line: str) -> bool:
 
 # ---- 捞回专用：推导现场碎片 ----
 
-#: 语篇连接词开头的句子是论证的中间分支，不是自立结论（评委报告 idx 2：
+#: 语篇连接词开头的句子是论证的中间分支，不是自立结论（评委报告实证：
 #: "Otherwise, D1 > 1/2..."）。therefore/thus 不在列——它们引出的常是真结论。
 _CONNECTIVE_LEAD_RE = re.compile(
     r"(?i)^(?:otherwise|however|similarly|conversely|alternatively|moreover|"
     r"furthermore|meanwhile|instead|likewise|nevertheless|nonetheless|"
     r"on the other hand|in (?:this|that|either) case)\b"
 )
-#: "N if 条件, M if 条件" 条件对：分类讨论的中间引理形态（评委报告 idx 0：
+#: "N if 条件, M if 条件" 条件对：分类讨论的中间引理形态（评委报告实证：
 #: "0 if i odd, 2 if i even." 被当成 Hamilton 路径计数交付）。LaTeX cases
 #: 环境是正规分段答案写法，不受此规则约束。
 _CONDITIONAL_PAIR_RE = re.compile(
     r"(?i)^[^,，;；]{1,60}\bif\b[^,，;；]{1,60}[,，;；]\s*[^,，;；]{1,60}\bif\b"
 )
-#: 纯单字母变量的加减乘除串（评委报告 idx 33："a+b+c+d."）：没有数值、没有
+#: 纯单字母变量的加减乘除串（评委报告实证："a+b+c+d."）：没有数值、没有
 #: 定义式的裸符号和，是"设目标为 a+b+c+d"的回声，不是计算结果。
 _BARE_SYMBOL_SUM_RE = re.compile(
     r"^[A-Za-z](?:\s*[+\-*/]\s*[A-Za-z])+\s*[.。]?$"
 )
-#: 以英文 true/false 判定收尾的数学断言（评委报告 idx 77："8. 7≥8 false."）：
+#: 以英文 true/false 判定收尾的数学断言（评委报告实证："8. 7≥8 false."）：
 #: 这是推导中的试错记录。判断题的合法答案是"正确/错误"，不经此形态。
 _VERDICT_TAIL_RE = re.compile(r"(?i)(?:^|[^A-Za-z])(?:true|false)\s*[.。]?\s*$")
 

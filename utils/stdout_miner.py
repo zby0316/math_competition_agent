@@ -1,6 +1,6 @@
 """从 Python 执行的 stdout 中二次抽取答案（评委建议 1 的后半部分）。
 
-评委报告模式 D 的具体事故：idx 20 的验证代码枚举出 k=1→4、k=2→36 并打印
+评委报告模式 D 的具体事故：真机实证 的验证代码枚举出 k=1→4、k=2→36 并打印
 "both match binomial(2k,k)^2 formula; 4^k pattern fails at k=2" ——正确公式
 已经在 stdout 里，但因为缺少最后的 ``print("最终答案:", ...)`` 行，执行器的
 answer 字段为空，`python_ok` 为假，这个被自家程序证实的公式再也进不了候选池，
