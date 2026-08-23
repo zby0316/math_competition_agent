@@ -104,7 +104,7 @@ class MathAgentGraph:
         try:
             pacer = PaperPacer.get_instance()
             idx = -1
-            meta = initial_state.get("meta") if isinstance(initial_state, dict) else None
+            meta = initial_state.get("metadata") if isinstance(initial_state, dict) else None
             if isinstance(meta, dict):
                 idx = meta.get("idx", -1)
             paper_cap = pacer.budget_for(idx)

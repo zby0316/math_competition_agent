@@ -105,6 +105,19 @@ class LLMRetryWrapper:
             raise DeadlineExceeded(
                 f"{label}: {self.time_budget.remaining():.0f}s left, need {need}"
             )
+        # V2.6.2 单题请求硬上限：无论哪条路径失控，LLM 调用总数封顶。超过后
+        # 快失败（DeadlineExceeded 由各调用方降级为确定性兜底，不会交白卷）；
+        # emergency_answer 豁免——最后保底直答不能被自己挡住。用 getattr 探测
+        # 计数接口：平台注入/测试替身的 budget 形对象可能没有该能力。
+        _cap_check = getattr(self.time_budget, "llm_calls_exhausted", None)
+        if (self.time_budget is not None and label != "emergency_answer"
+                and callable(_cap_check) and _cap_check()):
+            raise DeadlineExceeded(
+                f"{label}: per-problem LLM call cap "
+                f"({CONFIG.get('max_llm_calls_per_problem')}) reached")
+        _bump = getattr(self.time_budget, "bump_llm_call", None)
+        if callable(_bump):
+            _bump()
 
         last_error = None
         for attempt in range(1, self.max_retries + 1):
@@ -125,11 +138,18 @@ class LLMRetryWrapper:
                 # 可见）；② 启发式（client 只返回字符串时 finish_reason 不可见，
                 # 用"写满 max_tokens + 结尾明显未完成"判定——真机实证本地 client
                 # 返回纯 content 丢弃 finish_reason，仅靠①会漏检）。
-                if result and result.strip() and (
-                        detect_truncation(raw)
-                        or _looks_truncated(result, max_tokens)):
-                    result = self._continue_truncated(
-                        messages, result, temperature, label, thinking_mode)
+                # V2.6.1 修复：启发式只在 finish_reason **不可见**时启用——可见且
+                # 非 length 说明服务端明确"已完成"，再跑字符启发式只会把完整的长
+                # 答案误判为截断，触发多余续写污染答案并抬高请求数。
+                if result and result.strip():
+                    fr_truncated = detect_truncation(raw)
+                    heuristic = (
+                        not _finish_reason_visible(raw)
+                        and _looks_truncated(result, max_tokens)
+                    )
+                    if fr_truncated or heuristic:
+                        result = self._continue_truncated(
+                            messages, result, temperature, label, thinking_mode)
                 return result
             except Exception as exc:  # noqa: BLE001 - retry transient transport failures.
                 last_error = exc
@@ -176,11 +196,16 @@ class LLMRetryWrapper:
         - 续写用 prefill（assistant 前缀）抑制 CoT，不重新触发思考；
         - 只用结尾片段作前缀（超长前缀在慢 API 下会拖到 800s+ 逼近单题硬限）；
         - 预算不足（remaining_hard 或 can_afford 不满足）直接放弃，不冒险。
-        - V2.6 从"只续一次"升级为"续到完整，最多 N 轮"（N=truncation_continue_max_rounds）：
-          单次 2048 token 续写不够时（超长证明/多问项），循环续写直到完整或达到上限。
+        - V2.6 修正（官方实测 truncated=203 雪球教训）：续写轮数默认 1（config
+          truncation_continue_max_rounds），一次续写不够就走压缩重试（答案先行、
+          max_tokens 更大），不再循环续写累积截断计数；续写 tokens 按 label
+          分级：reasoning 主链路 8192（一次覆盖答案尾部），其余 4096。
         """
-        max_rounds = int(CONFIG.get("truncation_continue_max_rounds", 2))
-        continue_tokens = CONFIG.get("truncation_continue_tokens", 2048)
+        max_rounds = int(CONFIG.get("truncation_continue_max_rounds", 1))
+        continue_tokens = int(CONFIG.get(
+            "truncation_continue_tokens_hard", 8192)
+            if "reasoning" in str(label)
+            else CONFIG.get("truncation_continue_tokens", 4096))
         current = result
         try:
             for _round in range(max_rounds):
@@ -215,6 +240,23 @@ class LLMRetryWrapper:
             return current
 
 
+def _finish_reason_visible(resp) -> bool:
+    """client 返回值里能否读到 finish_reason。
+
+    finish_reason 可见（无论是不是 length）时，服务端已给出权威截断判定，
+    字符启发式必须让位；只有纯字符串 client（丢弃元信息）才需要启发式。
+    """
+    try:
+        if isinstance(resp, dict):
+            choices = resp.get("choices") or []
+            if choices and isinstance(choices[0], dict):
+                return "finish_reason" in choices[0]
+            return "finish_reason" in resp
+        return hasattr(resp, "finish_reason")
+    except Exception:  # noqa: BLE001 - 探测失败按可见处理，宁可少补一次
+        return True
+
+
 def _looks_truncated(text: str, max_tokens: int) -> bool:
     """finish_reason 不可见时的截断启发式（真机实证：本地 client 只返回 content
     字符串，丢弃 finish_reason，仅靠 detect_truncation 会漏检）。
@@ -223,20 +265,24 @@ def _looks_truncated(text: str, max_tokens: int) -> bool:
     - 强信号（不依赖写满判据，命中即判截断）：未闭合 LaTeX（$ 奇数、{/} 不配对）、
       结尾反斜杠命令残片——正常答案几乎不会出现，出现即大概率截断。
     - 弱信号（依赖写满判据，即输出达到 max_tokens 量级）：结尾未完成标点
-      （冒号/逗号/等号/空括号）、枚举空项、写满 1.5 倍以上。
+      （冒号/逗号/等号/空括号）、枚举空项。
     """
     if not isinstance(text, str) or max_tokens <= 0:
         return False
     s = text.rstrip()
-    # —— 强信号：未闭合 LaTeX / 命令残片（不依赖写满判据）——
+    # 强信号：未闭合 LaTeX / 命令残片（不依赖写满判据）——
     if s.count("$") % 2 == 1:
         return True
     if s.count("{") > s.count("}"):
         return True
     if re.search(r"\\[a-zA-Z]+$", s):  # 结尾反斜杠命令残片（如 "\\alpha" 无闭合）
         return True
+    # V2.6：官方 client 可能把 max_tokens clamp 到较小值（官方示例默认 4096）。
+    # 弱信号"写满"判据必须用有效上限 min(max_tokens, 4096)——否则传 12288 而
+    # 官方实际 4096 时，len(s) 永远达不到 12288*1.2，截断被漏判（代价=残缺 0 分）。
+    effective_cap = min(int(max_tokens), 4096)
     # —— 弱信号：写满判据是前提 ——
-    if len(s) < max_tokens * 1.2:
+    if len(s) < effective_cap * 1.2:
         return False
     tail = s[-60:]
     if re.search(r"[-:：,，、=＝]\s*$", tail):
@@ -247,7 +293,10 @@ def _looks_truncated(text: str, max_tokens: int) -> bool:
         return True
     if re.search(r"^\s*(?:\d+[.、)]|[-*•])\s*$", tail[-3:].lstrip()):  # 枚举项后无内容
         return True
-    return len(s) >= max_tokens * 1.5
+    # V2.6.1 修复：移除原先 `len(s) >= effective_cap*1.5` 的纯长度兜底触发——
+    # 完整的长答案（LaTeX 步骤 6K+ 字符）会被它误判为截断，触发多余续写污染
+    # 答案；截断判定必须有结尾残片证据，不能只凭长度。
+    return False
 
 
 

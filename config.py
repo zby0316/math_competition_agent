@@ -172,4 +172,6 @@ CONFIG = {
     # 软预算定价时压缩重试 30 题 0 次放行，6 题以捞回残片出厂。
     "compressed_reserve_margin_s": 150,
     "log_level": "INFO", "log_dir": "logs",
+    # V2.5.6：单题 LLM 请求硬上限（逻辑调用数），防御失控路径；0=不限制。
+    "max_llm_calls_per_problem": 26,
 }
