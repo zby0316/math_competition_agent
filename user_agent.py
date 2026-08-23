@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import os as _os
 import sys as _sys
-from typing import Any, Dict
 
 # ── 防线 1：sys.path 自举（任何加载形态不抛异常）──
 _HERE = ""

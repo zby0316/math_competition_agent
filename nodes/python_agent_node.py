@@ -7,7 +7,7 @@ code is found — never executes CoT as code.
 """
 import re
 from utils.deps import get_deps
-from utils.llm_retry import chat_prefilled, chat_with_retry, thinking_mode_flag
+from utils.llm_retry import chat_prefilled, thinking_mode_flag
 from utils.prompt_templates import PYTHON_PROMPT
 from utils.token_budget import estimate_tokens
 from utils.cot_stripper import strip_cot_prefix
@@ -257,6 +257,22 @@ def python_agent_node(state, config):
         counting = {"hit": detect_counting(problem)}
         if counting["hit"]:
             prompt += counting_clause(problem)
+    # V2.5.7 复参数化积分守卫（idx=28 根因）：sympy 对含 e^{e^{it}} 的复数
+    # 参数化围道积分（∮_C e^z/z dz 之类）符号积分会**错误返回 0**（本地已复现），
+    # 验证代码盲目采信 → 把 LLM 的正确答案 2πi 覆盖成 0（playoff 循环论证）。
+    # 检出围道/复积分语境时注入强制条款：符号积分结果必须用数值积分对照，
+    # 符号积分为 0 而数值积分非零时不得采信符号积分。
+    if re.search(r"∮|\\oint|围道|复积分|contour|residue|留数|柯西积分", problem):
+        prompt += (
+            "\n\n[复积分数值对照强制条款]\n"
+            "本题涉及围道/复积分。注意：sympy 的 sp.integrate 对复数参数化积分"
+            "（如 ∫₀^{2π} e^{e^{it}}·i·e^{it} dt）可能**错误返回 0**。\n"
+            "必须额外用数值积分对照（mpmath.quad 沿参数路径对实部/虚部分别积分，"
+            "或 scipy.integrate.quad 分别算实部与虚部）：\n"
+            "1. 符号积分结果与数值积分结果一致（误差 < 1e-6）才可采信；\n"
+            "2. 若符号积分为 0 但数值积分明显非零（如 ≈6.28i），以数值积分为准，"
+            "并在验证证据中说明；\n"
+            "3. 用柯西积分公式/留数定理的结果交叉核对最终值。\n")
 
     trace = []
     attempts = 0

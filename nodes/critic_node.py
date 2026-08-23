@@ -8,6 +8,10 @@
 Critic 在 coordinator 之前运行，做两级审计：
 1. 确定性契约（answer_contract，零成本）+ LLM 契约审计（prefill，~15s）合并判定；
 2. LLM 对 1-3 个中间计算做抽核（calc_error 是比"缺项"更强的重算信号）。
+3. （V2.5.7）过程验证器 PV（process_verifier）：hard/冲突/低置信时逐步骤检查
+   推理链逻辑有效性，n=3 并行采样多数票（移植 Intern-S1-MO 论文过程验证思想）。
+   PV 是过程级审计，与 1/2 的结果级审计互补——中间步骤想错但最终答案碰巧对
+   的题，契约与抽核都看不见，PV 能抓。
 
 路由哲学与全系统一致：审计不制造答案，只产生**定向修复提示**——缺口明确且
 预算可负担时回调解阶段做定点补算（复用既有重试定价与轮次上限），否则带着
@@ -140,6 +144,43 @@ def critic_node(state, config):
     llm_verdict = _llm_audit(state, deps, answer)
     merged = merge_with_deterministic(llm_verdict, deterministic_missing)
     verdict = merged["verdict"]
+
+    # V2.5.7：过程验证器 PV——hard/playoff 冲突时逐步骤查推理链逻辑漏洞。
+    # 触发面窄（自适应预算，2026-08-23 干跑实证收紧）：
+    #   - difficulty == hard
+    #   - 验证进入 playoff（contradict_playoff / mismatch_playoff）——两路候选
+    #     真正冲突时，PV 提供第三路过程级证据
+    #   - critic 已报 incomplete/calc_error（反正要修，多一层证据）
+    # 明确**不**触发 uncertain_arbitrating（V2.5 常态 ~60% 题都走仲裁，
+    # 触发会让 PV 每题必跑，烧预算且打爆 RPM 30/min）。
+    # PV 只追加证据不覆盖现有判定：PV=flawed 且当前 pass → 升 calc_error；
+    # 其余情况保持原判定。
+    pv_result = None
+    difficulty = str(state.get("difficulty") or "").lower()
+    validation_status = str(state.get("validation_status") or "")
+    pv_trigger = (
+        CONFIG.get("enable_pv", True)
+        and (difficulty == "hard"
+             or validation_status in ("contradict_playoff", "mismatch_playoff")
+             or verdict in ("incomplete", "calc_error"))
+    )
+    if pv_trigger:
+        try:
+            from utils.process_verifier import run_process_verifier
+            pv_result = run_process_verifier(deps, state, answer)
+        except Exception as exc:  # noqa: BLE001 - PV 失败不阻塞
+            deps.logger.warning("PV verifier unavailable: %s", exc)
+            pv_result = None
+        if pv_result and pv_result.get("overall") == "flawed":
+            flawed = pv_result.get("flawed_steps") or []
+            merged.setdefault("calc_checks", []).extend(
+                {"check": f"步骤{s.get('step', '?')}逻辑漏洞", "ok": False,
+                 "note": (s.get("flaw") or "")[:120]}
+                for s in flawed[:3])
+            if verdict == "pass":
+                verdict = "calc_error"
+                merged["verdict"] = "calc_error"
+
     if conflict and verdict == "pass":
         verdict = "calc_error"
         merged["verdict"] = "calc_error"
@@ -156,6 +197,10 @@ def critic_node(state, config):
         "llm_available": merged.get("llm_available", False),
         "deterministic_missing": list(deterministic_missing or []),
         "derivation_conflict": conflict or "",
+        "pv": ({"overall": pv_result.get("overall"), "samples": pv_result.get("samples"),
+                "flawed_steps": pv_result.get("flawed_steps"),
+                "reason": pv_result.get("reason")}
+               if pv_result else None),
     })
 
     if verdict == "pass":

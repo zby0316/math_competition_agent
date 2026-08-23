@@ -175,7 +175,12 @@ def read_chat_mode(client) -> dict:
     如果值是 ``messages_only``，即实锤"max_tokens 被丢弃、官方用默认上限"；
     如果值是 ``kwargs``/``positional``，说明 max_tokens 传进去了。
     仅在主流程至少跑过一次 chat 后才有值，故放到 trace 阶段再读。
+    （2026-08-23 合规收敛：缓存移入 response_normalize 模块级弱引用字典，
+    不再读写 client 实例属性。）
     """
-    return {
-        "chat_mode": getattr(client, "_veritas_chat_mode", None),
-    }
+    from utils.response_normalize import _CHAT_MODE_CACHE
+    try:
+        mode = _CHAT_MODE_CACHE.get(client)
+    except Exception:  # noqa: BLE001 - 不可哈希 client
+        mode = None
+    return {"chat_mode": mode}

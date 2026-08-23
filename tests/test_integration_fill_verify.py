@@ -30,6 +30,16 @@ class TestFillComputationDoublePath(unittest.TestCase):
             "最终答案：1",                                              # coordinator
         ]
         client = MockClient(responses)
+        # V2.5.7 竞态加固（对齐 test_integration_graph._run_graph 模式）：
+        # solving 子图 reasoning/python 节点**并发**执行，共享顺序响应存在
+        # 竞态（python 线程可能抢先消费响应，2026-08-23 全量 discover 偶发
+        # FAIL 实证）；按 prompt 精确特征词路由消除竞态。顺序响应仅作兜底。
+        client.route("可选类别", responses[0])                    # 分类
+        client.route("你是数学、统计学与计量经济学教师", responses[1])  # fill 客观题快速路径
+        client.route("你是Python数学计算专家", responses[2])      # python 验证
+        client.route("你是数学裁判工程师", responses[3])          # playoff 代回复算
+        client.route("请审计下面这道题", responses[4])            # critic
+        client.route("你是一个数学教学专家", responses[5])        # coordinator
         graph = MathAgentGraph(client=client, skills_loader=SkillsLoader(),
                                mcp_client=PythonMCPClient())
         final = graph.run(create_initial_state(

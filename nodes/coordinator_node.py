@@ -203,7 +203,7 @@ def _form_align_reframe(client, deps, problem: str, answer: str,
         text = strip_cot_prefix(raw or "").strip()
         # 去掉可能的"最终答案："前缀与多余文字
         import re as _re
-        m = _re.search(r"最终答案[：:]\s*(.+)", text, re.DOTALL)
+        m = _re.search(r"最终答案[：:]\s*(.+)", text, _re.DOTALL)
         text = (m.group(1) if m else text).strip()
         text = text.splitlines()[0].strip() if text else ""
         # V2.4：选择题重述结果再做一次确定性归一化（仅保留字母），

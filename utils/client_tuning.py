@@ -1,20 +1,14 @@
-"""Raise the injected client's socket timeout so slow-but-healthy calls survive.
+"""Probe the injected client's transport settings (read-only).
 
-Measured failure, 2026-07-29 judge run: every reasoning attempt on Q1 died with
-`reasoning:failed` at 363s — exactly 3 x the client's 120s socket timeout, i.e. the
-client's internal retries all expired. The call was not hung; a single reasoning
-call on this model legitimately runs 77-116s solo, and under four-problem parallel
-load it exceeds 120s. So a 120s socket timeout does not protect against hangs here,
-it *guarantees* failure on hard problems and returns nothing at all.
+2026-08-23 合规收敛（对照初赛要求 L2824-2825"不要读取 client 的内部属性，
+不要修改 client 的鉴权信息"）：历史版本会尝试**修改**注入 client 的
+``timeout``/``retry`` 属性（raise_socket_timeout / cap_internal_retries 写入
+``client.timeout = ...``）。这违反官方"只依赖 client.chat 公开约定"的要求，
+且平台 client 可能只读——写入失败时旧实现静默跳过，收益本就无保证。
 
-This became visible only after classification dropped from ~40s to ~1s: that delay
-had been accidentally staggering the parallel problems, and removing it made all
-four fire their reasoning calls at once. Fixing the stage exposed the real limit.
-
-Scope: transport only. The platform still owns the client, the model, rate limiting
-and token accounting — this reaches for one attribute, best-effort, and leaves the
-client untouched if it is absent or read-only. It is deliberately conservative
-because the injected client is not ours to reshape.
+本版本改为**纯只读探测**：用 getattr 观察 transport 配置并记录报告（不写入），
+超时兜底完全交给外层 TimeBudget（单题 1200s 硬限 + 780s 调用估计已覆盖
+健康调用的最坏情况）。调用方只消费报告用于日志，不再依赖"修改成功"。
 """
 
 from __future__ import annotations
@@ -24,25 +18,22 @@ import logging
 #: A hard problem's reasoning call is the longest single request in the graph. The
 #: per-problem deadline (TimeBudget) is what actually bounds runtime, so the socket
 #: timeout only needs to be long enough not to sever a healthy call.
-#:
-#: 2026-08-09 评委工程备注：900s 贴近单题 20 分钟硬上限，叠加重试有撞线风险。
-#: 首轮 max_tokens 已降为 24576（典型 ~450s，慢速负载下 ~700s），780s 足以覆盖
-#: 最慢的健康调用，同时任何在软窗口内发出的调用都能在硬上限前收尾或超时返回。
 DESIRED_SOCKET_TIMEOUT_S = 780
 MAX_INTERNAL_RETRIES = 1
 
 
 def raise_socket_timeout(client, desired: int = DESIRED_SOCKET_TIMEOUT_S, logger=None) -> dict:
-    """Best-effort raise of `client.timeout`. Never lowers it, never raises.
+    """Read-only probe of the client's socket timeout. Never modifies the client.
 
-    Returns a small report so the caller can record what actually happened rather
-    than assuming it worked.
+    Returns a small report so the caller can log what the injected client exposes.
+    The outer TimeBudget (per-problem hard deadline) remains the real runtime guard;
+    this report exists only for diagnostics.
     """
     log = logger or logging.getLogger("math_agent")
     report = {"attempted": desired, "before": None, "after": None, "changed": False}
-
     current = getattr(client, "timeout", None)
     report["before"] = current
+    report["after"] = current
     if current is None:
         log.info("Client exposes no socket timeout; leaving transport as provided.")
         return report
@@ -51,38 +42,24 @@ def raise_socket_timeout(client, desired: int = DESIRED_SOCKET_TIMEOUT_S, logger
     except (TypeError, ValueError):
         log.info("Client socket timeout %r is not numeric; leaving as provided.", current)
         return report
-    if numeric >= desired:
-        report["after"] = current
-        return report
-
-    try:
-        client.timeout = desired
-    except Exception as exc:  # noqa: BLE001 - read-only property or frozen client.
-        log.warning("Could not raise client socket timeout (%s); keeping %ss.", exc, numeric)
-        report["after"] = current
-        return report
-
-    report["after"] = getattr(client, "timeout", None)
-    report["changed"] = report["after"] != current
-    if report["changed"]:
-        log.info("Raised client socket timeout %ss -> %ss so long reasoning calls "
-                 "are not severed mid-generation.", numeric, report["after"])
+    if numeric < desired:
+        # 只读观察：记录缺口供诊断，不尝试修改（官方要求不修改 client 属性）。
+        log.info("Client socket timeout %ss < desired %ss (read-only probe; not modified).",
+                 numeric, desired)
     return report
 
 
 def cap_internal_retries(client, maximum: int = MAX_INTERNAL_RETRIES, logger=None) -> dict:
-    """Best-effort cap for a client's *inner* transport retry loop.
+    """Read-only probe of the client's internal retry count. Never modifies the client.
 
-    The graph owns an outer, deadline-aware retry wrapper.  Leaving an injected
-    ``retry=3`` client untouched creates a multiplicative retry budget (3 inner x
-    3 outer requests), which can exceed the per-problem wall-clock limit after a
-    long socket timeout.  Clients without a mutable ``retry`` attribute are left
-    unchanged and reported as such.
+    The graph owns an outer, deadline-aware retry wrapper; this report only records
+    what the injected client exposes for diagnostics.
     """
     log = logger or logging.getLogger("math_agent")
     report = {"attempted": int(maximum), "before": None, "after": None, "changed": False}
     current = getattr(client, "retry", None)
     report["before"] = current
+    report["after"] = current
     if current is None:
         log.info("Client exposes no internal retry count; leaving transport as provided.")
         return report
@@ -91,19 +68,7 @@ def cap_internal_retries(client, maximum: int = MAX_INTERNAL_RETRIES, logger=Non
     except (TypeError, ValueError):
         log.info("Client internal retry count %r is not numeric; leaving it unchanged.", current)
         return report
-    target = max(1, int(maximum))
-    if numeric <= target:
-        report["after"] = current
-        return report
-    try:
-        client.retry = target
-    except Exception as exc:  # noqa: BLE001 - injected clients may be read-only.
-        log.warning("Could not cap client internal retries (%s); keeping %s.", exc, numeric)
-        report["after"] = current
-        return report
-    report["after"] = getattr(client, "retry", None)
-    report["changed"] = report["after"] != current
-    if report["changed"]:
-        log.info("Capped client internal retries %s -> %s; outer retries remain deadline-aware.",
-                 numeric, report["after"])
+    if numeric > maximum:
+        log.info("Client internal retry count %s > cap %s (read-only probe; not modified).",
+                 numeric, maximum)
     return report

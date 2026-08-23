@@ -263,13 +263,72 @@ def semantic_arbiter_node(state, config):
             f"--- END UNTRUSTED CANDIDATE {candidate_id} ---"
         )
 
+    # V2.5.7：仲裁前的过程验证第三路证据——推理链逐步骤检查（PV）。
+    # 适用场景：uncertain_arbitrating（语义判定无法确定）+ python 证据为
+    # support/inconclusive（"执行成功"可能掩盖验证代码自身的错误——bench_hard12
+    # idx=10 实证：python 输出 [0.1,10,30] 的错误特征值却以 support 姿态进入仲裁，
+    # 仲裁被"代码证据"带偏）。此时给仲裁者注入"推理链逻辑是否成立"的独立结论，
+    # 让它能识别"推理对、验算工具错"的情形。
+    # 成本控制：仅 n=1 短调用（~3-5s），且只在本场景触发；hard/playoff 冲突的
+    # 过程验证由 critic 侧的 PV（n=2 多数票）负责，不在此重复。
+    pv_block = ""
+    pv_result = None
+    validation_status = str(state.get("validation_status") or "")
+    pv_arbiter_trigger = (
+        CONFIG.get("enable_pv", True)
+        and validation_status == "uncertain_arbitrating"
+        and (state.get("reasoning_result") or {}).get("steps")
+    )
+    if pv_arbiter_trigger:
+        try:
+            from utils.process_verifier import run_process_verifier
+            # 单次采样：仲裁辅助证据不需要多数票，短调用控制成本
+            pv_result = run_process_verifier(
+                deps, state,
+                str((state.get("reasoning_result") or {}).get("answer") or ""),
+                samples_override=1)
+        except Exception as exc:  # noqa: BLE001 - PV 失败不阻塞仲裁
+            deps.logger.warning("Arbiter PV unavailable: %s", exc)
+            pv_result = None
+        if pv_result and pv_result.get("overall") != "unverifiable":
+            flawed = pv_result.get("flawed_steps") or []
+            if pv_result.get("overall") == "flawed":
+                notes = "；".join(f"步骤{s.get('step', '?')}: {s.get('flaw', '')[:80]}"
+                                  for s in flawed[:3])
+                pv_block = (
+                    "--- BEGIN PROCESS VERIFICATION (third-party evidence) ---\n"
+                    "推理链过程验证（独立于候选文本）：发现关键逻辑漏洞——\n"
+                    f"{notes}\n"
+                    "含义：推理链本身不可靠，应优先采信与推理链不矛盾（或经独立"
+                    "复算）的候选。\n"
+                    "--- END PROCESS VERIFICATION ---\n")
+            else:
+                pv_block = (
+                    "--- BEGIN PROCESS VERIFICATION (third-party evidence) ---\n"
+                    "推理链过程验证（独立于候选文本）：逐步检查未发现关键逻辑漏洞"
+                    "（sound）。\n"
+                    "含义：推理链本身逻辑成立；若 Python 证据与其矛盾，Python 证据"
+                    "可能出自错误的验证代码，需谨慎采信。\n"
+                    "--- END PROCESS VERIFICATION ---\n")
+
     prompt = SEMANTIC_ARBITER_PROMPT.format(
         nonce=nonce,
         problem=problem,
-        validation_status=state.get("validation_status", ""),
+        validation_status=validation_status,
         validation_reason=_bounded((state.get("validation_details") or {}).get("reason", ""), 1000),
         candidates="\n\n".join(blocks),
     )
+    if pv_block:
+        prompt += "\n\n" + pv_block
+    # V2.5.7：把 PV 结论记入 state，供 trace 展示与调试（trace 不可见 ≠ 未触发）
+    pv_state_marker = {}
+    if pv_result:
+        pv_state_marker = {
+            "overall": pv_result.get("overall"),
+            "samples": pv_result.get("samples"),
+            "flawed_steps": pv_result.get("flawed_steps") or [],
+            "reason": pv_result.get("reason", ""),
+        }
     messages = [
         {"role": "system", "content": SEMANTIC_ARBITER_SYSTEM_PROMPT},
         {"role": "user", "content": prompt},
@@ -353,7 +412,8 @@ def semantic_arbiter_node(state, config):
     if not selected_id:
         status = "abstained" if selected_id == "" else "invalid_format"
         trace.append({"attempt": attempts, "status": status,
-                      "candidate_count": len(candidates), "prefill": prefill_used})
+                      "candidate_count": len(candidates), "prefill": prefill_used,
+                      **({"pv": pv_state_marker} if pv_state_marker else {})})
         result = _fallback_result(state, config, status, trace)
         result["semantic_arbiter_attempts"] = attempts
         return result
@@ -371,12 +431,14 @@ def semantic_arbiter_node(state, config):
         "selected_source": selected.source,
         "prefill": prefill_used,
         **({"contract_override": override} if override else {}),
+        **({"pv": pv_state_marker} if pv_state_marker else {}),
     })
     details = dict(state.get("validation_details") or {})
     details["semantic_arbitration"] = {
         "status": selection_status,
         "selected_source": selected.source,
         "candidate_count": len(candidates),
+        **({"pv": pv_state_marker} if pv_state_marker else {}),
     }
     return {
         "semantic_arbiter_status": selection_status,

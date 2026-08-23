@@ -58,11 +58,14 @@ class TestChatCompatible(unittest.TestCase):
         self.assertEqual(chat_compatible(_MessagesOnlyClient(), [], 0.2, 10), "ok-msg")
 
     def test_mode_cached(self):
+        from utils.response_normalize import _CHAT_MODE_CACHE
         client = _MessagesOnlyClient()
         chat_compatible(client, [], 0.2, 10)
-        self.assertEqual(getattr(client, "_veritas_chat_mode", None), "messages_only")
+        self.assertEqual(_CHAT_MODE_CACHE.get(client), "messages_only")
         # 缓存命中直接成功
         self.assertEqual(chat_compatible(client, [], 0.2, 10), "ok-msg")
+        # 合规：缓存不得写到 client 实例上（官方要求不修改 client 属性）
+        self.assertFalse(hasattr(client, "_veritas_chat_mode"))
 
 
 class TestSolveSignatureTolerance(unittest.TestCase):
@@ -134,7 +137,17 @@ class TestSandboxLoadingShapes(unittest.TestCase):
         saved_path = list(sys.path)
         saved_modules = {m: sys.modules[m] for m in list(sys.modules)
                          if m == "user_agent" or m.startswith(
-                             ("nodes", "utils", "state", "graph"))}
+                             ("nodes", "utils", "state", "graph"))
+                         or m in ("config", "langgraph_math_agent", "llm_client")}
+        # importlib 路径缓存：chdir 后 sys.path 里的相对条目（'.'）仍命中
+        # chdir 前解析的绝对路径缓存——必须清掉，否则 exec 时 from
+        # langgraph_math_agent import ... 会命中 ROOT 的缓存而误判 graph。
+        try:
+            import importlib
+            importlib.invalidate_caches()
+            importlib._bootstrap_external._path_importer_cache.clear()  # noqa: SLF001
+        except Exception:  # noqa: BLE001 - 清理失败不致命，后续 exec 兜底
+            pass
         try:
             os.chdir(tempfile.mkdtemp())
             if repo in sys.path:

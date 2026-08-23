@@ -9,9 +9,12 @@
 失分形态，新增五大机制：**异构双方法推理、过程审计智能体、确定性复算季后赛、难度感知
 动态预算、模结构确定性守护**，并对符号等价判定与代码执行沙箱做了工程加固。
 
-当前交付版本 **V2.5.6 纯修复版（2026-08-22）**：在官方实测 61.61 分的
-V2.5 基线上只修根因 bug（截断治理/漏括号/matcher 守卫/pacer 修复），
-零机制——三次官方实测铁律：机制越多分越低（61.61→54.46→58.93）。
+当前交付版本 **V2.5.7 过程验证版（2026-08-23）**：在 V2.5 基线上
+（1）修复根因 bug（截断治理/漏括号/matcher 守卫/pacer 修复/form_align re 笔误）；
+（2）保守新增过程级机制——**过程验证器 PV**（难题/冲突题逐步骤检查推理链逻辑
+漏洞，n=2 采样多数票，仅 critical 升级）+ **仲裁 PV 证据**（uncertain 仲裁前注入
+推理链过程验证结论）+ **复参数化积分守卫**（围道/复积分题强制 mpmath 数值对照）。
+依据 Intern-S1-MO 论文（arXiv:2512.10739）过程验证思想，触发面窄、双集零回归。
 详见根目录 DELIVERY.md 与 docs/提交前自检清单.md。
 
 竞赛接口保持约定：评测侧导入 `user_agent.py` 的 `ReasoningAgent`，平台以其官方 client 构造，
@@ -33,6 +36,8 @@ V2.5 基线上只修根因 bug（截断治理/漏括号/matcher 守卫/pacer 修
 | `4π(32-a⁵)/5` 与等价 LaTeX 判不了落仲裁 | simplify 无超时、异名符号不判 | **matcher 加固**：限时代简、符号对齐映射、≤4 维采样 |
 | 客观题单采样定生死 | 无独立复核 | **低置信复核投票**（仅空位覆盖不足时触发） |
 | 执行代码可 import 任意库/读环境变量 | 沙箱只限时不限能 | **执行器加固**：危险能力静态拦截 + POSIX 资源限额 |
+| 中间步骤想错但最终答案碰巧对 | 只验证最终数值，不查推理链 | **过程验证器 PV**（V2.5.7）：逐步骤逻辑检查 + n=2 采样多数票 |
+| 验证代码自身算错反噬正确答案 | sympy 复积分错返 0 被采信 | **复参数化积分守卫**（V2.5.7）：强制 mpmath 数值对照 |
 
 ## 2. 系统架构
 
@@ -182,7 +187,7 @@ flowchart LR
 │   └── answer_matcher.py         # 【改】+ 限时代简、符号对齐、≤4 维采样
 ├── mcp_servers/python_executor/server.py  # 【改】+ 静态安全扫描 + 资源限额
 ├── graph/solving_subgraph.py     # 【改】+ 条件扇出异构第二路径
-├── tests/                        # 【新】153 项离线回归测试（基线未随仓附带）
+├── tests/                        # 【新】193 项离线回归测试（基线未随仓附带）
 │   ├── test_veritas_upgrades.py
 │   ├── test_integration_graph.py
 │   ├── test_integration_repair_loop.py
@@ -227,10 +232,11 @@ python main.py --input_file input.jsonl --output_dir outputs
 python -B -m unittest discover -s tests -v
 ```
 
-**153 项测试 + 30 项子测试**（`pytest tests/` 全绿），零 API 调用：升级机制单测
-（审计解析/模守护/季后赛裁决/软预算/matcher 加固/执行器拦截/判断题双向确认/
-计数枚举守护/平台防线三形态加载/PaperPacer/置信门控/DeepSolver/形式对齐/
-限流退避/ProofDeepener/V2.4 数值比对/客观题格式）+ 多条全图集成链路（happy path；
+**193 项测试**（`python -B -m unittest discover -s tests` 全绿），零 API 调用：
+升级机制单测（审计解析/模守护/季后赛裁决/软预算/matcher 加固/执行器拦截/
+判断题双向确认/计数枚举守护/平台防线三形态加载/PaperPacer/置信门控/
+过程验证器 PV/复积分守卫/形式对齐/截断治理/限流退避/
+ProofDeepener/V2.4 数值比对/客观题格式）+ 多条全图集成链路（happy path；
 双证伪→异构重算翻盘；contradict 假证据→playoff 裁决）+ 题面滥用/故障注入/ReDoS 压测。
 Python 验证代码由真实执行器子进程运行。
 

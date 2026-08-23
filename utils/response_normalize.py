@@ -10,6 +10,14 @@
 
 from __future__ import annotations
 
+import weakref
+
+#: chat 调用形态缓存（2026-08-23 合规收敛）：官方要求不读取/修改注入 client
+#: 的内部属性，历史版本把探测结果 setattr 到 client 对象（_veritas_chat_mode）
+#: 违反该要求。改为模块级弱引用缓存——不触碰 client 实例，且 client 被回收
+#: 时缓存自动失效。
+_CHAT_MODE_CACHE: "weakref.WeakKeyDictionary" = weakref.WeakKeyDictionary()
+
 
 def _blocks_text(blocks) -> str:
     """content blocks 数组 → 纯文本（{"type":"text","text":...} 形态）。"""
@@ -118,13 +126,18 @@ def chat_compatible(client, messages, temperature, max_tokens, thinking_mode=Non
 
     平台 client 的 chat 签名未知：可能只接受 messages，或不接受关键字参数。
     按 关键字三参 → 位置三参 → 仅 messages 三级降级探测；探测结果缓存在
-    client 对象上（`_veritas_chat_mode`），避免每次调用都付一次 TypeError。
+    模块级 WeakKeyDictionary（2026-08-23 合规收敛：不再 setattr 到注入的
+    client 对象上——官方要求"不要读取/修改 client 内部属性"，我们自己的
+    缓存也不应触碰官方 client 实例），避免每次调用都付一次 TypeError。
 
     ``thinking_mode``（V2.6 截断根治）：官方原生关深度思考（长 CoT）的开关，
     仅在 keyword 模式下透传（官方 client 的 chat 签名里它是 keyword-only）。
     降级到 positional/messages_only 时该开关自然丢弃——那些 client 本就不支持。
     """
-    mode = getattr(client, "_veritas_chat_mode", None)
+    try:
+        mode = _CHAT_MODE_CACHE.get(client)
+    except Exception:  # noqa: BLE001 - 不可哈希 client 直接走全量探测
+        mode = None
 
     def _kwargs():
         kw = {"messages": messages, "temperature": temperature, "max_tokens": max_tokens}
@@ -147,8 +160,8 @@ def chat_compatible(client, messages, temperature, max_tokens, thinking_mode=Non
         try:
             result = attempts[name]()
             try:
-                setattr(client, "_veritas_chat_mode", name)
-            except Exception:  # noqa: BLE001 - 只读对象不设缓存
+                _CHAT_MODE_CACHE[client] = name
+            except Exception:  # noqa: BLE001 - 不可哈希 client 不缓存
                 pass
             return result
         except TypeError as exc:
