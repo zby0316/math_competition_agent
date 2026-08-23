@@ -134,12 +134,6 @@ CONFIG = {
     # prefill JSON 判定 ~10-20s；不完整且可负担时回调解做定向补算。
     "enable_critic": True,
     "critic_reserve_margin_s": 60,
-    # V2.5.7 过程验证器 PV（移植 Intern-S1-MO 论文 arXiv:2512.10739 过程验证
-    # 思想）：hard/playoff 冲突时逐步骤检查推理链逻辑漏洞，n 次并行采样多数票。
-    # 与 Critic 互补（Critic 结果级 / PV 过程级）；PV critical 命中 → calc_error。
-    # n=2（论文 n=4）：3 并发会打爆 RPM 30/min（2026-08-23 干跑实证）。
-    "enable_pv": True,
-    "pv_samples": 2,
     # 确定性复算季后赛：两路数值冲突时把候选代回原题复算/小规模枚举对照，
     # 替代"只能二选一"的仲裁。一次 playoff ≈ 一次 LLM 生成 + 一次代码执行，
     # 远低于整轮 solving 子图重跑。
