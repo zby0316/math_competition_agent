@@ -42,6 +42,58 @@ def _same_scalar_or_text(a: str, b: str) -> bool:
     return bool(ka) and ka == kb
 
 
+def _second_python_check(state: dict, config) -> str | None:
+    """V3.4 Python 双验证（set1 round2 实证：#4/#13/#46/#58/#91 的
+    "Python 对但仲裁/playoff 未采用" + 防 idx=28 sympy 确定性错）。
+
+    触发条件（全部满足才花第二次代码调用）：
+    - 已走过 playoff 且不可决（indecisive/neither/error，非 decisive）
+    - 第一份 Python 执行成功且自检通过（evidence_status == support）
+    - 剩余硬时间充足（>300s）
+    动作：用"完全不同方法"的 hint 再生成一份独立验证代码，
+    两份 Python 结果数学等价 → 确定性采信 Python（跳过 LLM 仲裁）。
+    不等价 → 返回 None（维持原链路，不引入新风险）。
+    """
+    po = state.get("python_output") or {}
+    pa = str(po.get("answer") or "").strip()
+    if not pa or is_placeholder_answer(pa):
+        return None
+    if po.get("evidence_status") != "support":
+        return None
+    if not state.get("playoff_trace"):
+        return None  # 还没走过 playoff，不提前升级
+    if state.get("playoff_status") == "decisive":
+        return None  # 已确定性裁决，无需双验证
+    if state.get("second_python_done"):
+        return None
+    try:
+        from utils.deps import get_deps
+        clock = get_deps(config).time_budget
+        if clock and clock.remaining_hard() < 300:
+            return None
+    except Exception:  # noqa: BLE001 - 预算取不到时按可负担处理
+        pass
+    try:
+        from nodes.python_agent_node import python_agent_node
+        second_state = {
+            **state,
+            "python_retry_hint": (
+                "第一次代码验证与推理结论冲突且复算未能裁决。请用**完全不同的方法/库**"
+                "（暴力枚举替代公式、数值模拟替代符号推导、sympy 替代手算等）独立重新"
+                "计算本题目标值，最后一行输出最终答案。"),
+        }
+        out = python_agent_node(second_state, config)
+        second = out.get("python_output") or {}
+        sa = str(second.get("answer") or "").strip()
+        if not sa or is_placeholder_answer(sa):
+            return None
+        if AnswerMatcher._sympy_equivalent(pa, sa, 1e-6) is True:
+            return pa
+    except Exception:  # noqa: BLE001 - 双验证失败保持原链路
+        pass
+    return None
+
+
 def _reasoning_off_topic(state: dict) -> bool:
     """跑题检测：推理候选与题面实体词零交集（set1 round1 实证 #28）。
 
@@ -526,10 +578,22 @@ def cross_validator_node(state, config):
                     "不得引用或沿用其他题目的模型/结论。")
                 next_node = "reconciliation"
         else:
-            status = "uncertain_arbitrating"
-            match_result["routing_reason"] = \
-                "insufficient_equivalence_evidence_semantic_arbitration"
-            next_node = "semantic_arbiter"
+            # V3.4 Python 双验证（set1 round2 实证：#4/#13/#46/#58/#91 类
+            # "Python 对但仲裁未采用"）：playoff 不可决时，两份独立代码结果
+            # 等价 → 确定性采信 Python，不再交给 LLM 仲裁（仲裁常误选推理错值）。
+            second = _second_python_check(state, config)
+            if second is not None:
+                status = "match"
+                match_result["status"] = "match"
+                match_result["routing_reason"] = "python_double_verification_locked"
+                match_result["adopted_source"] = "python"
+                validated_answer = second
+                next_node = "coordinator"
+            else:
+                status = "uncertain_arbitrating"
+                match_result["routing_reason"] = \
+                    "insufficient_equivalence_evidence_semantic_arbitration"
+                next_node = "semantic_arbiter"
 
     history_entry["status"] = status
     result = {
@@ -550,6 +614,9 @@ def cross_validator_node(state, config):
         # 新的确定性 match 取代任何历史仲裁锁——否则 Critic 修复回路重算出的
         # 新答案会被 coordinator 的陈旧 answer_locked 跳过洁净度/证据闸门。
         result["answer_locked"] = False
+    if match_result.get("routing_reason") == "python_double_verification_locked":
+        # 双验证已用（防 reconciliation 重跑后再次触发第二份代码调用）
+        result["second_python_done"] = True
     if revote_trace:
         result["objective_revote_trace"] = revote_trace
     return result

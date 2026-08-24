@@ -183,6 +183,10 @@ def playoff_node(state, config):
     if verdict == "NEITHER":
         # 双证伪是强信号：既有候选都不可信，值得换方法重算（走调解的既有
         # 轮次与定价闸门；负担不起时仲裁兜底仍可选一个"较不残"的候选）。
+        # V3.4（set1 round2 实证 #7）：NEITHER 不代表放弃——保留主候选作为
+        # 兜底（answer_locked=False 不锁死，reconciliation 可覆盖），
+        # reconciliation 不可用/失败时 coordinator 仍能输出候选而非"无法确定"
+        #（"无法确定"必 0 分，候选有概率对）。
         hint = ("两个候选答案经独立复算均未通过核验（代回残差非零/小规模枚举不符/"
                 "约束不可行）。两者都不可信，请彻底更换解题方法重新独立求解，"
                 "并在最终答案前用代码验证新结论。")
@@ -193,6 +197,8 @@ def playoff_node(state, config):
             "python_retry_hint": hint,
             "repair_hint_source": "playoff",
             "next_node": "reconciliation",
+            "validated_answer": candidate_a,
+            "answer_locked": False,
         }
     # 执行后仍无法裁决（INCONCLUSIVE/执行异常）：这是真正的语义僵局。
     # 保留重算机会——能负担一次换方法重算（含异构第二路径）就走调解，

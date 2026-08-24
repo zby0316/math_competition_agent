@@ -1,16 +1,17 @@
 # -*- coding: utf-8 -*-
-"""V3.2 修复回归测试（set1 round1 实测驱动）：
+"""V3.2-V3.4 修复回归测试（set1 实测驱动）：
 
 1. playoff decisive 保护：仲裁不得推翻确定性复算结果（#98/#21/#57 实证）；
-2. reasoning steps 兜底：reasoning_result 缺 steps 时从 reasoning_trace 恢复
-   （#7/#58 实证：结论对但 final 未附关键步骤被判 partial）；
-3. with proof 题识别（#74/#7 实证："Determine, with proof" 被判计算题）；
-4. 跑题检测（#28 实证：圆锥杯题答成硬币游戏）。
+2. reasoning steps 兜底：reasoning_result 缺 steps 时从 reasoning_trace 恢复；
+3. with proof 题识别（#74/#7 实证）；
+4. 跑题检测（#28 实证）；
+5. V3.4 playoff NEITHER 保留候选兜底（#7 实证）；
+6. V3.4 Python 双验证前置条件（#4/#13/#46/#58/#91 实证）。
 """
 import pytest
 
 from nodes.coordinator_node import _reasoning_steps
-from nodes.cross_validator_node import _reasoning_off_topic
+from nodes.cross_validator_node import _reasoning_off_topic, _second_python_check
 from nodes.semantic_arbiter_node import semantic_arbiter_node
 from utils.proof_deepener import is_proof_question
 
@@ -124,3 +125,69 @@ class TestOffTopicDetection:
 
     def test_empty_answer(self):
         assert _reasoning_off_topic({"problem": "x", "reasoning_result": {"answer": ""}}) is False
+
+
+class TestPlayoffNeitherFallback:
+    """V3.4：playoff NEITHER 保留候选兜底（#7 实证："无法确定"必 0 分）。"""
+
+    def test_neither_keeps_candidate(self):
+        from nodes.playoff_node import playoff_node
+
+        class _Deps:
+            def __init__(self):
+                self.time_budget = None
+                self.token_budget = None
+                self.mcp_client = type("MC", (), {
+                    "execute": lambda self, code, timeout: {
+                        "success": True,
+                        "stdout": "候选A核验: FAIL\n候选B核验: FAIL\nPLAYOFF_RESULT: NEITHER",
+                        "stderr": ""}})()
+                self.skills_loader = type("SL", (), {"get_validation_script": lambda self, c: ""})()
+                self.logger = type("L", (), {"warning": lambda *a, **k: None,
+                                             "info": lambda *a, **k: None})()
+                self.client = type("C", (), {"chat": lambda self, **k: (
+                    "```python\nprint('PLAYOFF_RESULT: NEITHER')\n```")})()
+
+        state = {
+            "problem": "short problem",
+            "reasoning_result": {"answer": "候选A答案", "steps": []},
+            "python_output": {"answer": "候选B答案", "evidence_status": "contradict"},
+        }
+        out = playoff_node(state, {"configurable": {"deps": _Deps()}})
+        # NEITHER 分支必须保留候选作为兜底 validated_answer
+        assert out.get("playoff_status") == "neither"
+        assert out.get("validated_answer") in ("候选A答案", "候选B答案")
+        assert out.get("answer_locked") is False
+
+
+class TestSecondPythonCheck:
+    """V3.4：Python 双验证前置条件（#4/#13/#46/#58/#91 实证）。"""
+
+    def test_skips_without_playoff(self):
+        state = {"python_output": {"answer": "42", "evidence_status": "support"}}
+        assert _second_python_check(state, _Cfg()) is None
+
+    def test_skips_when_playoff_decisive(self):
+        state = {
+            "playoff_trace": [{"status": "executed"}],
+            "playoff_status": "decisive",
+            "python_output": {"answer": "42", "evidence_status": "support"},
+        }
+        assert _second_python_check(state, _Cfg()) is None
+
+    def test_skips_without_python_support(self):
+        state = {
+            "playoff_trace": [{"status": "executed"}],
+            "playoff_status": "indecisive",
+            "python_output": {"answer": "42", "evidence_status": "contradict"},
+        }
+        assert _second_python_check(state, _Cfg()) is None
+
+    def test_skips_when_already_done(self):
+        state = {
+            "playoff_trace": [{"status": "executed"}],
+            "playoff_status": "indecisive",
+            "python_output": {"answer": "42", "evidence_status": "support"},
+            "second_python_done": True,
+        }
+        assert _second_python_check(state, _Cfg()) is None
