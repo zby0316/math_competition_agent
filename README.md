@@ -183,7 +183,7 @@ flowchart LR
 │   └── answer_matcher.py         # 【改】+ 限时代简、符号对齐、≤4 维采样
 ├── mcp_servers/python_executor/server.py  # 【改】+ 静态安全扫描 + 资源限额
 ├── graph/solving_subgraph.py     # 【改】+ 条件扇出异构第二路径
-├── tests/                        # 【新】171 项离线回归测试（基线未随仓附带）
+├── tests/                        # 【新】193 项离线回归测试（基线未随仓附带）
 │   ├── test_veritas_upgrades.py
 │   ├── test_integration_graph.py
 │   ├── test_integration_repair_loop.py
@@ -228,11 +228,11 @@ python main.py --input_file input.jsonl --output_dir outputs
 python -B -m unittest discover -s tests -v
 ```
 
-**171 项测试**（`python -B -m unittest discover -s tests` 全绿），零 API 调用：
+**193 项测试**（`python -B -m unittest discover -s tests` 全绿），零 API 调用：
 升级机制单测（审计解析/模守护/季后赛裁决/软预算/matcher 加固/执行器拦截/
 判断题双向确认/计数枚举守护/平台防线三形态加载/PaperPacer/置信门控/
 形式对齐/截断治理/限流退避/
-ProofDeepener/V2.4 数值比对/客观题格式）+ 多条全图集成链路（happy path；
+ProofDeepener/V2.4 数值比对/客观题格式/确定性语义判定器）+ 多条全图集成链路（happy path；
 双证伪→异构重算翻盘；contradict 假证据→playoff 裁决）+ 题面滥用/故障注入/ReDoS 压测。
 Python 验证代码由真实执行器子进程运行。
 
@@ -382,7 +382,6 @@ assert 'final_response' in result
 |---|---|---|---|
 | M1 PaperPacer | `utils/paper_pacer.py` | 全卷 6h 预算池：动态收紧防超时，完成率保底 | V2 |
 | M2 置信门控 | `utils/confidence_gate.py` | 置信分级投入：fast/standard/deep 三档 | V2 |
-| M3 DeepSolver | `utils/deep_solver.py` | 超难领域强制异构 B 路径 + 机器验证 | V2 |
 | M4 形式对齐 | `utils/form_align.py` | 题面形态识别 + 错配 LLM 重述 | V2 |
 | M5 Token 分级 | `config.py` | reasoning 8192（防官方慢 API 烧穿） | V2 |
 | M6 限流退避 | `utils/llm_retry.py` | 429/配额错误长退避 | V2 |
