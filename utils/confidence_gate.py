@@ -98,15 +98,3 @@ def wants_deep_solver(question_mode: str, confidence: float | None,
     if str(difficulty or "").strip().lower() in ("hard", "very_hard", "extremely_hard"):
         return True
     return False
-
-
-def gate_report(question_mode: str, confidence: float | None,
-                category: str = "", difficulty: str = "") -> dict:
-    """为 trace 输出门控决策留痕。"""
-    level = confidence_level(confidence)
-    return {
-        "level": level,
-        "confidence": round(float(confidence), 3) if confidence is not None else None,
-        "skip_python": can_skip_python_verify(question_mode, confidence),
-        "deep_solver": wants_deep_solver(question_mode, confidence, category, difficulty),
-    }

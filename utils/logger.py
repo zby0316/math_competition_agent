@@ -1,5 +1,4 @@
 import logging
-from pathlib import Path
 
 from config import CONFIG
 
@@ -24,7 +23,3 @@ def get_logger(name: str = "math_agent") -> logging.Logger:
     handler.setFormatter(_formatter())
     logger.addHandler(handler)
     return logger
-
-
-def get_log_dir() -> Path:
-    return Path(CONFIG.get("log_dir", "logs"))

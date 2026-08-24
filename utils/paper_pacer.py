@@ -132,21 +132,8 @@ class PaperPacer:
         with self._lock:
             self._done += 1
 
-    def remaining_planned(self) -> int:
-        with self._lock:
-            return max(0, self.planned - len(self._started))
-
     def elapsed(self) -> float:
         return time.monotonic() - self._start
-
-    def pace_ok(self) -> bool:
-        """当前节奏是否安全（能在 6h 内完成全部题）。"""
-        with self._lock:
-            elapsed = time.monotonic() - self._start
-            remaining_time = max(0.0, self.total - elapsed)
-            remaining_problems = max(1, self.planned - len(self._started))
-            per_problem = remaining_time / remaining_problems
-            return per_problem >= self.MIN_SOFT
 
     def snapshot(self) -> dict:
         with self._lock:

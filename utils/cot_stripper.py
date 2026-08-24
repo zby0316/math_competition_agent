@@ -69,10 +69,6 @@ def strip_cot_prefix(text: str) -> str:
     return ""
 
 
-def contains_cot_marker(text: str) -> bool:
-    return bool(_COT_PREFIX_RE.search((text or "")[:300]))
-
-
 def _normalize_placeholder_text(text: str) -> str:
     value = strip_cot_prefix(text or "")
     value = value.strip().strip("`").strip("$").strip()
