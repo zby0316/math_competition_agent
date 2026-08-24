@@ -30,7 +30,7 @@ class TestFillComputationDoublePath(unittest.TestCase):
             "最终答案：1",                                              # coordinator
         ]
         client = MockClient(responses)
-        # V2.5.7 竞态加固（对齐 test_integration_graph._run_graph 模式）：
+        # 竞态加固（对齐 test_integration_graph._run_graph 模式）：
         # solving 子图 reasoning/python 节点**并发**执行，共享顺序响应存在
         # 竞态（python 线程可能抢先消费响应，2026-08-23 全量 discover 偶发
         # FAIL 实证）；按 prompt 精确特征词路由消除竞态。顺序响应仅作兜底。
