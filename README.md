@@ -228,7 +228,7 @@ python main.py --input_file input.jsonl --output_dir outputs
 python -B -m unittest discover -s tests -v
 ```
 
-**171 项测试**（`python -B -m unittest discover -s tests` 全绿），零 API 调用：
+**206 项测试**（`python -B -m unittest discover -s tests` 全绿），零 API 调用：
 升级机制单测（审计解析/模守护/季后赛裁决/软预算/matcher 加固/执行器拦截/
 判断题双向确认/计数枚举守护/平台防线三形态加载/PaperPacer/置信门控/
 形式对齐/截断治理/限流退避/

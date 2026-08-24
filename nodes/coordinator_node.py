@@ -62,6 +62,26 @@ _PARTIAL_TAIL_CHARS = 400
 _PARTIAL_HEADER = "未能完成完整推导，以下为已获得的部分结果：\n"
 
 
+def _reasoning_steps(state: dict) -> list:
+    """取推理步骤；reasoning_result 缺 steps 时从 reasoning_trace 兜底恢复。
+
+    set1 round1 实证（#7/#58 判 partial）：结论正确但 final 未附关键步骤。
+    reasoning_result 的 steps 可能为空（解析/合并路径差异），而 reasoning_trace
+    里最后一条 reasoning 的 thinking.steps 完整——步骤是确定性拼装（零 LLM），
+    附上即满足官方"关键步骤"要求。
+    """
+    rr = state.get("reasoning_result") or {}
+    steps = rr.get("steps") or []
+    if steps:
+        return steps
+    for entry in reversed(state.get("reasoning_trace") or []):
+        th = entry.get("thinking") or {}
+        if th.get("steps"):
+            return th["steps"]
+    return []
+
+
+
 def _with_emergency_answer(guess: str, partial: str, source: str) -> str:
     """应急直答在前；已获部分结论改用中性标题附后（避免与直答自相矛盾）。"""
     final = f"最终答案：{guess}"
@@ -319,7 +339,7 @@ def coordinator_node(state, config):
                 except Exception:  # noqa: BLE001 - 深加工失败保持原答案
                     pass
             else:
-                final = attach_steps(final, state.get("problem", ""), rr.get("steps"))
+                final = attach_steps(final, state.get("problem", ""), _reasoning_steps(state))
         return {"final_response": final, "coordination_detail": "",
                 "fallback_source": "validated_answer"}
 
@@ -339,7 +359,7 @@ def coordinator_node(state, config):
         if ptype == "proof":
             final = build_proof_body(final, rr)
         else:
-            final = attach_steps(final, state.get("problem", ""), rr.get("steps"))
+            final = attach_steps(final, state.get("problem", ""), _reasoning_steps(state))
         deps.logger.warning(
             "Coordinator skipped under time budget (%.0fs left)", time_budget.remaining()
         )
@@ -437,7 +457,7 @@ def coordinator_node(state, config):
     # Proof answers already carry their full derivation as the answer body; only
     # computation problems that require working get an appended outline.
     if ptype != "proof":
-        final = attach_steps(final, state.get("problem", ""), rr.get("steps"))
+        final = attach_steps(final, state.get("problem", ""), _reasoning_steps(state))
     # V2.3 M14 难题兜底：放弃型答案（"无法完成/缺少条件"）触发一次部分求解，
     # 给出可证的特殊情形 + 思路框架 + 部分结论（judger 可能给 partial 而非 0 分）。
     # V2.4 预算分级：剩余硬时间不足 90s 时跳过（兜底是额外调用，慢 API 下 ~35-90s）。

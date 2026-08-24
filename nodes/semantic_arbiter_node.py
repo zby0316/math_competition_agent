@@ -235,6 +235,25 @@ def semantic_arbiter_node(state, config):
     """Select one complete candidate verbatim, or abstain without damaging state."""
     trace = list(state.get("semantic_arbiter_trace") or [])
     problem = state.get("problem", "") or ""
+
+    # V3.2 修复（set1 round1 实证 #98/#21/#57）：deterministic playoff 已用代码
+    # 复算给出决定性裁决（verdict A/B/BOTH 并锁定 validated_answer）时，LLM 仲裁
+    # 不得再推翻机器复算——仲裁是语义兜底，不是终审。三个案例均为 playoff 正确
+    # 而仲裁误选 reasoning 错答案，直接丢弃确定性证据。
+    if state.get("playoff_status") == "decisive" and state.get("validated_answer"):
+        trace.append({"status": "skipped",
+                      "reason": "playoff_decisive_locked",
+                      "playoff_answer": str(state["validated_answer"])[:80]})
+        # 保留 playoff 锁定的答案原样（不走 _fallback_result：它会用
+        # _preferred_answer 重算，可能把确定性裁决又改回推理候选）
+        return {
+            "semantic_arbiter_status": "skipped_playoff_decisive",
+            "semantic_arbiter_trace": trace,
+            "validated_answer": state["validated_answer"],
+            "answer_locked": True,
+            "next_node": "coordinator",
+        }
+
     if len(problem) > _MAX_PROBLEM_CHARS:
         trace.append({"status": "skipped", "reason": "problem_too_long_for_complete_review"})
         return _fallback_result(state, config, "skipped", trace)

@@ -10,13 +10,6 @@ class AnswerExtractor:
         s = re.sub(r"\s+", " ", s)
         return s
 
-    @staticmethod
-    def extract_from_text(text: str):
-        if not text:
-            return None
-        m = re.search(r"(?:最终答案|答案|结论)[：:]\s*(.+?)(?:\n|$)", text)
-        return m.group(1).strip() if m else None
-
 
 def extract_boxed_answer(text: str) -> str:
     """Return the last balanced ``\\boxed{...}`` body in *text*.

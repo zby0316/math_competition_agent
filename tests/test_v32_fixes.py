@@ -1,0 +1,126 @@
+# -*- coding: utf-8 -*-
+"""V3.2 修复回归测试（set1 round1 实测驱动）：
+
+1. playoff decisive 保护：仲裁不得推翻确定性复算结果（#98/#21/#57 实证）；
+2. reasoning steps 兜底：reasoning_result 缺 steps 时从 reasoning_trace 恢复
+   （#7/#58 实证：结论对但 final 未附关键步骤被判 partial）；
+3. with proof 题识别（#74/#7 实证："Determine, with proof" 被判计算题）；
+4. 跑题检测（#28 实证：圆锥杯题答成硬币游戏）。
+"""
+import pytest
+
+from nodes.coordinator_node import _reasoning_steps
+from nodes.cross_validator_node import _reasoning_off_topic
+from nodes.semantic_arbiter_node import semantic_arbiter_node
+from utils.proof_deepener import is_proof_question
+
+
+class _Cfg:
+    pass
+
+
+class TestPlayoffDecisiveProtection:
+    def test_arbiter_keeps_playoff_answer(self):
+        """playoff decisive 后仲裁必须原样保留锁定答案，不得调用 LLM。"""
+        state = {
+            "playoff_status": "decisive",
+            "validated_answer": "$$x=70^{\\circ}\\quad\\text{或}\\quad x=110^{\\circ}$$",
+            "problem": "Find all real numbers x ...",
+            "reasoning_result": {"answer": "$$x=180^{\\circ}+\\arcsin(...)$$", "steps": []},
+            "python_output": {"answer": "70/110"},
+        }
+        out = semantic_arbiter_node(state, _Cfg())
+        assert out["validated_answer"] == state["validated_answer"]
+        assert out["answer_locked"] is True
+        assert out["semantic_arbiter_status"] == "skipped_playoff_decisive"
+        assert out["next_node"] == "coordinator"
+
+    def test_arbiter_keeps_playoff_answer_when_locked_differently(self):
+        """不带 reasoning 候选时同样保护（#57 场景：playoff=Yes 而 reasoning=No）。"""
+        state = {
+            "playoff_status": "decisive",
+            "validated_answer": "Yes",
+            "problem": "Is it the case that for every k ...",
+            "reasoning_result": {"answer": "No", "steps": [{"step_num": 1, "description": "构造反例"}]},
+            "python_output": {},
+        }
+        out = semantic_arbiter_node(state, _Cfg())
+        assert out["validated_answer"] == "Yes"
+        assert out["answer_locked"] is True
+
+    def test_arbiter_still_runs_without_playoff(self):
+        """无 playoff 裁决时仲裁行为不变（不破坏既有链路）。"""
+        state = {
+            "problem": "short problem",
+            "reasoning_result": {"answer": "A", "steps": []},
+            "python_output": {"answer": "B"},
+        }
+        # 候选不足 2 时走 skipped 分支（不抛异常即可）
+        out = semantic_arbiter_node(state, _Cfg())
+        assert out["semantic_arbiter_status"] in ("skipped", "skipped_playoff_decisive")
+
+
+class TestReasoningStepsFallback:
+    def test_steps_from_reasoning_result(self):
+        state = {"reasoning_result": {"steps": [{"step_num": 1, "description": "直接步骤"}]}}
+        assert _reasoning_steps(state) == [{"step_num": 1, "description": "直接步骤"}]
+
+    def test_steps_fallback_from_trace(self):
+        """reasoning_result 缺 steps 时从 reasoning_trace 恢复（#7/#58 场景）。"""
+        state = {
+            "reasoning_result": {"answer": "x=2", "steps": []},
+            "reasoning_trace": [
+                {"step": "classification"},
+                {"step": "reasoning",
+                 "thinking": {"steps": [{"step_num": 1, "description": "兜底步骤A"},
+                                        {"step_num": 2, "description": "兜底步骤B"}]}},
+            ],
+        }
+        steps = _reasoning_steps(state)
+        assert len(steps) == 2
+        assert steps[0]["description"] == "兜底步骤A"
+
+    def test_steps_empty_both(self):
+        state = {"reasoning_result": {}, "reasoning_trace": []}
+        assert _reasoning_steps(state) == []
+
+
+class TestWithProofDetection:
+    def test_chinese_proof(self):
+        assert is_proof_question("证明：若 f 连续则 f 可积。") is True
+
+    def test_english_prove_that(self):
+        assert is_proof_question("Prove that the sequence converges.") is True
+
+    def test_with_proof_computation(self):
+        # #74/#7 实证：Find/Determine, with proof 必须识别为证明题
+        assert is_proof_question(
+            "Find, with proof, the smallest real number C with the following property: ...") is True
+        assert is_proof_question(
+            "Determine, with proof, the smallest possible size of S.") is True
+
+    def test_plain_computation_not_proof(self):
+        assert is_proof_question("Compute the integral of x^2 from 0 to 1.") is False
+
+
+class TestOffTopicDetection:
+    def test_off_topic_coin_game(self):
+        # #28 实证：圆锥杯题答成硬币游戏
+        state = {
+            "problem": "A wealthy king has his blacksmith fashion him a large cup, "
+                       "whose inside is a cone of height 9 inches and base diameter 6 inches.",
+            "reasoning_result": {"answer": "A wins all coins with probability a/(a+b); "
+                                           "expected rounds E[T] = ab"},
+        }
+        assert _reasoning_off_topic(state) is True
+
+    def test_on_topic_normal(self):
+        state = {
+            "problem": "Find the cotangent of the minimum possible angle between "
+                       "the vectors after 8 time steps.",
+            "reasoning_result": {"answer": "The cotangent of the minimum angle is 8."},
+        }
+        assert _reasoning_off_topic(state) is False
+
+    def test_empty_answer(self):
+        assert _reasoning_off_topic({"problem": "x", "reasoning_result": {"answer": ""}}) is False

@@ -42,6 +42,32 @@ def _same_scalar_or_text(a: str, b: str) -> bool:
     return bool(ka) and ka == kb
 
 
+def _reasoning_off_topic(state: dict) -> bool:
+    """跑题检测：推理候选与题面实体词零交集（set1 round1 实证 #28）。
+
+    启发式：答案中长度>=4 的英文词，若 >=60% 不出现在题面（排除通用词），
+    且至少 3 个陌生词 → 疑似答非所问（模型串题/幻觉到其他题目）。
+    只做**不确定路径**的辅助信号，不覆盖 match（两路一致时相信）。
+    """
+    import re
+    answer = str((state.get("reasoning_result") or {}).get("answer") or "").strip()
+    problem = str(state.get("problem") or "")
+    if not answer or not problem:
+        return False
+    _STOPWORDS = {
+        "therefore", "hence", "thus", "answer", "result", "final", "then", "when",
+        "where", "which", "with", "that", "this", "from", "into", "over", "under",
+        "must", "will", "would", "should", "have", "has", "been", "being", "also",
+        "each", "every", "some", "such", "there", "these", "those", "first",
+    }
+    a_words = set(re.findall(r"[A-Za-z]{4,}", answer)) - _STOPWORDS
+    p_words = set(re.findall(r"[A-Za-z]{4,}", problem))
+    if len(a_words) < 3:
+        return False
+    unknown = a_words - p_words
+    return len(unknown) >= 3 and len(unknown) >= 0.6 * len(a_words)
+
+
 def _preferred_answer(state: dict, match_result: dict) -> str:
     """Pick the answer to surface as validated_answer.
 
@@ -480,9 +506,30 @@ def cross_validator_node(state, config):
         # Let a semantic judge choose between the two existing answers before paying
         # for another full reasoning+Python run. The arbiter may abstain and route
         # back to reconciliation without changing either candidate.
-        status = "uncertain_arbitrating"
-        match_result["routing_reason"] = "insufficient_equivalence_evidence_semantic_arbitration"
-        next_node = "semantic_arbiter"
+        # V3.2 跑题检测（set1 round1 实证 #28）：推理候选与题面实体词零交集
+        # （圆锥杯题答成硬币游戏）时，LLM 仲裁也不可信——若 Python 有可用答案，
+        # 确定性锁 Python；否则带"紧扣题面"提示走调解重算。
+        if _reasoning_off_topic(state):
+            python_answer = str((python_output or {}).get("answer") or "").strip()
+            if python_answer and not is_placeholder_answer(python_answer):
+                status = "match"
+                match_result["status"] = "match"
+                match_result["routing_reason"] = "reasoning_off_topic_python_locked"
+                match_result["adopted_source"] = "python"
+                validated_answer = python_answer
+                next_node = "coordinator"
+            else:
+                status = "mismatch_reconciling"
+                match_result["routing_reason"] = "reasoning_off_topic_reconcile"
+                match_result["reasoning_retry_hint"] = (
+                    "上一轮推理答非所问（答案与题面内容无关）。请严格围绕本题面重新求解，"
+                    "不得引用或沿用其他题目的模型/结论。")
+                next_node = "reconciliation"
+        else:
+            status = "uncertain_arbitrating"
+            match_result["routing_reason"] = \
+                "insufficient_equivalence_evidence_semantic_arbitration"
+            next_node = "semantic_arbiter"
 
     history_entry["status"] = status
     result = {

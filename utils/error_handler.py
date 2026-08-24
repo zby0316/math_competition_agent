@@ -1,7 +1,7 @@
 import logging
 import time
 import traceback
-from typing import Any, Callable
+from typing import Callable
 
 from langchain_core.runnables import RunnableConfig
 
@@ -149,17 +149,6 @@ def _fallback_for_node(node: str, state: dict, error: dict, config: dict | None 
 
 
 class ErrorHandler:
-    @staticmethod
-    def safe_execute(func: Callable, *args: Any, **kwargs: Any) -> tuple[bool, Any]:
-        try:
-            return True, func(*args, **kwargs)
-        except Exception as exc:  # noqa: BLE001 - convert any node failure into state.
-            return False, {
-                "type": type(exc).__name__,
-                "message": str(exc),
-                "traceback": traceback.format_exc(limit=5),
-            }
-
     @staticmethod
     def node_wrapper(node_func: Callable, node_name: str | None = None) -> Callable:
         name = _node_name(node_func, node_name)

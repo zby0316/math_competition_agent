@@ -150,8 +150,9 @@ class TestSandboxLoadingShapes(unittest.TestCase):
             pass
         try:
             os.chdir(tempfile.mkdtemp())
-            if repo in sys.path:
-                sys.path.remove(repo)
+            # pytest 环境下 repo 可能同时由 "python -m" cwd 注入与 rootdir 注入
+            # 出现两次，单次 remove 会残留——全量过滤删除，保证 exec 时仓库不可达
+            sys.path[:] = [p for p in sys.path if p != repo]
             for m in saved_modules:
                 sys.modules.pop(m, None)
             namespace = {"__name__": "ua_harshest"}  # 不设 __file__

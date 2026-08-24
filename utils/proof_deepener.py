@@ -47,7 +47,8 @@ def is_proof_question(problem: str, ptype: str = "") -> bool:
     text = str(problem or "")
     return bool(re.search(
         r"(?:证明|求证|推导|论证|证得|show that|prove that|deduce|"
-        r"derive|验证.*成立|说明.*成立)", text, re.IGNORECASE))
+        r"derive|with proof|find.*proof|determine.*proof|验证.*成立|说明.*成立)",
+        text, re.IGNORECASE))
 
 
 def proof_structure_check(answer: str, problem: str) -> dict:
