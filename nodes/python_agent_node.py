@@ -229,10 +229,23 @@ def python_agent_node(state, config):
     knowledge_ref = select_skill_excerpt(skill_doc, problem, 1600)
     if knowledge_ref:
         base_prompt += "\n\n[技能知识点参考]\n" + knowledge_ref
-    if candidate_answer:
+    inject_candidate = candidate_answer
+    # V3.6（set1 round2 实证：#4/#9/#13/#26/#39/#42/#46/#97/#98/#108 类）：
+    # hard 计算题用"独立求解模式"——代码不依赖推理候选（避免抄错候选），
+    # 直接独立计算题面目标，代码结果即主答案依据。推理候选仍保留供交叉验证。
+    if (state.get("difficulty") == "hard"
+            and state.get("question_mode") == "computation"
+            and CONFIG.get("enable_independent_solve", True)):
+        base_prompt += (
+            "\n\n[独立求解模式] 本题必须由代码**独立求解**：直接按题面计算目标值"
+            "（枚举/DP/模拟/符号计算均可），最后一行 print(\"最终答案:\", value)。"
+            "推理过程只作参考，答案以代码实际计算结果为准；若代码结果与推理不符，"
+            "以代码为准并在验证证据中说明。")
+        inject_candidate = ""  # 独立求解不注入候选，防代码盲从推理错值
+    if inject_candidate:
         base_prompt += (
             "\n\n待核验候选（不可信，仅用于独立核对）：\n"
-            + candidate_answer[:2000]
+            + inject_candidate[:2000]
             + "\n请不要盲从该候选；根据代码计算结果填写验证状态和验证证据。"
         )
     hint = state.get("branch_hint")

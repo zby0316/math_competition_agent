@@ -543,6 +543,34 @@ def cross_validator_node(state, config):
                 if revote_trace:
                     result["objective_revote_trace"] = revote_trace
                 return result
+        # V3.6（set1 round2 实证 #4/#46/#58/#91 类）：playoff 已跑且不可决、
+        # 重算/仲裁都经常选错时——Python 双验证一致则确定性采信，跳过
+        # reconciliation 与 LLM 仲裁（两者对"Python 对但推理错"都无效）。
+        if already_played and state.get("playoff_status") != "decisive":
+            second = _second_python_check(state, config)
+            if second is not None:
+                status = "match"
+                match_result["status"] = "match"
+                match_result["routing_reason"] = "python_double_verification_locked"
+                match_result["adopted_source"] = "python"
+                validated_answer = second
+                next_node = "coordinator"
+                result = {
+                    "validation_status": status,
+                    "validation_details": match_result,
+                    "validated_answer": validated_answer,
+                    "next_node": next_node,
+                    "python_output": python_output,
+                    "python_evidence_status": evidence_status,
+                    "python_evidence_summary": evidence_summary,
+                    "python_contradictions": contradictions,
+                    "validation_history": [history_entry],
+                }
+                result["answer_locked"] = False
+                result["second_python_done"] = True
+                if revote_trace:
+                    result["objective_revote_trace"] = revote_trace
+                return result
         # subgraph-level retry gated by reconciliation_round (NOT per-node attempts —
         # per-node attempts gate the agent's internal format/code retries; the plan
         # §4.2 keeps these separate).
