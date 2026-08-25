@@ -22,13 +22,20 @@ from config import CONFIG
 
 logger = logging.getLogger("sc_consensus")
 
-#: 3 视角提示扰动（V4.6 实验实证：方法扰动 > 纯温度扰动）
+#: 采样视角（V4.8 规模化：3 视角 × 2 温度轮 = 6 份；实验实证单视角
+#: 命中率仅 ~12%，n 份采样至少一次对 = 1-(1-p)^n，6 份 ≈ 54%）。
+#: 低温轮（0.4/0.2）求精确，高温轮（1.5）求发散——覆盖"思路不同但都
+#: 收敛"与"边缘思路碰巧对"两类成功模式。
 _VIEW_HINTS = {
     "algebra": "\n求解视角：代数法——直接建立方程/不等式/递推关系，符号推导求解。",
     "construct": "\n求解视角：构造法——构造具体对象/反例/极端情形，先验证小规模再推广。",
     "enumerate": "\n求解视角：枚举法——小规模暴力枚举找规律，归纳通项或直接计数。",
+    "algebra_low": "\n求解视角：代数法——直接建立方程/不等式/递推关系，符号推导求解。",
+    "construct_high": "\n求解视角：构造法——构造具体对象/反例/极端情形，先验证小规模再推广。",
+    "enumerate_low": "\n求解视角：枚举法——小规模暴力枚举找规律，归纳通项或直接计数。",
 }
-_TEMPS = {"algebra": 0.7, "construct": 1.0, "enumerate": 1.3}
+_TEMPS = {"algebra": 0.7, "construct": 1.0, "enumerate": 1.3,
+          "algebra_low": 0.4, "construct_high": 1.5, "enumerate_low": 0.2}
 
 _CODE_HINTS = {
     "brute": "用暴力枚举/搜索（itertools/for 循环）直接计算，小规模验证后再放大。",
@@ -161,7 +168,8 @@ def sc_consensus_node(state, config):
 
     r_answers: list[str] = []
     r_samples = []
-    for view in ("algebra", "construct", "enumerate"):
+    for view in ("algebra", "construct", "enumerate",
+                 "algebra_low", "construct_high", "enumerate_low"):
         if clock is not None and clock.remaining_hard() < 300:
             break
         prompt = _REASON_PROMPT.format(problem=problem[:6000],
