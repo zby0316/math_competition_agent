@@ -340,6 +340,12 @@ def coordinator_node(state, config):
                     pass
             else:
                 final = attach_steps(final, state.get("problem", ""), _reasoning_steps(state))
+        elif ptype != "proof":
+            # V3.8（set1 round3 实证：#3/#4/#13 等 36 题）：仲裁选了 python/
+            # 其他来源时原逻辑直接跳过步骤——官方判分"保留支撑结论所需的关键
+            # 步骤"，无步骤必被 partial 扣分。计算题即使答案来自 Python 路，
+            # 推理步骤仍是关键推导参考，附上严格占优（不会破坏 verbatim 答案）。
+            final = attach_steps(final, state.get("problem", ""), _reasoning_steps(state))
         return {"final_response": final, "coordination_detail": "",
                 "fallback_source": "validated_answer"}
 

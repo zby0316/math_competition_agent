@@ -191,3 +191,18 @@ class TestSecondPythonCheck:
             "second_python_done": True,
         }
         assert _second_python_check(state, _Cfg()) is None
+
+
+class TestLockedAnswerSteps:
+    """V3.8：answer_locked 仲裁选 python 时计算题也必须附步骤（#3/#4/#13 实证）。"""
+
+    def test_steps_attached_even_when_arbiter_chose_python(self):
+        from utils.answer_formatter import attach_steps
+
+        final = "最终答案：2**n*n + 1"
+        problem = "Let S be a set ... (computation problem)"
+        steps = [{"step_num": 1, "description": "验证 $f(T)=a^{|T|}$ 满足条件"},
+                 {"step_num": 2, "description": "归纳推广到一般 n"}]
+        out = attach_steps(final, problem, steps)
+        assert "关键步骤" in out
+        assert "最终答案：2**n*n + 1" in out  # verbatim 答案不被破坏
