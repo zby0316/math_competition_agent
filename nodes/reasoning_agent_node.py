@@ -32,7 +32,10 @@ def _parse_reasoning_output(response, question_mode="computation"):
     m = re.search(r"## 问题分析\s+(.*?)(?=##|$)", response, re.DOTALL)
     if m:
         r["analysis"] = m.group(1).strip()
-    sec = re.search(r"## 详细解题步骤\s+(.*?)(?=## 最终答案|$)", response, re.DOTALL)
+    # V4.3 结论先行：章节顺序改为 最终答案→问题分析→详细步骤→验证点。
+    # lookahead 必须用通用 ## 停靠（旧版 (?=## 最终答案|$) 依赖答案在步骤
+    # 之后，新顺序下会把后续章节吞进步骤）。
+    sec = re.search(r"## 详细解题步骤\s+(.*?)(?=##|$)", response, re.DOTALL)
     if sec:
         for sm in re.finditer(r"(?:步骤|Step)\s*(\d+)\s*[：:](.*?)(?=(?:步骤|Step)\s*\d+\s*[：:]|##|$)",
                               sec.group(1), re.DOTALL | re.IGNORECASE):
