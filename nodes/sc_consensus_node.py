@@ -259,6 +259,26 @@ def sc_consensus_node(state, config):
         adopted, reason = r_consensus, "推理采样 2/3 一致"
     elif c_consensus:
         adopted, reason = c_consensus, "代码求解 2/3 一致"
+    if adopted is None:
+        # V4.7 SC 散文接管（round5 实证 #10：主链路 validated 是散文
+        # "验证无更小值"，SC 采样有闭式 -1/8 但 3 份未达成 2/3 一致）：
+        # 主链路候选非闭式（散文/放弃）+ SC 有**唯一**闭式采样 → 锁该闭式
+        # （闭式 > 散文原则，同 V4.4 diverse 接管；多个不同闭式不锁）。
+        try:
+            from utils.rule_judge import is_closed_form_answer
+            main_ans = str(state.get("validated_answer") or "").strip()
+            if main_ans and not is_closed_form_answer(main_ans):
+                all_samples = (r_answers[:] + c_answers[:])
+                closed = [a for a in all_samples if is_closed_form_answer(a)]
+                if closed:
+                    unique = []
+                    for a in closed:
+                        if not any(same_answer(a, u) for u in unique):
+                            unique.append(a)
+                    if len(unique) == 1:
+                        adopted, reason = unique[0], "SC 散文接管（主链路散文→闭式采样）"
+        except Exception:  # noqa: BLE001 - 接管失败保持原链路
+            pass
 
     out["sc_consensus"] = {
         "adopted": (adopted or "")[:400],

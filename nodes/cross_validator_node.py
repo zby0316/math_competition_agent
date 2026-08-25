@@ -122,6 +122,47 @@ def _reasoning_off_topic(state: dict) -> bool:
     return len(unknown) >= 3 and len(unknown) >= 0.6 * len(a_words)
 
 
+def _python_support_wants_verify(state: dict, config, python_output: dict,
+                                 reasoning_result: dict) -> bool:
+    """V4.7 通用 Python 双验证触发（set1 round5 实证 #106/#111：python
+    support+闭式对、playoff 未走 → 仲裁选错推理值）。
+
+    与 V4.1 规则可判定版（_rule_judgeable_wants_double_verify）互补：
+    V4.1 只管规则可判定题（有 rule 文件）；本函数覆盖**所有题**——
+    python evidence=support + python 闭式 + 推理候选存在，且两候选冲突
+    （推理非闭式散文 或 两闭式不同）→ 值得花第二次独立代码裁决。
+    双代码等价才锁（V3.4 纪律：单代码不可信，round3 回放 9/12 错）。
+    预算由 _second_python_check 内部 remaining_hard>300s 闸门控制。
+    """
+    try:
+        from utils.rule_judge import is_closed_form_answer
+    except Exception:  # noqa: BLE001
+        return False
+    if state.get("second_python_done"):
+        return False
+    pa = str((python_output or {}).get("answer") or "").strip()
+    ra = str((reasoning_result or {}).get("answer") or "").strip()
+    if not pa or not ra:
+        return False
+    if (python_output or {}).get("evidence_status") != "support":
+        return False
+    if bool((python_output or {}).get("authenticity", {}).get("fabricated")):
+        return False
+    if not is_closed_form_answer(pa):
+        return False
+    # 推理闭式且与 python 闭式等价 → 已是 match，不走到本分支；这里只处理
+    # 冲突：推理非闭式（散文/放弃）或 两闭式数值不同（真冲突需裁决）。
+    if is_closed_form_answer(ra):
+        try:
+            from utils.rule_judge import answers_numerically_equivalent
+            eq = answers_numerically_equivalent(pa, ra)
+            if eq is True:
+                return False  # 已等价（理论上不会走到）
+        except Exception:  # noqa: BLE001
+            pass
+    return True
+
+
 def _rule_judgeable_wants_double_verify(state: dict, config, python_output: dict,
                                          reasoning_result: dict) -> bool:
     """V4.1 L1 规则可判定题是否需要"第二独立代码"确定性验证。
@@ -735,6 +776,37 @@ def cross_validator_node(state, config):
                         match_result["routing_reason"] = "rule_judgeable_double_python_locked"
                         match_result["adopted_source"] = "python"
                         match_result["verify_gate"] = "rule_judgeable_takeover"
+                        validated_answer = second
+                        next_node = "coordinator"
+                        result = {
+                            "validation_status": status,
+                            "validation_details": match_result,
+                            "validated_answer": validated_answer,
+                            "next_node": next_node,
+                            "python_output": python_output,
+                            "python_evidence_status": evidence_status,
+                            "python_evidence_summary": evidence_summary,
+                            "python_contradictions": contradictions,
+                            "validation_history": [history_entry],
+                        }
+                        result["answer_locked"] = True
+                        result["second_python_done"] = True
+                        if revote_trace:
+                            result["objective_revote_trace"] = revote_trace
+                        return result
+                # V4.7 通用 Python 双验证（round5 实证 #106/#111：python
+                # support+闭式对、playoff 未走 → 仲裁选错推理值）。规则可
+                # 判定版只管有 rule 文件的题；这里覆盖所有"python support+
+                # 闭式+与推理冲突"的题，同样强制第二独立代码，双代码等价才锁。
+                if _python_support_wants_verify(
+                        state, config, python_output, reasoning_result):
+                    second = _second_python_check(state, config, require_playoff=False)
+                    if second is not None:
+                        status = "match"
+                        match_result["status"] = "match"
+                        match_result["routing_reason"] = "python_support_double_locked"
+                        match_result["adopted_source"] = "python"
+                        match_result["verify_gate"] = "python_support_double"
                         validated_answer = second
                         next_node = "coordinator"
                         result = {

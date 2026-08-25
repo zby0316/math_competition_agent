@@ -19,7 +19,7 @@ CONFIG = {
     # prefill result with it (game-theory olympiad problem, 2026-07-29).
     "node_timeouts": {"input": 5, "classifier": 200, "solving": 1150,
                       "reasoning_agent": 1100, "python_agent": 1100,
-                      "python_mcp_execute": 60, "cross_validator": 15,
+                      "python_mcp_execute": 60, "cross_validator": 30,
                       "reconciliation": 10, "semantic_arbiter": 150, "coordinator": 420,
                       "critic": 120, "playoff": 300,
                       # V4.6 SC 共识：3 推理(≤3×~90s) + 3 代码(≤3×60s执行)，
