@@ -10,6 +10,7 @@ from utils.answer_extractor import (
 )
 from utils.conclusion_salvage import salvage_conclusion
 from utils.cot_stripper import is_placeholder_answer, strip_cot_prefix
+from utils.hard_fallback import looks_like_give_up
 from utils.skill_excerpt import select_skill_excerpt
 from utils.retry_affordability import can_afford_retry, last_attempt_cost
 from utils.problem_profile import (
@@ -638,6 +639,7 @@ def _reasoning_agent_impl(state, config):
     clock = deps.time_budget
     if clock and clock.fast_path():
         max_attempts = 1
+    _reread_used = False  # V4.5 假性放弃重读只触发一次
     for _ in range(max_attempts):
         # Fund the retry against what the previous attempt actually cost, not against
         # "time has not run out yet". Without this, a second 545s attempt was authorised
@@ -712,6 +714,23 @@ def _reasoning_agent_impl(state, config):
             budget.consume(estimate_tokens(prompt), estimate_tokens(resp))
         parsed = _parse_reasoning_output(resp, question_mode=question_mode)
         exhausted = _looks_token_exhausted(resp, parsed)
+        # V4.5 假性放弃重读（set1 round4 实证 #24/#44：官方有标准答案，
+        # 模型却断言"题面缺少条件/无法确定"——题面完整，是没读懂）：
+        # 解析出"放弃型"答案且还有重试配额时，强制一次"逐字重读题面"
+        # 重推（提示不含任何旧答案，防锚定），放弃重读只触发一次。
+        if not exhausted and not _reread_used \
+                and parsed.get("answer") and looks_like_give_up(parsed["answer"]) \
+                and attempts < max_attempts + 1:
+            _reread_used = True
+            trace.append({"attempt": attempts, "status": "reread_give_up",
+                          "reason": "give_up_answer_detected"})
+            prompt = (
+                base_prompt
+                + "\n\n注意：上一轮结论为'无法确定/缺少条件'。竞赛题面必然完整，"
+                "不存在缺条件——请**重新逐字阅读题目**，找出全部隐含条件与默认约定"
+                "（边界、整数约束、对称性、未显式标注的限定词），然后完整求解，"
+                "输出明确的最终答案。禁止输出'无法确定/缺少条件'。")
+            continue
         trace.append({"attempt": attempts,
                       "status": "success" if _is_complete(parsed) else "failed",
                       "response_chars": len(resp or ""),

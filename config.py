@@ -164,6 +164,10 @@ CONFIG = {
     "enable_proof_self_critique": True,
     # V2.3 M14 难题兜底：放弃型答案触发部分求解（特殊情形+思路框架+部分结论）。
     "enable_hard_fallback": True,
+    # V4.5 出厂前跑题拦截（match 答案与题面零实体交集 → 强制重推，#16 类串题）
+    "enable_off_topic_gate": True,
+    # V4.5 全放弃候选跳过仲裁（两候选都是"无法确定"时直接重推，#24/#44 类）
+    "enable_give_up_skip_arbitration": True,
     # 评委建议 5：reserve 划出固定配额给语义仲裁与应急直答，杜绝
     # `arbiter=skipped(0.0s)`。含义：硬上限前剩余 ≥ 该值时，prefill 仲裁
     # （~10s）与应急直答（~30s）仍然放行；再低则只做确定性兜底。

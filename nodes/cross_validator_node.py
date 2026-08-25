@@ -760,12 +760,65 @@ def cross_validator_node(state, config):
                     match_result["verify_gate"] = "forced_reconciliation"
                     next_node = "reconciliation"
                 else:
-                    status = "uncertain_arbitrating"
-                    match_result["routing_reason"] = \
-                        "insufficient_equivalence_evidence_semantic_arbitration"
-                    next_node = "semantic_arbiter"
+                    # V4.5 全放弃候选跳过仲裁（set1 round4 实证 #24/#44：
+                    # 两候选都是"无法确定/缺少条件"，仲裁从两段放弃文案里
+                    # 选毫无意义）→ 带重读提示直接重推，省 1 次仲裁调用。
+                    ra2 = _clean_answer(reasoning_result.get("answer", ""))
+                    pa2 = _clean_answer(python_output.get("answer", ""))
+                    _skip_arb = False
+                    if CONFIG.get("enable_give_up_skip_arbitration", True) \
+                            and reconciliation_retry_available(state, config):
+                        try:
+                            from utils.hard_fallback import looks_like_give_up
+                            from utils.rule_judge import is_closed_form_answer
+                            r_give = bool(ra2) and looks_like_give_up(ra2)
+                            p_give = bool(pa2) and looks_like_give_up(pa2)
+                            both_non_closed = (
+                                not is_closed_form_answer(ra2)
+                                and not is_closed_form_answer(pa2))
+                            if both_non_closed and (r_give or p_give):
+                                _skip_arb = True
+                        except Exception:  # noqa: BLE001 - 判定失败不跳过仲裁
+                            pass
+                    if _skip_arb:
+                        status = "mismatch_reconciling"
+                        match_result["routing_reason"] = "give_up_candidates_skip_arbitration"
+                        match_result["reasoning_retry_hint"] = (
+                            "上一轮结论为'无法确定/缺少条件'。竞赛题面必然完整，"
+                            "请重新逐字阅读题目，找出全部隐含条件，然后完整求解，"
+                            "输出明确的最终答案。")
+                        next_node = "reconciliation"
+                    else:
+                        status = "uncertain_arbitrating"
+                        match_result["routing_reason"] = \
+                            "insufficient_equivalence_evidence_semantic_arbitration"
+                        next_node = "semantic_arbiter"
 
     history_entry["status"] = status
+    # V4.5 出厂前跑题拦截（set1 round4 实证 #16：串题答了另一道题的
+    # 65 位大整数）：match 出厂但答案与题面零实体交集 → 疑似串题，
+    # 强制 reconciliation 重推（不直接丢弃；重推仍一致则出厂）。
+    # 仅 computation 非客观题 + 未重推过 + 预算充足时触发。
+    if status == "match" and validated_answer \
+            and not is_objective_mode(question_mode) \
+            and state.get("reconciliation_round", 0) < 1 \
+            and CONFIG.get("enable_off_topic_gate", True):
+        try:
+            from utils.off_topic_guard import answer_off_topic
+            from utils.deps import get_deps
+            _deps = get_deps(config)
+            clock = _deps.time_budget
+            affordable = clock is None or clock.remaining_hard() > 300
+            if affordable and answer_off_topic(
+                    state.get("problem", ""), validated_answer):
+                status = "mismatch_reconciling"
+                match_result["routing_reason"] = "off_topic_gate_forced_reconciliation"
+                match_result["verify_gate"] = "off_topic_gate"
+                next_node = "reconciliation"
+                _deps.logger.warning(
+                    "Off-topic gate: answer has no entity overlap with problem -> reconcile")
+        except Exception:  # noqa: BLE001 - 跑题拦截失败不改变现状
+            pass
     # V4.0 L4 验证证据记录：每题 trace 可见的"过门摘要"（防幻觉可追溯——
     # 出厂答案过了哪些验证门，一目了然；未过门题必须走强制重推/仲裁）。
     match_result["verify_gate"] = {
