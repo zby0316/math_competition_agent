@@ -1,13 +1,22 @@
 # -*- coding: utf-8 -*-
-"""V4.3 结论先行：章节顺序兼容性自测（独立脚本，避免 shell 转义干扰）。"""
+"""V4.3 结论先行：章节顺序兼容性测试。
+
+背景：REASONING_PROMPT 的 '## 最终答案' 章节移至全文第一个章节（截断保险）。
+解析器按标题定位、与顺序无关，但步骤章节的 lookahead 曾依赖旧顺序
+（(?=## 最终答案|$) 会把新顺序下的后续章节吞进步骤），已改为通用 ## 停靠。
+"""
 import sys
-sys.path.insert(0, ".")
-from nodes.reasoning_agent_node import _parse_reasoning_output
 
-# --- 真实模型输出形态（round3 trace 实证） ---
+import pytest
 
-# 1. 新顺序 + 截断于步骤中途（最关键的防护场景）
-resp1 = """## 最终答案
+sys.path.insert(0, ".")  # noqa: E402
+
+from nodes.reasoning_agent_node import _parse_reasoning_output  # noqa: E402
+
+
+def test_answer_first_truncated_keeps_answer():
+    """核心防护：新顺序下输出被截断于步骤中途，答案仍完整保留。"""
+    resp = """## 最终答案
 最终答案：$\\frac{19}{28}$
 
 ## 问题分析
@@ -18,13 +27,13 @@ resp1 = """## 最终答案
 使用公式/定理：全概率公式
 计算过程：P(A)=...
 步骤2：应用贝叶斯（此处被输出截断"""
-r1 = _parse_reasoning_output(resp1)
-print("1) 新顺序+截断:", repr(r1["answer"]))
-assert r1["answer"] and "19" in r1["answer"], "答案丢失!"
-assert len(r1["steps"]) == 2
+    r = _parse_reasoning_output(resp)
+    assert r["answer"] and "19" in r["answer"]
+    assert len(r["steps"]) == 2
 
-# 2. 新顺序 + 数值答案
-resp2 = """## 最终答案
+
+def test_answer_first_numeric():
+    resp = """## 最终答案
 最终答案：12679605
 
 ## 问题分析
@@ -33,22 +42,23 @@ resp2 = """## 最终答案
 步骤1：对称性
 使用公式/定理：对称分解
 计算过程：略"""
-r2 = _parse_reasoning_output(resp2)
-print("2) 新顺序+数值:", repr(r2["answer"]))
-assert "12679605" in r2["answer"]
+    r = _parse_reasoning_output(resp)
+    assert "12679605" in r["answer"]
 
-# 3. 新顺序 + LaTeX 根式答案
-resp3 = """## 最终答案
+
+def test_answer_first_sqrt():
+    resp = """## 最终答案
 最终答案：$-9+3\\sqrt{13}$
 
 ## 问题分析
 代数题。"""
-r3 = _parse_reasoning_output(resp3)
-print("3) 新顺序+根式:", repr(r3["answer"]))
-assert "sqrt{13}" in r3["answer"] or "sqrt(13)" in r3["answer"]
+    r = _parse_reasoning_output(resp)
+    assert "sqrt" in r["answer"]
 
-# 4. 旧顺序回归（答案在末尾）
-resp4 = """## 问题分析
+
+def test_old_order_still_works():
+    """回归：旧顺序（答案在末尾）解析不受影响，验证点不被吞进步骤。"""
+    resp = """## 问题分析
 分析内容。
 
 ## 详细解题步骤
@@ -61,22 +71,42 @@ resp4 = """## 问题分析
 
 ## 关键验证点
 - 代回验证"""
-r4 = _parse_reasoning_output(resp4)
-print("4) 旧顺序回归:", repr(r4["answer"]))
-assert "42" in r4["answer"]
-assert len(r4["steps"]) == 1
-assert "代回验证" not in str(r4["steps"]), "验证点被吞进步骤"
+    r = _parse_reasoning_output(resp)
+    assert "42" in r["answer"]
+    assert len(r["steps"]) == 1
+    assert "代回验证" not in str(r["steps"])
 
-# 5. 步骤章节后无其它章节（截断在步骤中间）：步骤不应吞掉无关内容
-resp5 = """## 最终答案
+
+def test_steps_truncated_without_other_sections():
+    resp = """## 最终答案
 最终答案：5
 
 ## 详细解题步骤
 步骤1：设未知数
 使用公式/定理：代数
 计算过程：x+1=6 故 x=5"""
-r5 = _parse_reasoning_output(resp5)
-print("5) 步骤截断:", repr(r5["answer"]), "| steps:", len(r5["steps"]))
-assert "5" in r5["answer"]
+    r = _parse_reasoning_output(resp)
+    assert "5" in r["answer"]
+    assert len(r["steps"]) == 1
 
-print("\n=== V4.3 章节顺序兼容性全部通过 ===")
+
+def test_answer_first_with_validation_points():
+    """新顺序完整输出：四个章节各自正确解析。"""
+    resp = """## 最终答案
+最终答案：$\\frac{19}{28}$
+
+## 问题分析
+条件概率题。
+
+## 详细解题步骤
+步骤1：定义事件
+使用公式/定理：全概率公式
+计算过程：P(A)
+
+## 关键验证点
+- 代回验证：P(真|阳) 用贝叶斯重算一致"""
+    r = _parse_reasoning_output(resp)
+    assert "19" in r["answer"]
+    assert len(r["steps"]) == 1
+    assert len(r["validation_points"]) == 1
+    assert "贝叶斯" in r["validation_points"][0]
