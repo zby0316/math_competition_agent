@@ -83,12 +83,59 @@ def _reasoning_steps(state: dict) -> list:
 
 
 def _with_emergency_answer(guess: str, partial: str, source: str) -> str:
-    """应急直答在前；已获部分结论改用中性标题附后（避免与直答自相矛盾）。"""
+    """应急直答在前；已获部分结论改用中性标题附后（避免与直答自相矛盾）。
+
+    V4.4：异构第二路（diverse_alt）有完整推导时以它为主体——"答案+推导"
+    形态严格优于 emergency 裸猜直答（set1 round4 实证 #3：diverse 给出
+    "最终答案：3"+4 步推导，emergency 只裸猜一行；官方判分"答案+必要过程"
+    口径下 diverse 形态可得分，裸猜一行可能因无支撑被误判）。
+    """
+    if source == "diverse_alt" and partial:
+        body = partial.replace(_PARTIAL_HEADER, "", 1).strip()
+        lines = [ln for ln in body.splitlines() if ln.strip()]
+        if lines:
+            # 第一行是 _diverse_clues 的答案行（parts 顺序：答案→分析→步骤）
+            final = f"最终答案：{lines[0]}"
+            if len(lines) > 1:
+                final += "\n\n解题过程参考：\n" + "\n".join(lines[1:])[:2000]
+            if guess and guess not in body:
+                final += f"\n\n补充尝试（可信度更低，未验证）：{guess}"
+            return final
     final = f"最终答案：{guess}"
     if source != "generic_error":
         supplement = partial.replace(_PARTIAL_HEADER, "求解过程中获得的部分结论：\n", 1)
         final += f"\n\n{supplement}"
     return final
+
+
+def _diverse_clues(state: dict) -> tuple[str, str]:
+    """V4.4：从异构第二路（reasoning_result_alt，V3.5+ diverse 分支）提取
+    可用结论与步骤——主链路空产出时这是最完整的支撑素材（set1 round4 实证
+    #3/#46：diverse 给出了完整分析+步骤+答案，但 emergency 组装完全没看它，
+    最后只输出一行裸猜答案）。零 LLM 成本，纯状态读取。
+
+    返回 (拼接文本, "diverse_alt")；无素材返回 ("", "")。
+    文本第一行恒为答案行（供 _with_emergency_answer 作主体）。
+    """
+    import re as _re
+    alt = state.get("reasoning_result_alt") or {}
+    answer = str(alt.get("answer") or "").strip()
+    # 去"最终答案："等前缀，避免与组装前缀重复
+    answer = _re.sub(r"^(?:最终答案|答案|结论)\s*[：:]\s*", "", answer).strip()
+    analysis = str(alt.get("analysis") or "").strip()
+    steps = alt.get("steps") or []
+    parts = []
+    if answer:
+        parts.append(answer[:400])
+    if analysis and answer not in analysis:
+        parts.append(analysis[:600])
+    if steps:
+        step_text = "；".join(str(s.get("description", ""))[:200] for s in steps[:8])
+        if step_text and step_text not in (answer + analysis):
+            parts.append(step_text[:800])
+    if not parts:
+        return "", ""
+    return "\n".join(parts), "diverse_alt"
 
 
 def _partial_response(state: dict) -> tuple[str, str]:
@@ -108,6 +155,9 @@ def _partial_response(state: dict) -> tuple[str, str]:
     python_answer = str(python_output.get("answer") or "").strip()
     stdout = str(python_output.get("stdout") or "")
     for source, candidate in (
+        # V4.4：异构第二路（diverse）产出优先——主链路空产出时它往往最完整
+        # （set1 round4 实证 #3：diverse 给出完整分析+4 步骤+答案，原逻辑丢弃）。
+        ("diverse_alt", _diverse_clues(state)[0]),
         ("reasoning_conclusion", salvage_conclusion(analysis)),
         ("reasoning_conclusion", salvage_conclusion(raw_resp)),
         # Python 侧答案（含 stdout 二次抽取的 answer_source=stdout_mined）：
@@ -139,6 +189,10 @@ def _emergency_direct_answer(state: dict, deps) -> str:
         return ""
     rr = state.get("reasoning_result") or {}
     clues = []
+    # V4.4：异构第二路产出是最有价值的线索（独立方法，防同源空转）。
+    diverse, _ = _diverse_clues(state)
+    if diverse:
+        clues.append(f"异构第二路结论：{diverse[:600]}")
     salvaged = salvage_conclusion(rr.get("analysis", ""))
     if salvaged:
         clues.append(salvaged)
