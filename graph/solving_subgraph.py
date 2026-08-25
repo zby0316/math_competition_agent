@@ -1,7 +1,10 @@
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import Send
 from state.math_agent_state import MathAgentState
-from nodes import reasoning_agent_node, python_agent_node, cross_validator_node
+from nodes import (
+    reasoning_agent_node, python_agent_node, cross_validator_node,
+    sc_consensus_node,
+)
 from utils.error_handler import node_wrapper
 from utils.problem_profile import is_objective_mode
 from utils.deps import get_deps
@@ -60,6 +63,9 @@ def build_solving_subgraph():
     sub.add_node("reasoning_agent", node_wrapper(reasoning_agent_node, "reasoning_agent"))
     sub.add_node("python_agent", node_wrapper(python_agent_node, "python_agent"))
     sub.add_node("cross_validator", node_wrapper(cross_validator_node, "cross_validator"))
+    # V4.6 SC 共识：未 match 的 hard/规则可判定题，3 视角推理采样 +
+    # 3 份代码求解投票（实验 47 题救回 5 题）；全不一致时零改动走原链路。
+    sub.add_node("sc_consensus", node_wrapper(sc_consensus_node, "sc_consensus"))
 
     def fan_out(state, config):
         reasoning_send = Send(
@@ -116,5 +122,6 @@ def build_solving_subgraph():
     sub.add_conditional_edges(START, fan_out, ["reasoning_agent", "python_agent"])
     sub.add_edge("reasoning_agent", "cross_validator")
     sub.add_edge("python_agent", "cross_validator")
-    sub.add_edge("cross_validator", END)
+    sub.add_edge("cross_validator", "sc_consensus")
+    sub.add_edge("sc_consensus", END)
     return sub.compile()

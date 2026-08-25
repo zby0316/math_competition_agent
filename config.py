@@ -21,7 +21,10 @@ CONFIG = {
                       "reasoning_agent": 1100, "python_agent": 1100,
                       "python_mcp_execute": 60, "cross_validator": 15,
                       "reconciliation": 10, "semantic_arbiter": 150, "coordinator": 420,
-                      "critic": 120, "playoff": 300},
+                      "critic": 120, "playoff": 300,
+                      # V4.6 SC 共识：3 推理(≤3×~90s) + 3 代码(≤3×60s执行)，
+                      # 受 remaining_hard>600s 触发闸门与早停约束，800s 封顶
+                      "sc_consensus": 800},
     "classifier_confidence_threshold": 0.85,
     # V2 M2 置信门控：最少资源高准确率
     #   high(≥0.90) → fast 单路径快速答（省 Python/双路径）
@@ -168,6 +171,8 @@ CONFIG = {
     "enable_off_topic_gate": True,
     # V4.5 全放弃候选跳过仲裁（两候选都是"无法确定"时直接重推，#24/#44 类）
     "enable_give_up_skip_arbitration": True,
+    # V4.6 SC 共识：未 match 的 hard/规则可判定题 3 视角采样+3 代码投票
+    "enable_sc_consensus": True,
     # 评委建议 5：reserve 划出固定配额给语义仲裁与应急直答，杜绝
     # `arbiter=skipped(0.0s)`。含义：硬上限前剩余 ≥ 该值时，prefill 仲裁
     # （~10s）与应急直答（~30s）仍然放行；再低则只做确定性兜底。

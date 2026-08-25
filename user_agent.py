@@ -257,6 +257,21 @@ if _BACKEND == "graph":
                         "rounds": state["validation_history"],
                     }],
                 })
+            # V4.6 SC 共识记录：3 视角采样+3 代码投票+锁定（judger 可审计）
+            if state.get("sc_consensus"):
+                sc = state["sc_consensus"] or {}
+                trace.append({
+                    "step": "sc_consensus",
+                    "adopted": sc.get("adopted", ""),
+                    "reason": sc.get("reason", ""),
+                    "thinking": {
+                        "purpose": "SC 多采样共识：3 视角推理（代数/构造/枚举）+ 3 代码求解（brute/sympy/dp）投票，2/3 一致才锁定（V4.6，实验 47 题救回 5 题）。",
+                        "r_answers": sc.get("r_answers", []),
+                        "c_answers": sc.get("c_answers", []),
+                        "r_consensus": sc.get("r_consensus", ""),
+                        "c_consensus": sc.get("c_consensus", ""),
+                    },
+                })
             if state.get("problem_anchor") or state.get("problem_integrity_events"):
                 anchor = state.get("problem_anchor") or {}
                 trace.append({

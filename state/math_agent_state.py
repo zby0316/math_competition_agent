@@ -67,6 +67,10 @@ class MathAgentState(TypedDict):
     playoff_trace: NotRequired[List[Dict]]
     # 客观题复核投票（低置信时追加一次独立采样比对）
     objective_revote_trace: NotRequired[List[Dict]]
+    # V4.6 SC 共识：3 视角采样+3 代码投票记录（samples/votes/adopted）
+    sc_consensus: NotRequired[Optional[Dict[str, Any]]]
+    sc_consensus_done: NotRequired[bool]
+    sc_adopted: NotRequired[bool]
     # 模结构守护命中标记（F_2 / Z_m 语境；提示注入与静态核查记录）
     modular_guard: NotRequired[Dict[str, Any]]
     # 定向修复提示来源标记（critic/playoff → reconciliation 直通用，一次性消费）

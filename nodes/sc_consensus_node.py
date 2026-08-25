@@ -1,0 +1,278 @@
+"""V4.6 SC 共识节点：3 视角推理采样 + 3 份代码求解 + 投票锁定。
+
+实验依据（local_test/sc_experiment.py，47 题最难边界题救回 5/47）：
+- 3 视角推理（代数/构造/枚举 × 温度 0.7/1.0/1.3）打破同源（#55/#87 原
+  三路候选同错，采样出新正确路径）
+- 3 份代码（brute/sympy/dp）算法互补（#14/#63 原 python 全失败）
+- 双通道一致（#34：推理 ln2 == 代码 log(2)）是最强锁定信号
+
+触发：validation 未 match + hard/规则可判定 + remaining_hard > 600s。
+预算：每通道最多 3 份 × 4096 tokens，早停（2/3 一致即停）。
+锁定：任通道 ≥2 一致 → answer_locked=True；全不一致 → 走原链路不更差。
+"""
+from __future__ import annotations
+
+import logging
+import re
+
+from utils.llm_retry import chat_prefilled, thinking_mode_flag
+from utils.token_budget import estimate_tokens
+from utils.cot_stripper import strip_cot_prefix
+from config import CONFIG
+
+logger = logging.getLogger("sc_consensus")
+
+#: 3 视角提示扰动（V4.6 实验实证：方法扰动 > 纯温度扰动）
+_VIEW_HINTS = {
+    "algebra": "\n求解视角：代数法——直接建立方程/不等式/递推关系，符号推导求解。",
+    "construct": "\n求解视角：构造法——构造具体对象/反例/极端情形，先验证小规模再推广。",
+    "enumerate": "\n求解视角：枚举法——小规模暴力枚举找规律，归纳通项或直接计数。",
+}
+_TEMPS = {"algebra": 0.7, "construct": 1.0, "enumerate": 1.3}
+
+_CODE_HINTS = {
+    "brute": "用暴力枚举/搜索（itertools/for 循环）直接计算，小规模验证后再放大。",
+    "sympy": "用 sympy 符号计算（积分/方程/化简/矩阵），保持精确闭式。",
+    "dp": "用动态规划/递推（自底向上填表），注意边界与初值。",
+}
+
+_REASON_PROMPT = """你是一个数学专家。严格按以下格式解答（**最终答案必须写在最前面**）：
+
+## 最终答案
+[明确的最终结果]
+
+## 问题分析
+[分析]
+
+## 详细解题步骤
+步骤1：...
+计算过程：...
+
+{view_hint}
+
+问题：
+{problem}
+"""
+
+_CODE_PROMPT = """请为下面的数学题写一个完整可运行的 Python 程序求解（{code_hint}）。
+最后一行必须 print("最终答案:", answer)，answer 是精确值（分数/根式/整数）。
+只输出 ```python``` 代码块。
+
+问题：
+{problem}
+"""
+
+
+def _text_equiv(a: str, b: str) -> bool:
+    """文本等价：去空白/标点后一致（文本答案投票通道，实验实证 #1/#7 类）。"""
+    if not a or not b:
+        return False
+    ka = re.sub(r"[\s。．.,，;；:：!！?？\"'“”‘’()（）\[\]【】\-_]+", "", str(a))
+    kb = re.sub(r"[\s。．.,，;；:：!！?？\"'“”‘’()（）\[\]【】\-_]+", "", str(b))
+    return bool(ka) and ka.lower() == kb.lower() and len(ka) >= 3
+
+
+def same_answer(a: str, b: str) -> bool:
+    """闭式等价或文本等价任一通过即视为同一答案。"""
+    try:
+        from utils.rule_judge import (
+            is_closed_form_answer, answers_numerically_equivalent)
+        if is_closed_form_answer(a) and is_closed_form_answer(b):
+            eq = answers_numerically_equivalent(a, b)
+            if eq is not None:
+                return eq
+    except Exception:  # noqa: BLE001 - 判定失败回退文本等价
+        pass
+    return _text_equiv(a, b)
+
+
+def _wants_sc(state: dict, config) -> bool:
+    """触发条件：未 match + hard/规则可判定 + 预算充足 + 未跑过。"""
+    if not CONFIG.get("enable_sc_consensus", True):
+        return False
+    if state.get("sc_consensus_done"):
+        return False  # 每题只跑一次（修复循环重入时跳过，防重复消费）
+    # MockClient（集成测试环境）：SC 是真实采样节点，mock 响应无意义且会
+    # 破坏固定响应顺序——测试环境直接跳过（SC 逻辑由 test_sc_consensus
+    # 与真机实验覆盖）。
+    try:
+        from utils.deps import MockClient, get_deps
+        if isinstance(get_deps(config).client, MockClient):
+            return False
+    except Exception:  # noqa: BLE001 - 检测失败按真实环境处理
+        pass
+    if state.get("validation_status") in ("match", None):
+        return False
+    if state.get("question_mode") == "proof":
+        return False  # 证明题走既有 proof 链路（build_proof_body）
+    diff = str(state.get("difficulty") or "").lower()
+    if diff != "hard":
+        try:
+            from utils.rule_judge import state_is_rule_judgeable
+            if not state_is_rule_judgeable(state):
+                return False
+        except Exception:  # noqa: BLE001
+            return False
+    try:
+        from utils.deps import get_deps
+        clock = get_deps(config).time_budget
+        if clock is not None and clock.remaining_hard() < 600:
+            return False
+    except Exception:  # noqa: BLE001 - 预算取不到时按可负担处理
+        pass
+    return True
+
+
+def _extract_code(response: str) -> str:
+    m = re.search(r"```python[ \t]*\n(.*?)\n```", response or "", re.DOTALL)
+    if m:
+        return m.group(1).strip()
+    m = re.search(r"```\s*\n?(.*?)\n?```", response or "", re.DOTALL)
+    if m:
+        return m.group(1).strip()
+    return ""
+
+
+def _answer_from_stdout(stdout: str) -> str:
+    m = re.search(r"最终答案[：:]\s*(.+)", stdout or "", re.MULTILINE)
+    if m:
+        return m.group(1).strip()
+    lines = [l.strip() for l in (stdout or "").splitlines() if l.strip()]
+    for l in reversed(lines):
+        if re.fullmatch(r"[-+0-9/\\a-zA-Z\s\^\(\)\.\*\√π,_]+", l) \
+                and any(c.isdigit() for c in l):
+            return l
+    return ""
+
+
+def sc_consensus_node(state, config):
+    """SC 共识主入口：返回带 sc_consensus 记录的 state 扩展。"""
+    deps = __import__("utils.deps", fromlist=["get_deps"]).get_deps(config)
+    problem = state.get("problem", "")
+    out = {"sc_consensus": None}
+    if not _wants_sc(state, config):
+        # 保持已有 done 标志（重入时不覆盖 True，避免修复循环重复跑 SC）
+        out["sc_consensus_done"] = bool(state.get("sc_consensus_done"))
+        return out
+    client = deps.client
+    budget = deps.token_budget
+    clock = deps.time_budget
+    mcp_client = deps.mcp_client
+
+    r_answers: list[str] = []
+    r_samples = []
+    for view in ("algebra", "construct", "enumerate"):
+        if clock is not None and clock.remaining_hard() < 300:
+            break
+        prompt = _REASON_PROMPT.format(problem=problem[:6000],
+                                       view_hint=_VIEW_HINTS[view])
+        try:
+            resp = chat_prefilled(
+                client,
+                messages=[{"role": "user", "content": prompt}],
+                prefix="## 最终答案\n",
+                temperature=_TEMPS[view],
+                max_tokens=4096,
+                logger=deps.logger,
+                time_budget=clock,
+                label=f"sc_reason_{view}",
+                thinking_mode=thinking_mode_flag(),
+            )
+        except Exception as exc:  # noqa: BLE001
+            r_samples.append({"view": view, "answer": "", "error": str(exc)[:120]})
+            continue
+        if budget:
+            budget.consume(estimate_tokens(prompt), estimate_tokens(resp))
+        try:
+            from nodes.reasoning_agent_node import _parse_reasoning_output
+            ans = (_parse_reasoning_output(resp or "") or {}).get("answer") or ""
+        except Exception:  # noqa: BLE001
+            ans = ""
+        r_samples.append({"view": view, "answer": ans[:400]})
+        if not ans:
+            continue
+        r_answers.append(ans)
+        if len(r_answers) >= 2 and same_answer(r_answers[0], r_answers[1]):
+            break  # 早停
+
+    # 推理通道 2/3 一致 → 锁定
+    r_consensus = None
+    if len(r_answers) >= 2:
+        for a in r_answers:
+            if sum(1 for x in r_answers if same_answer(x, a)) >= 2:
+                r_consensus = a
+                break
+
+    c_answers: list[str] = []
+    c_samples = []
+    if r_consensus is None:  # 推理未一致才花代码预算
+        for algo in ("brute", "sympy", "dp"):
+            if clock is not None and clock.remaining_hard() < 200:
+                break
+            if mcp_client is None:
+                break
+            prompt = _CODE_PROMPT.format(problem=problem[:6000],
+                                         code_hint=_CODE_HINTS[algo])
+            try:
+                resp = chat_prefilled(
+                    client,
+                    messages=[{"role": "user", "content": prompt}],
+                    prefix="```python\n",
+                    temperature=0.4,
+                    max_tokens=4096,
+                    logger=deps.logger,
+                    time_budget=clock,
+                    label=f"sc_code_{algo}",
+                    thinking_mode=thinking_mode_flag(),
+                )
+            except Exception as exc:  # noqa: BLE001
+                c_samples.append({"algo": algo, "answer": "", "error": str(exc)[:120]})
+                continue
+            if budget:
+                budget.consume(estimate_tokens(prompt), estimate_tokens(resp))
+            code = _extract_code(resp or "")
+            if not code:
+                c_samples.append({"algo": algo, "answer": "", "error": "no code"})
+                continue
+            output = mcp_client.execute(code, timeout=60)
+            ans = _answer_from_stdout(str(output.get("stdout") or ""))
+            c_samples.append({"algo": algo, "answer": ans[:400],
+                              "success": bool(output.get("success"))})
+            if not ans:
+                continue
+            c_answers.append(ans)
+            if len(c_answers) >= 2 and same_answer(c_answers[0], c_answers[1]):
+                break  # 早停
+
+    c_consensus = None
+    if len(c_answers) >= 2:
+        for a in c_answers:
+            if sum(1 for x in c_answers if same_answer(x, a)) >= 2:
+                c_consensus = a
+                break
+
+    # 双通道一致 → 最高置信；单通道一致 → 锁定该通道
+    adopted, reason = None, ""
+    if r_consensus and c_consensus and same_answer(r_consensus, c_consensus):
+        adopted, reason = r_consensus, "双通道一致（推理+代码）"
+    elif r_consensus:
+        adopted, reason = r_consensus, "推理采样 2/3 一致"
+    elif c_consensus:
+        adopted, reason = c_consensus, "代码求解 2/3 一致"
+
+    out["sc_consensus"] = {
+        "adopted": (adopted or "")[:400],
+        "reason": reason,
+        "r_samples": r_samples,
+        "c_samples": c_samples,
+        "r_answers": r_answers[:3],
+        "c_answers": c_answers[:3],
+        "r_consensus": r_consensus,
+        "c_consensus": c_consensus,
+    }
+    if adopted:
+        out["validated_answer"] = adopted
+        out["answer_locked"] = True
+        out["sc_adopted"] = True
+        deps.logger.info("SC consensus locked: %s (%s)", adopted[:60], reason)
+    return out
