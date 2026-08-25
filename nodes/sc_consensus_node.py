@@ -168,12 +168,20 @@ def sc_consensus_node(state, config):
 
     r_answers: list[str] = []
     r_samples = []
+    # V4.9 竞赛方法论增强：构造/枚举视角叠加按题面路由的竞赛方法框架
+    # （不变量/SG/生成函数/极值原理等——提升单次命中率，直接增强
+    # 采样-验证-确认攻坚管线）。
+    from utils.competition_methods import route_competition_method
+    method_framework = route_competition_method(problem)
     for view in ("algebra", "construct", "enumerate",
                  "algebra_low", "construct_high", "enumerate_low"):
         if clock is not None and clock.remaining_hard() < 300:
             break
+        view_hint = _VIEW_HINTS[view]
+        if view in ("construct", "construct_high") and method_framework:
+            view_hint += method_framework
         prompt = _REASON_PROMPT.format(problem=problem[:6000],
-                                       view_hint=_VIEW_HINTS[view])
+                                       view_hint=view_hint)
         try:
             resp = chat_prefilled(
                 client,
@@ -287,6 +295,36 @@ def sc_consensus_node(state, config):
                         adopted, reason = unique[0], "SC 散文接管（主链路散文→闭式采样）"
         except Exception:  # noqa: BLE001 - 接管失败保持原链路
             pass
+    if adopted is None:
+        # V4.9 SVC 阶段 3：投票未决时对 top-2 候选做**程序化验证**——
+        # 验证器（代入/枚举对照/反例搜索）是确定性证据，强于投票。
+        # 只验证 top-2（预算：2 候选 × 2 验证代码 ≈ 4 调用/题）。
+        try:
+            from utils.answer_verifier import verify_candidate
+            scored: dict[str, int] = {}
+            for a in r_answers + c_answers:
+                key = str(a).strip()[:200]
+                if not key:
+                    continue
+                if any(same_answer(key, k) for k in scored):
+                    for k in scored:
+                        if same_answer(key, k):
+                            scored[k] += 1
+                            break
+                else:
+                    scored[key] = 1
+            top = sorted(scored, key=scored.get, reverse=True)[:2]
+            for cand in top:
+                if clock is not None and clock.remaining_hard() < 200:
+                    break
+                v = verify_candidate(client, deps, problem, cand)
+                if v.get("verified"):
+                    adopted, reason = cand, (
+                        "程序化双验证通过" if v.get("strong")
+                        else "程序化弱验证通过")
+                    break
+        except Exception as exc:  # noqa: BLE001 - 验证失败走原链路
+            deps.logger.warning("SC verifier failed: %s", exc)
 
     out["sc_consensus"] = {
         "adopted": (adopted or "")[:400],
