@@ -13,3 +13,14 @@
   python_agent（闭式输出条款）、round_manager（标注）、run_tests（注入）
 - 提交 v33: 7b81a2c, 91f9466（本地，不推送）
 - 单元测试 25 新增通过；既有 217 无回归
+
+## 2026-08-25 官方正式评测基准（eval_log_c7a0bc0405ed4d96a2cc716c0edac6d9.log）
+- 评测时间: 2026-08-24 16:00:47 → 19:42:07 UTC (约3h41m，6h限制内)
+- 评测版本: main 分支 e4ec4f16 = V2.5.8（V3.4~V4.1 全部在 v33 分支，未进官方）
+- **成绩: 54.46% (61/112 正确, 51 错误, invalid=0, infra_error=0)**
+- 题集: input_sha256=7f2499c5...（与我们本地基准一致）
+- API: 1288 请求 / 1 重试 / **141 次截断**（thinking模式token消耗的官方量化证据）
+- tokens: prompt 3.86M + completion 2.64M = 6.5M
+- 环境: aarch64 Linux, Python 3.11, lagent 0.5.0rc3, sympy 1.14, scipy 1.17
+- 对比: 本地 V2.5 61.61 vs 官方 54.46（差7分——官方judge更严/版本差异）
+- 结论: v33 分支 V3.4-V4.1（本地 round2 67% / V4.1 仿真 +4分）尚未经官方验证
