@@ -849,7 +849,13 @@ def reasoning_agent_node(state, config):
             "reasoning_raw_response_alt": "",
         }
     prior_hint = str(state.get("branch_hint") or "").strip()
-    diverse_hint = DIVERSE_METHOD_HINT + (f"\n\n[复核提示] {prior_hint}" if prior_hint else "")
+    # V3.7（TargetedSolver 实测：特化提示 > 通用方法池）：第二路优先用
+    # 题型特化提示（按分类器 category 路由），未命中科目回退通用方法池。
+    from utils.prompt_templates import CATEGORY_SPECIFIC_HINTS, DIVERSE_METHOD_HINT
+    category = str(state.get("category") or "")
+    diverse_hint = CATEGORY_SPECIFIC_HINTS.get(category, DIVERSE_METHOD_HINT)
+    if prior_hint:
+        diverse_hint = diverse_hint + f"\n\n[复核提示] {prior_hint}"
     out = _reasoning_agent_impl({**state, "branch_hint": diverse_hint}, config)
     result = out.get("reasoning_result") or {}
     return {
