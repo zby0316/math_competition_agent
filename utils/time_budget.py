@@ -50,6 +50,7 @@ class TimeBudget:
         reserve_seconds: float | None = None,
         fast_path_threshold: float | None = None,
         clock=time.monotonic,
+        max_llm_calls: int | None = None,
     ) -> None:
         self.total = float(
             total_seconds if total_seconds is not None else CONFIG["problem_time_budget_s"]
@@ -62,6 +63,10 @@ class TimeBudget:
             if fast_path_threshold is not None
             else CONFIG["time_fast_path_threshold_s"]
         )
+        # V5.0：自定义单题 LLM 调用上限（深水区迭代攻坚需 33+ 次调用，
+        # 默认 26 会被采样耗尽导致验证器无法执行——小样本实测 0/5 根因）。
+        self._llm_cap = int(max_llm_calls) if max_llm_calls is not None \
+            else int(CONFIG.get("max_llm_calls_per_problem", 0) or 0)
         self._clock = clock
         self._start = clock()
         self._lock = Lock()
@@ -169,7 +174,7 @@ class TimeBudget:
 
     def llm_calls_exhausted(self) -> bool:
         """是否已触及单题 LLM 请求上限（0/未配置 = 不限制）。"""
-        cap = int(CONFIG.get("max_llm_calls_per_problem", 0) or 0)
+        cap = self._llm_cap
         if cap <= 0:
             return False
         with self._lock:
