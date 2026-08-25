@@ -1,5 +1,8 @@
 # -*- coding: utf-8 -*-
-"""V4.1 端到端仿真 v3：round3 每道规则可判定错题按 V4.1 全逻辑推演出厂结果。
+"""V4.1 端到端仿真 v3：规则可判定错题按 V4.1 全逻辑推演出厂结果。
+
+用法: python local_test/simulate_v41.py [graded.json] [轮次名]
+默认: local_test/results/set1_round_003_graded.json
 
 模拟规则（与 cross_validator_node 实际代码一致）：
 1. 出厂时 validation status == match → V4.1 不触发（同 V4.0）。
@@ -20,6 +23,10 @@ from collections import Counter
 sys.stdout.reconfigure(encoding="utf-8")
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent))
 
+graded_path = sys.argv[1] if len(sys.argv) > 1 else \
+    "local_test/results/set1_round_003_graded.json"
+label = sys.argv[2] if len(sys.argv) > 2 else graded_path.split("_round_")[-1].split("_")[0]
+
 main_map = {}
 with open("local_test/data/omni_math/test.jsonl", encoding="utf-8") as f:
     for i, line in enumerate(f):
@@ -29,7 +36,7 @@ with open("local_test/data/omni_math/test.jsonl", encoding="utf-8") as f:
 from utils.rule_judge import (
     is_rule_judgeable, is_closed_form_answer, answers_numerically_equivalent)
 
-graded = json.load(open("local_test/results/set1_round_003_graded.json", encoding="utf-8"))
+graded = json.load(open(graded_path, encoding="utf-8"))
 problems = graded.get("problems", graded) if isinstance(graded, dict) else graded
 
 stats = Counter()
@@ -84,7 +91,7 @@ for p in problems:
         no_change.append(idx)
         print(f"  = #%3d [{vstatus}] 触发双验证 py错→第二代码不一致不锁(原链路) | {pa[:36]!r} != {official[:30]!r}" % idx)
 
-print("\n=== round3 规则可判定错题 V4.1 仿真 ===")
+print(f"\n=== {label} 规则可判定错题 V4.1 仿真 ===")
 for k, v in stats.items():
     print(f"  {k}: {v}")
 r = stats['saved']
