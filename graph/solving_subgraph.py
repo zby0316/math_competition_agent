@@ -18,12 +18,26 @@ def _want_diverse_branch(state, config) -> bool:
     - 客观题、时间 fast path、配置关闭时不发。
     - V2 M2：分类置信度高（≥0.90，fast 档）时即使高风险领域也不扇出——
       首答已高度可信，第二路径是浪费资源（最少资源原则）。
+    - V3.5（set1 round2 TargetedSolver 实测 12/12）：hard 题一律扇出第二路——
+      单路推理随机性是"会做但做错"的主因（#3/#6/#25/#31/#84/#91 实证），
+      异构方法采样是救回率最高的机制；仅受时间守卫约束（剩余硬时间 >400s，
+      第二路 77-550s，太晚不划算）。
     """
     if not CONFIG.get("enable_diverse_reasoning", True):
         return False
     if is_objective_mode(state.get("question_mode", "")):
         return False
     if state.get("reconciliation_round", 0) >= 1:
+        return True
+    # V3.5：hard 难度一律双路（单路随机性救回率最高）
+    if state.get("difficulty") == "hard":
+        try:
+            clock = get_deps(config).time_budget
+            if clock is not None:
+                if clock.fast_path() or clock.remaining_hard() < 400:
+                    return False
+        except Exception:  # noqa: BLE001 - 预算取不到时按可负担处理
+            pass
         return True
     # V2 M2 置信门控：fast 档（高置信）省第二路径
     from utils.confidence_gate import confidence_level
