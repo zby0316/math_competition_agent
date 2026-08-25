@@ -75,12 +75,20 @@ _EVIDENCE_RETRY_CONTRACT = (
 
 def _wants_independent_solve(state) -> bool:
     """V4.0 L2 代码化接管触发：hard 计算题，或含计算型特征词的题
-    （计数/枚举/概率/博弈/数值求值）——这类题手推易错而代码可精确，强制独立求解。"""
+    （计数/枚举/概率/博弈/数值求值）——这类题手推易错而代码可精确，强制独立求解。
+    V4.1 L1：规则可判定题（Omni-MATH-Rule 闭式子集）一律强制独立求解——
+    答案形态必为闭式数值/表达式，代码精确计算 + 确定性对拍是最高置信路线。"""
     import re
     if not CONFIG.get("enable_independent_solve", True):
         return False
     if state.get("question_mode") != "computation":
         return False
+    try:
+        from utils.rule_judge import state_is_rule_judgeable
+        if state_is_rule_judgeable(state):
+            return True
+    except Exception:  # noqa: BLE001 - 判定器故障按原逻辑
+        pass
     if state.get("difficulty") == "hard":
         return True
     problem = str(state.get("problem") or "")
@@ -257,6 +265,19 @@ def python_agent_node(state, config):
             "（枚举/DP/模拟/符号计算均可），最后一行 print(\"最终答案:\", value)。"
             "推理过程只作参考，答案以代码实际计算结果为准；若代码结果与推理不符，"
             "以代码为准并在验证证据中说明。")
+        # V4.1 L1：规则可判定题（答案形态必为闭式）追加闭式输出条款——
+        # 用 sympy 保持精确闭式（Fraction/根式/π 表达式），禁止输出浮点近似，
+        # 为下游确定性数值对拍提供可解析的闭式候选。
+        try:
+            from utils.rule_judge import state_is_rule_judgeable
+            if state_is_rule_judgeable(state):
+                base_prompt += (
+                    "\n\n[闭式输出条款] 本题答案是精确闭式（分数/根式/π 表达式等）。"
+                    "必须用 sympy/Fraction 全程精确计算，最终答案以精确闭式输出"
+                    "（如 Rational(19,28)、sqrt(3) 的组合），不得输出浮点近似值"
+                    "（如 0.678571），不得省略符号。")
+        except Exception:  # noqa: BLE001 - 判定器故障不影响主流程
+            pass
         inject_candidate = ""  # 独立求解不注入候选，防代码盲从推理错值
     if inject_candidate:
         base_prompt += (

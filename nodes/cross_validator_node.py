@@ -42,12 +42,14 @@ def _same_scalar_or_text(a: str, b: str) -> bool:
     return bool(ka) and ka == kb
 
 
-def _second_python_check(state: dict, config) -> str | None:
+def _second_python_check(state: dict, config, require_playoff: bool = True) -> str | None:
     """V3.4 Python 双验证（set1 round2 实证：#4/#13/#46/#58/#91 的
     "Python 对但仲裁/playoff 未采用" + 防 idx=28 sympy 确定性错）。
 
     触发条件（全部满足才花第二次代码调用）：
-    - 已走过 playoff 且不可决（indecisive/neither/error，非 decisive）
+    - 已走过 playoff 且不可决（indecisive/neither/error，非 decisive）；
+      V4.1 规则可判定接管路径可放宽（require_playoff=False）：推理侧
+      给不出闭式而 Python 闭式自检 PASS 时，直接做第二份独立代码验证。
     - 第一份 Python 执行成功且自检通过（evidence_status == support）
     - 剩余硬时间充足（>300s）
     动作：用"完全不同方法"的 hint 再生成一份独立验证代码，
@@ -60,7 +62,7 @@ def _second_python_check(state: dict, config) -> str | None:
         return None
     if po.get("evidence_status") != "support":
         return None
-    if not state.get("playoff_trace"):
+    if require_playoff and not state.get("playoff_trace"):
         return None  # 还没走过 playoff，不提前升级
     if state.get("playoff_status") == "decisive":
         return None  # 已确定性裁决，无需双验证
@@ -118,6 +120,48 @@ def _reasoning_off_topic(state: dict) -> bool:
         return False
     unknown = a_words - p_words
     return len(unknown) >= 3 and len(unknown) >= 0.6 * len(a_words)
+
+
+def _rule_judgeable_wants_double_verify(state: dict, config, python_output: dict,
+                                         reasoning_result: dict) -> bool:
+    """V4.1 L1 规则可判定题是否需要"第二独立代码"确定性验证。
+
+    round3 回放校准（34 道规则可判定错题）：
+    - ❌ 双闭式数值等价不能作为正确性证据：推理与 Python 同源（都是 397B
+      生成），会"一致地错"（回放 6/6 全错：#0 '2'≠'3'、#103 '5/9'≠'2/3'）。
+    - ❌ 单份 Python 闭式也不能直接锁：回放 12 次触发 9 次选错（#13/#15/
+      #18/#34/#35/#42/#72/#76/#104——模型写的代码本身就算错）。
+    - ✅ 唯一可靠的确定性证据：**两份独立方法代码**等价（AIMO2 路线）。
+      走到本分支的题（uncertain/mismatch/contradict，未 match）只要有
+      python 闭式 + 自检 PASS，就强制触发一次"完全不同方法"的第二份代码
+      （require_playoff=False），两份代码数学等价才锁 python：
+      · #2/#14/#27/#66 类（py 对、rz 错或散文）→ 第二代码与 py 一致 → 救回；
+      · #13/#15 类（py 错）→ 第二代码不一致 → 不锁，走原链路（不更差）；
+      · 双闭式等价同错的题早已 match 出厂，不走到本分支，不受影响。
+    合规：无 rule 文件（官方测试）时 is_rule_judgeable 返回 None → False，
+    行为与 V4.0 完全一致。
+    """
+    try:
+        from utils.rule_judge import state_is_rule_judgeable, is_closed_form_answer
+        if not state_is_rule_judgeable(state):
+            return False
+    except Exception:  # noqa: BLE001 - 判定器故障不改变现状
+        return False
+    if state.get("question_mode") != "computation" \
+            and not state.get("question_mode", "").startswith("fill"):
+        return False
+    pa = str((python_output or {}).get("answer") or "").strip()
+    if not pa:
+        return False
+    if not is_closed_form_answer(pa):
+        return False
+    if (python_output or {}).get("evidence_status") != "support":
+        return False
+    if bool((python_output or {}).get("authenticity", {}).get("fabricated")):
+        return False
+    if bool((python_output or {}).get("skipped")):
+        return False
+    return True
 
 
 def _hard_verify_forced(state, config) -> bool:
@@ -598,6 +642,37 @@ def cross_validator_node(state, config):
                 if revote_trace:
                     result["objective_revote_trace"] = revote_trace
                 return result
+        # V4.1 L1 规则可判定确定性接管（仲裁前的最后确定性防线）：
+        # 推理非闭式 + python 闭式 + 自检 PASS → 强制"完全不同方法"的
+        # 第二份代码，两份代码数学等价才锁 python（round3 回放校准：
+        # 单代码 9/12 错锁、双闭式等价 6/6 同错，都不足信；独立方法
+        # 双代码等价是唯一可靠的确定性证据，AIMO2 路线）。
+        if _rule_judgeable_wants_double_verify(state, config, python_output, reasoning_result):
+            second = _second_python_check(state, config, require_playoff=False)
+            if second is not None:
+                status = "match"
+                match_result["status"] = "match"
+                match_result["routing_reason"] = "rule_judgeable_double_python_locked"
+                match_result["adopted_source"] = "python"
+                match_result["verify_gate"] = "rule_judgeable_takeover"
+                validated_answer = second
+                next_node = "coordinator"
+                result = {
+                    "validation_status": status,
+                    "validation_details": match_result,
+                    "validated_answer": validated_answer,
+                    "next_node": next_node,
+                    "python_output": python_output,
+                    "python_evidence_status": evidence_status,
+                    "python_evidence_summary": evidence_summary,
+                    "python_contradictions": contradictions,
+                    "validation_history": [history_entry],
+                }
+                result["answer_locked"] = True
+                result["second_python_done"] = True
+                if revote_trace:
+                    result["objective_revote_trace"] = revote_trace
+                return result
         # V4.0 L1 强制验证门：hard 题未过验证门 → 强制重推（无验证结论不许出厂）
         if _hard_verify_forced(state, config):
             status = "mismatch_reconciling"
@@ -647,17 +722,48 @@ def cross_validator_node(state, config):
                 match_result["adopted_source"] = "python"
                 validated_answer = second
                 next_node = "coordinator"
-            elif _hard_verify_forced(state, config):
-                # V4.0 L1：双验证不可决且未过验证门 → 强制重推
-                status = "mismatch_reconciling"
-                match_result["routing_reason"] = "hard_verify_gate_forced_reconciliation"
-                match_result["verify_gate"] = "forced_reconciliation"
-                next_node = "reconciliation"
             else:
-                status = "uncertain_arbitrating"
-                match_result["routing_reason"] = \
-                    "insufficient_equivalence_evidence_semantic_arbitration"
-                next_node = "semantic_arbiter"
+                # V4.1 L1：仲裁前先试规则可判定确定性接管——推理非闭式 +
+                # python 闭式 + support → 强制第二独立代码，双代码等价才锁
+                # （round3 回放校准：单代码/双闭式等价均不足信）。
+                if _rule_judgeable_wants_double_verify(
+                        state, config, python_output, reasoning_result):
+                    second = _second_python_check(state, config, require_playoff=False)
+                    if second is not None:
+                        status = "match"
+                        match_result["status"] = "match"
+                        match_result["routing_reason"] = "rule_judgeable_double_python_locked"
+                        match_result["adopted_source"] = "python"
+                        match_result["verify_gate"] = "rule_judgeable_takeover"
+                        validated_answer = second
+                        next_node = "coordinator"
+                        result = {
+                            "validation_status": status,
+                            "validation_details": match_result,
+                            "validated_answer": validated_answer,
+                            "next_node": next_node,
+                            "python_output": python_output,
+                            "python_evidence_status": evidence_status,
+                            "python_evidence_summary": evidence_summary,
+                            "python_contradictions": contradictions,
+                            "validation_history": [history_entry],
+                        }
+                        result["answer_locked"] = True
+                        result["second_python_done"] = True
+                        if revote_trace:
+                            result["objective_revote_trace"] = revote_trace
+                        return result
+                if _hard_verify_forced(state, config):
+                    # V4.0 L1：双验证不可决且未过验证门 → 强制重推
+                    status = "mismatch_reconciling"
+                    match_result["routing_reason"] = "hard_verify_gate_forced_reconciliation"
+                    match_result["verify_gate"] = "forced_reconciliation"
+                    next_node = "reconciliation"
+                else:
+                    status = "uncertain_arbitrating"
+                    match_result["routing_reason"] = \
+                        "insufficient_equivalence_evidence_semantic_arbitration"
+                    next_node = "semantic_arbiter"
 
     history_entry["status"] = status
     # V4.0 L4 验证证据记录：每题 trace 可见的"过门摘要"（防幻觉可追溯——
