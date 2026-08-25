@@ -120,6 +120,33 @@ def _reasoning_off_topic(state: dict) -> bool:
     return len(unknown) >= 3 and len(unknown) >= 0.6 * len(a_words)
 
 
+def _hard_verify_forced(state, config) -> bool:
+    """V4.0 L1 强制验证门：hard 题未过任何验证门时，强制至少 1 次 reconciliation
+    （突破 reconciliation_retry_available 的轮次限制——"无验证结论不许出厂"
+    优先于轮次纪律；预算不足 300s 时放弃强制，防止烧穿墙钟）。"""
+    if state.get("difficulty") != "hard":
+        return False
+    if state.get("reconciliation_round", 0) >= 1:
+        return False  # 已重推过一轮
+    if state.get("playoff_status") == "decisive":
+        return False  # 已有确定性验证
+    if state.get("validation_status") == "match":
+        return False  # 已有一致结论
+    po = state.get("python_output") or {}
+    if po.get("evidence_status") == "support":
+        return False  # 代码验证通过
+    if state.get("second_python_done"):
+        return False  # 双验证已用
+    try:
+        from utils.deps import get_deps
+        clock = get_deps(config).time_budget
+        if clock is not None and clock.remaining_hard() < 300:
+            return False
+    except Exception:  # noqa: BLE001 - 预算取不到时按可负担处理
+        pass
+    return True
+
+
 def _preferred_answer(state: dict, match_result: dict) -> str:
     """Pick the answer to surface as validated_answer.
 
@@ -571,10 +598,13 @@ def cross_validator_node(state, config):
                 if revote_trace:
                     result["objective_revote_trace"] = revote_trace
                 return result
-        # subgraph-level retry gated by reconciliation_round (NOT per-node attempts —
-        # per-node attempts gate the agent's internal format/code retries; the plan
-        # §4.2 keeps these separate).
-        if reconciliation_retry_available(state, config):
+        # V4.0 L1 强制验证门：hard 题未过验证门 → 强制重推（无验证结论不许出厂）
+        if _hard_verify_forced(state, config):
+            status = "mismatch_reconciling"
+            match_result["routing_reason"] = "hard_verify_gate_forced_reconciliation"
+            match_result["verify_gate"] = "forced_reconciliation"
+            next_node = "reconciliation"
+        elif reconciliation_retry_available(state, config):
             status = "mismatch_reconciling"
             next_node = "reconciliation"
         else:
@@ -617,6 +647,12 @@ def cross_validator_node(state, config):
                 match_result["adopted_source"] = "python"
                 validated_answer = second
                 next_node = "coordinator"
+            elif _hard_verify_forced(state, config):
+                # V4.0 L1：双验证不可决且未过验证门 → 强制重推
+                status = "mismatch_reconciling"
+                match_result["routing_reason"] = "hard_verify_gate_forced_reconciliation"
+                match_result["verify_gate"] = "forced_reconciliation"
+                next_node = "reconciliation"
             else:
                 status = "uncertain_arbitrating"
                 match_result["routing_reason"] = \
@@ -624,6 +660,15 @@ def cross_validator_node(state, config):
                 next_node = "semantic_arbiter"
 
     history_entry["status"] = status
+    # V4.0 L4 验证证据记录：每题 trace 可见的"过门摘要"（防幻觉可追溯——
+    # 出厂答案过了哪些验证门，一目了然；未过门题必须走强制重推/仲裁）。
+    match_result["verify_gate"] = {
+        "code_support": evidence_status == "support",
+        "playoff": state.get("playoff_status"),
+        "double_python": bool(state.get("second_python_done")),
+        "off_topic": _reasoning_off_topic(state),
+        "hard_forced": bool(match_result.get("verify_gate") == "forced_reconciliation"),
+    }
     result = {
         "validation_status": status,
         "validation_details": match_result,

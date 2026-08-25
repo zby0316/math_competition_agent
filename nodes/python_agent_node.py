@@ -73,6 +73,23 @@ _EVIDENCE_RETRY_CONTRACT = (
 )
 
 
+def _wants_independent_solve(state) -> bool:
+    """V4.0 L2 代码化接管触发：hard 计算题，或含计算型特征词的题
+    （计数/枚举/概率/博弈/数值求值）——这类题手推易错而代码可精确，强制独立求解。"""
+    import re
+    if not CONFIG.get("enable_independent_solve", True):
+        return False
+    if state.get("question_mode") != "computation":
+        return False
+    if state.get("difficulty") == "hard":
+        return True
+    problem = str(state.get("problem") or "")
+    return bool(re.search(
+        r"how many|number of|probability|game|dice|coin|cards|deck|"
+        r"sum of|compute|evaluate|find the (?:value|minimum|maximum)|"
+        r"枚举|多少个|概率|掷|棋盘|堆|期望", problem, re.IGNORECASE))
+
+
 def _retry_prompt(instruction: str, problem: str, candidate_answer: str = "") -> str:
     """Keep the evidence contract and candidate context in every short retry."""
     candidate_hint = ""
@@ -230,12 +247,11 @@ def python_agent_node(state, config):
     if knowledge_ref:
         base_prompt += "\n\n[技能知识点参考]\n" + knowledge_ref
     inject_candidate = candidate_answer
-    # V3.6（set1 round2 实证：#4/#9/#13/#26/#39/#42/#46/#97/#98/#108 类）：
-    # hard 计算题用"独立求解模式"——代码不依赖推理候选（避免抄错候选），
-    # 直接独立计算题面目标，代码结果即主答案依据。推理候选仍保留供交叉验证。
-    if (state.get("difficulty") == "hard"
-            and state.get("question_mode") == "computation"
-            and CONFIG.get("enable_independent_solve", True)):
+    # V3.6/V4.0 L2 代码化接管（set1 round2 实证：#4/#9/#13/#26/#39/#42/#46/#97/
+    # #98/#108 类）：hard 计算题或含计算型特征词的题用"独立求解模式"——代码
+    # 不依赖推理候选（避免抄错候选），直接独立计算题面目标，代码结果即主答案
+    # 依据。推理候选仍保留供交叉验证。
+    if _wants_independent_solve(state):
         base_prompt += (
             "\n\n[独立求解模式] 本题必须由代码**独立求解**：直接按题面计算目标值"
             "（枚举/DP/模拟/符号计算均可），最后一行 print(\"最终答案:\", value)。"

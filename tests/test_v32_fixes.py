@@ -206,3 +206,43 @@ class TestLockedAnswerSteps:
         out = attach_steps(final, problem, steps)
         assert "关键步骤" in out
         assert "最终答案：2**n*n + 1" in out  # verbatim 答案不被破坏
+
+
+class TestV40VerifyGate:
+    """V4.0：强制验证门 + 代码化接管触发（无验证结论不许出厂）。"""
+
+    def test_hard_unverified_forced_reconciliation(self):
+        from nodes.cross_validator_node import _hard_verify_forced
+        state = {"difficulty": "hard", "reconciliation_round": 0,
+                 "python_output": {"evidence_status": "inconclusive"}}
+        assert _hard_verify_forced(state, _Cfg()) is True
+
+    def test_hard_verified_not_forced(self):
+        from nodes.cross_validator_node import _hard_verify_forced
+        state = {"difficulty": "hard", "reconciliation_round": 0,
+                 "playoff_status": "decisive",
+                 "python_output": {"evidence_status": "inconclusive"}}
+        assert _hard_verify_forced(state, _Cfg()) is False
+
+    def test_medium_not_forced(self):
+        from nodes.cross_validator_node import _hard_verify_forced
+        state = {"difficulty": "medium", "python_output": {}}
+        assert _hard_verify_forced(state, _Cfg()) is False
+
+    def test_hard_already_reconciled_not_forced(self):
+        from nodes.cross_validator_node import _hard_verify_forced
+        state = {"difficulty": "hard", "reconciliation_round": 1,
+                 "python_output": {"evidence_status": "inconclusive"}}
+        assert _hard_verify_forced(state, _Cfg()) is False
+
+    def test_independent_solve_feature_words(self):
+        from nodes.python_agent_node import _wants_independent_solve
+        assert _wants_independent_solve(
+            {"difficulty": "medium", "question_mode": "computation",
+             "problem": "How many ways can 6 dice show a sum of 20?"}) is True
+        assert _wants_independent_solve(
+            {"difficulty": "medium", "question_mode": "computation",
+             "problem": "Prove that the sequence converges."}) is False
+        assert _wants_independent_solve(
+            {"difficulty": "hard", "question_mode": "computation",
+             "problem": "Find all functions f."}) is True
