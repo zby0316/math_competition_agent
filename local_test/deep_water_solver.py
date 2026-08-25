@@ -1,17 +1,20 @@
 # -*- coding: utf-8 -*-
-"""深水区专项攻坚求解器（V4.9 SVC：采样-验证-确认）。
+"""深水区迭代攻坚求解器（V5.0：IMO25 金牌管线——验证-精炼循环）。
 
-对 47 道深水区题（多轮重测仍错）做最大火力攻坚：
-1. 采样：6 视角推理（竞赛方法增强）+ 3 份代码 = 9 份候选
-2. 筛选：去重计票 → top-2 候选
-3. 验证：对 top-2 做双独立程序化验证（代入/枚举/反例搜索）
-4. 确认：验证通过 → 确定性锁定；否则 2/3 投票 → 弱锁；都不行 → 原答案
+对每道深水区题做最多 4 轮迭代：
+  轮 1: 9 采样（6 推理竞赛方法注入 + 3 代码）→ 计票 top-2 → 双验证
+  通过 → 锁定；FAIL → 提取反例反馈
+  轮 2-4: 5 采样（提示含上一轮验证反馈约束）→ 验证 top-2 → 循环
+  4 轮后未锁定 → 投票最高票 + 标记"unconfirmed"
 
-用法：python local_test/deep_water_solver.py [--input idx列表] [--max N]
+合规：官方 API + sympy + MCP 沙箱，无外部模型/训练/Lean。
+
+用法：python local_test/deep_water_solver.py [--max N] [--rounds 4]
 """
 import argparse
 import json
 import re
+import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -27,8 +30,8 @@ from utils.llm_retry import chat_prefilled, thinking_mode_flag
 from nodes.reasoning_agent_node import _parse_reasoning_output
 from nodes.sc_consensus_node import same_answer
 from utils.answer_verifier import verify_candidate
+from utils.verifier_feedback import extract_feedback
 from utils.competition_methods import route_competition_method
-from utils.rule_judge import is_closed_form_answer
 import logging
 
 _VIEW_HINTS = {
@@ -55,7 +58,7 @@ _REASON_PROMPT = """你是一个数学专家。严格按以下格式解答（**�
 计算过程：...
 
 {view_hint}
-
+{feedback_block}
 问题：
 {problem}
 """
@@ -63,7 +66,7 @@ _REASON_PROMPT = """你是一个数学专家。严格按以下格式解答（**�
 _CODE_PROMPT = """请为下面的数学题写一个完整可运行的 Python 程序求解（{code_hint}）。
 最后一行必须 print("最终答案:", answer)，answer 是精确值（分数/根式/整数）。
 只输出 ```python``` 代码块。
-
+{feedback_block}
 问题：
 {problem}
 """
@@ -73,6 +76,9 @@ _CODE_HINTS = {
     "sympy": "用 sympy 符号计算（积分/方程/化简/矩阵），保持精确闭式。",
     "dp": "用动态规划/递推（自底向上填表），注意边界与初值。",
 }
+
+_VIEWS = ("algebra", "construct", "enumerate",
+          "algebra_low", "construct_high", "enumerate_low")
 
 
 def _extract_code(resp):
@@ -97,26 +103,16 @@ def _code_answer(stdout):
     return ""
 
 
-def solve_deep_water(idx, problem, official):
-    from utils.deps import Deps
-    from llm_client import InternChatClient
-    from utils.time_budget import TimeBudget
-    import logging
-    client = InternChatClient()
-    deps = Deps(client=client, time_budget=TimeBudget(1500),
-                logger=logging.getLogger(f"deep_{idx}"))
-    out = {"idx": idx, "official": str(official)[:80],
-           "samples": [], "adopted": "", "reason": "", "correct": None}
-
-    # 阶段1：采样（6 视角推理 + 3 代码）
-    r_answers, c_answers = [], []
-    framework = route_competition_method(problem)
-    for view in ("algebra", "construct", "enumerate",
-                 "algebra_low", "construct_high", "enumerate_low"):
+def _sample_round(client, deps, problem, framework, feedback, n_views,
+                  n_codes):
+    """一轮采样：n_views 视角推理 + n_codes 份代码。返回答案列表。"""
+    answers = []
+    for view in _VIEWS[:n_views]:
         vh = _VIEW_HINTS[view]
         if view in ("construct", "construct_high") and framework:
             vh += framework
-        prompt = _REASON_PROMPT.format(problem=problem[:6000], view_hint=vh)
+        prompt = _REASON_PROMPT.format(problem=problem[:6000], view_hint=vh,
+                                       feedback_block=feedback)
         try:
             resp = chat_prefilled(
                 client,
@@ -126,20 +122,18 @@ def solve_deep_water(idx, problem, official):
                 max_tokens=4096,
                 logger=deps.logger,
                 time_budget=deps.time_budget,
-                label=f"dw_reason_{view}",
+                label="dw_reason",
                 thinking_mode=thinking_mode_flag(),
             )
-        except Exception as exc:  # noqa: BLE001
-            out["samples"].append({"view": view, "answer": "", "error": str(exc)[:80]})
+        except Exception:  # noqa: BLE001
             continue
         ans = (_parse_reasoning_output(resp or "") or {}).get("answer") or ""
-        out["samples"].append({"view": view, "answer": ans[:300]})
         if ans:
-            r_answers.append(ans)
-
-    for algo in ("brute", "sympy", "dp"):
+            answers.append(ans)
+    for algo in ("brute", "sympy", "dp")[:n_codes]:
         prompt = _CODE_PROMPT.format(problem=problem[:6000],
-                                     code_hint=_CODE_HINTS[algo])
+                                     code_hint=_CODE_HINTS[algo],
+                                     feedback_block=feedback)
         try:
             resp = chat_prefilled(
                 client,
@@ -149,16 +143,14 @@ def solve_deep_water(idx, problem, official):
                 max_tokens=4096,
                 logger=deps.logger,
                 time_budget=deps.time_budget,
-                label=f"dw_code_{algo}",
+                label="dw_code",
                 thinking_mode=thinking_mode_flag(),
             )
-        except Exception as exc:  # noqa: BLE001
-            out["samples"].append({"algo": algo, "answer": "", "error": str(exc)[:80]})
+        except Exception:  # noqa: BLE001
             continue
         code = _extract_code(resp or "")
         if not code:
             continue
-        import subprocess
         try:
             r = subprocess.run([sys.executable, "-c", code],
                                capture_output=True, text=True, timeout=60,
@@ -166,43 +158,84 @@ def solve_deep_water(idx, problem, official):
             ans = _code_answer(r.stdout or "")
         except Exception:  # noqa: BLE001
             ans = ""
-        out["samples"].append({"algo": algo, "answer": ans[:300]})
         if ans:
-            c_answers.append(ans)
+            answers.append(ans)
+    return answers
 
-    # 阶段2：计票 → top-2
+
+def _top_candidates(answers, k=2):
+    """计票去重 → top-k。"""
     scored = {}
-    for a in r_answers + c_answers:
+    for a in answers:
         key = str(a).strip()[:200]
         if not key:
             continue
         hit = None
-        for k in scored:
-            if same_answer(key, k):
-                hit = k
+        for kk in scored:
+            if same_answer(key, kk):
+                hit = kk
                 break
         if hit:
             scored[hit] += 1
         else:
             scored[key] = 1
-    top = sorted(scored, key=scored.get, reverse=True)[:2]
+    return sorted(scored, key=scored.get, reverse=True)[:k], scored
 
-    # 阶段3：验证 top-2（双独立代码验证）
-    for cand in top:
-        v = verify_candidate(client, deps, problem, cand)
-        out["verify"] = out.get("verify", []) + [{"candidate": cand[:120],
-                                                  "verdicts": v.get("verdicts", [])}]
-        if v.get("verified"):
-            out["adopted"] = cand
-            out["reason"] = ("程序化双验证通过" if v.get("strong")
-                             else "程序化弱验证通过")
+
+def solve_deep_water(idx, problem, official, max_rounds=4):
+    client = InternChatClient()
+    deps = Deps(client=client, time_budget=TimeBudget(1500),
+                logger=logging.getLogger(f"deep_{idx}"))
+    out = {"idx": idx, "official": str(official)[:80],
+           "rounds": [], "adopted": "", "reason": "", "correct": None}
+    framework = route_competition_method(problem)
+    feedback = ""
+    history = []  # 所有已试候选（防重复采样）
+
+    for rnd in range(1, max_rounds + 1):
+        n_views = 6 if rnd == 1 else 4
+        n_codes = 3 if rnd == 1 else 2
+        answers = _sample_round(client, deps, problem, framework, feedback,
+                                n_views, n_codes)
+        new_answers = [a for a in answers
+                       if not any(same_answer(a, h) for h in history)]
+        history.extend(new_answers)
+        top, scored = _top_candidates(new_answers or answers)
+        round_info = {"round": rnd, "n_answers": len(new_answers),
+                      "top": [str(t)[:120] for t in top]}
+        # 验证 top-2
+        locked = None
+        locked_reason = ""
+        for cand in top:
+            v = verify_candidate(client, deps, problem, cand)
+            round_info["verifies"] = round_info.get("verifies", []) + [
+                {"candidate": str(cand)[:120],
+                 "verdicts": v.get("verdicts", [])}]
+            if v.get("verified"):
+                locked, locked_reason = cand, (
+                    "程序化双验证通过" if v.get("strong") else "程序化弱验证通过")
+                break
+        out["rounds"].append(round_info)
+        if locked:
+            out["adopted"], out["reason"] = locked, locked_reason
             break
-    # 阶段4：投票兜底（2/3 一致）
-    if not out["adopted"] and top:
-        if len(top) == 1 or scored.get(top[0], 0) >= max(2, len(r_answers) // 3):
+        # 提取反例反馈喂下一轮
+        fb_parts = []
+        for vv in round_info.get("verifies", []):
+            if "FAIL" in vv.get("verdicts", []):
+                # 重新跑一次验证拿 stdout 不划算——用 verdicts 摘要
+                fb_parts.append(f"候选 {vv['candidate'][:60]} 验证 FAIL")
+        if fb_parts:
+            feedback = "上一轮候选验证失败：" + "；".join(fb_parts) + \
+                "。重解时必须给出**能被程序验证通过**的答案（代入检查/枚举对照），避免重复错误。"
+        else:
+            feedback = ""
+    # 4 轮后未锁：投票最高票
+    if not out["adopted"] and history:
+        top, scored = _top_candidates(history, 1)
+        if top:
             out["adopted"] = top[0]
-            out["reason"] = "采样投票一致"
-
+            out["reason"] = "多轮采样投票最高票（未经验证，unconfirmed）"
     if out["adopted"]:
         out["correct"] = same_answer(out["adopted"], official) is True
     return out
@@ -211,6 +244,7 @@ def solve_deep_water(idx, problem, official):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--max", type=int, default=0)
+    ap.add_argument("--rounds", type=int, default=4)
     args = ap.parse_args()
 
     main_map = {}
@@ -219,7 +253,6 @@ def main():
             d = json.loads(line)
             main_map[d["problem"].strip()] = d["answer"]
 
-    # 深水区 = round4 retest 仍错 47 道
     rows = {}
     for line in open("local_test/data/schedule/set1_round_004.jsonl",
                      encoding="utf-8"):
@@ -240,25 +273,29 @@ def main():
     qs.sort(key=lambda x: x["idx"])
     if args.max:
         qs = qs[:args.max]
-    print(f"深水区攻坚: {len(qs)} 题（9 采样 + top-2 双验证）")
+    print(f"深水区迭代攻坚: {len(qs)} 题 × {args.rounds} 轮（采样+双验证+反例反馈）")
 
     results = []
     t0 = time.monotonic()
-    with ThreadPoolExecutor(max_workers=6) as pool:
+    with ThreadPoolExecutor(max_workers=5) as pool:
         futs = {pool.submit(solve_deep_water, q["idx"], q["problem"],
-                            q["official"]): q["idx"] for q in qs}
+                            q["official"], args.rounds): q["idx"] for q in qs}
         for i, fut in enumerate(as_completed(futs), 1):
             r = fut.result()
             results.append(r)
             mark = "✓" if r.get("correct") else "✗"
-            print(f"[{i}/{len(qs)}] #{r['idx']} {mark} [{r.get('reason','')}] "
-                  f"adopted={str(r.get('adopted',''))[:45]}")
+            rounds = len(r.get("rounds", []))
+            print(f"[{i}/{len(qs)}] #{r['idx']} {mark} 轮数={rounds} "
+                  f"[{r.get('reason','')}] adopted={str(r.get('adopted',''))[:40]}")
 
     saved = [r["idx"] for r in results if r.get("correct")]
-    print(f"\n=== 深水区攻坚结果 ===")
+    confirmed = [r["idx"] for r in results
+                 if r.get("correct") and "验证" in r.get("reason", "")]
+    print(f"\n=== 深水区迭代攻坚结果 ===")
     print(f"救回: {len(saved)}/{len(results)} | idx: {saved}")
+    print(f"其中程序化验证确认: {len(confirmed)}")
     print(f"耗时: {(time.monotonic()-t0)/60:.1f} min")
-    Path("local_test/results/deep_water_1.json").write_text(
+    Path("local_test/results/deep_water_iter.json").write_text(
         json.dumps(results, ensure_ascii=False, indent=1), encoding="utf-8")
 
 
