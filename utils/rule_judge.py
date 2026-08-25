@@ -149,7 +149,6 @@ def _parse_closed_form(text: str):
         return None
     try:
         from utils.answer_matcher import _run_limited, _try_parse_expr
-        import sympy as sp
 
         def _do():
             expr = _try_parse_expr(str(text))

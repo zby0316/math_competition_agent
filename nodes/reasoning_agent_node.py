@@ -1,7 +1,7 @@
 import re
 from utils.deps import get_deps
 from utils.llm_retry import chat_prefilled, chat_with_retry, thinking_mode_flag
-from utils.prompt_templates import DIVERSE_METHOD_HINT, REASONING_PROMPT
+from utils.prompt_templates import REASONING_PROMPT
 from utils.token_budget import estimate_tokens
 from utils.answer_extractor import (
     extract_answer_fallback_with_source,
@@ -640,7 +640,10 @@ def _reasoning_agent_impl(state, config):
     if clock and clock.fast_path():
         max_attempts = 1
     _reread_used = False  # V4.5 假性放弃重读只触发一次
-    for _ in range(max_attempts):
+    # V4.5 修复：max_retries_per_node=1 时循环只有 1 轮，原 range(max_attempts)
+    # 会让假性放弃重读（continue）落到不存在的第 2 轮而从未生效。加 +1 轮
+    # 专供重读；普通格式重试在 attempts>=max_attempts 时提前 break 兜底。
+    for _ in range(max_attempts + 1):
         # Fund the retry against what the previous attempt actually cost, not against
         # "time has not run out yet". Without this, a second 545s attempt was authorised
         # with 349s left and overran the deadline by 198s, finishing with no answer at
@@ -775,6 +778,10 @@ def _reasoning_agent_impl(state, config):
             if _is_complete(compressed_parsed):
                 return {"reasoning_result": parsed, "reasoning_trace": trace,
                         "reasoning_attempts": attempts, "reasoning_raw_response": resp}
+            break
+        # V4.5 循环 +1 轮专供假性放弃重读：重读轮失败后不再格式重试
+        # （attempts > max_attempts 即已用完常规配额+重读轮）。
+        if attempts > max_attempts:
             break
         prompt = (base_prompt + "\n\n注意：上一次输出缺少必需章节（必须含 '## 问题分析'、'## 详细解题步骤'、"
                   "'## 最终答案'）。'## 最终答案' 下必须按题面要求完整列出各字段/各问项的结果"
