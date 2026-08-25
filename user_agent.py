@@ -236,6 +236,10 @@ if _BACKEND == "graph":
                                 state.get("python_evidence_summary", "")), 1000),
                         "python_contradictions": state["validation_details"].get(
                             "python_contradictions", state.get("python_contradictions", [])),
+                        # V4.0/V4.1 验证门记录：出厂答案过了哪些确定性验证
+                        "verify_gate": state["validation_details"].get("verify_gate", {}),
+                        "routing_reason": state["validation_details"].get(
+                            "routing_reason", ""),
                     },
                     "tools": [
                         {
