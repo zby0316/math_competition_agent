@@ -24,3 +24,18 @@
 - 环境: aarch64 Linux, Python 3.11, lagent 0.5.0rc3, sympy 1.14, scipy 1.17
 - 对比: 本地 V2.5 61.61 vs 官方 54.46（差7分——官方judge更严/版本差异）
 - 结论: v33 分支 V3.4-V4.1（本地 round2 67% / V4.1 仿真 +4分）尚未经官方验证
+
+## 2026-08-25 V4.3+V4.4: 截断根治与裸答案根治
+### V4.3 结论先行(26d26b6)
+- round4 实证: 103/112 题首轮被截断(173次标记), 但续写兜住→真正受损仅2题
+- 根因: '## 最终答案'是第三章节, 模型常在详细步骤就写满12288 token
+- 修复: 最终答案章节移至全文第一章节(与压缩重试prefill同构)
+- 步骤解析lookahead改通用##停靠; 6 pytest用例+全量242通过
+
+### V4.4 emergency纳入diverse(101ad2b)
+- round4 实证: #3/#46 主推理空产出+python失败后, diverse第二路有完整
+  分析+步骤+答案('最终答案：3'), 但emergency组装忽略alt→裸猜出厂
+- 修复: _diverse_clues提取alt(答案首行+分析+步骤); _partial_response
+  优先diverse; _with_emergency_answer以diverse为主体(答案+过程参考),
+  裸猜降级补充尝试
+- 7 pytest用例+全量255通过
