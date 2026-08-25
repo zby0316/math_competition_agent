@@ -34,8 +34,11 @@ _VIEW_HINTS = {
     "algebra": "\n求解视角：代数法——直接建立方程/不等式/递推关系，符号推导求解。",
     "construct": "\n求解视角：构造法——构造具体对象/反例/极端情形，先验证小规模再推广。",
     "enumerate": "\n求解视角：枚举法——小规模暴力枚举找规律，归纳通项或直接计数。",
+    "algebra_low": "\n求解视角：代数法——直接建立方程/不等式/递推关系，符号推导求解。",
+    "construct_high": "\n求解视角：构造法——构造具体对象/反例/极端情形，先验证小规模再推广。",
+    "enumerate_low": "\n求解视角：枚举法——小规模暴力枚举找规律，归纳通项或直接计数。",
 }
-_TEMPS = {"algebra": 0.7, "construct": 1.0, "enumerate": 1.3}
+_TEMPS = {"algebra": 0.7, "construct": 1.0, "enumerate": 1.3, "algebra_low": 0.4, "construct_high": 1.5, "enumerate_low": 0.2}
 
 _CODE_HINTS = {
     "brute": "用暴力枚举/搜索（itertools/for 循环）直接计算，小规模验证后再放大。",
@@ -165,7 +168,7 @@ def solve_one(idx, problem, main_map, budget_seconds=1200):
 
     # 3 视角推理采样（早停：第 2 份与第 1 份闭式等价即停）
     r_answers = []
-    for view in ("algebra", "construct", "enumerate"):
+    for view in ("algebra", "construct", "enumerate", "algebra_low", "construct_high", "enumerate_low"):
         prompt = _REASON_BASE.format(problem=problem[:6000],
                                      view_hint=_VIEW_HINTS[view])
         try:
