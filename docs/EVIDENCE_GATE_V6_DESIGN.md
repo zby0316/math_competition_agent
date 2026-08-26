@@ -118,7 +118,7 @@ gate 判定非 GREEN
 
 **SC 锁定终态修复（合并进本设计）**：`sc_consensus_node` adopted 时置 `next_node="coordinator"`，且闸门在 SC 之后运行——仲裁**永远不再有机会覆盖 SC 锁定值**（实证 r5 #83 / r6 #96 的 bug 由此根除）。
 
-**循环终止**：`evidence_gate_round` 上限 2；`sc_consensus_done` / `second_python_done` / `verify_done` 一次性标志；全局 `max_llm_calls_per_problem`（26）与 `evidence_gate_max_calls`（6）双封顶。
+**循环终止**：`evidence_gate_round` 上限 2；`sc_consensus_done` / `second_python_done` / `verify_done` 一次性标志；全局 `max_llm_calls_per_problem`（V5.3 起按难度 8/14/20，未知难度 fallback 20）与 `evidence_gate_max_calls`（6）双封顶。
 
 ---
 
@@ -178,7 +178,7 @@ gate 判定非 GREEN
 
 1. **正确题不加价**：GREEN 题（含已双代码/已验证器/双通道 SC 的题）零升级、零额外调用。
 2. **预算闸**：`remaining_hard < {easy:400, medium:500}` 或 `fast_path()` → 跳过升级直接出厂（deadline guard 优先，绝不烧穿墙钟）。
-3. **全局封顶**：`evidence_gate_max_calls=6`/题，叠加 `max_llm_calls_per_problem=26`；SC 早停与 `sc_end`（V5.1）保持不变。
+3. **全局封顶**：`evidence_gate_max_calls=6`/题，叠加 `max_llm_calls_per_problem`（V5.3 起按难度 8/14/20）；SC 早停与 `sc_end`（V5.1）保持不变。
 4. **降级开关**：`evidence_gate_mode = "full" | "easy_only" | "off"`——官方实测若贴 6h，一键只护 easy 或全关（回到 V5.2 行为）。
 5. 验证器/SC/双代码全部走既有 API + MCP 沙箱路径，**官方合规**（与 python_agent/playoff 同机制）。
 

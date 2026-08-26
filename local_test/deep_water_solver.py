@@ -77,6 +77,18 @@ _CODE_HINTS = {
     "dp": "用动态规划/递推（自底向上填表），注意边界与初值。",
 }
 
+# V5.3 交错推理（InternLM-Math agent 路线：语言→代码→结果→语言逐步交错，
+# 实验实证救回 SC/代码/管线都没救过的 #46 #62——逐步计算补上"中间量
+# 修正"路径）。增强：竞赛方法路由注入 + 执行失败自动重写。
+_IL_SYSTEM = """你是数学专家。解题时采用**交错推理**：
+- 每步先写推理文本（简短）；
+- 如果这一步需要计算/验证（代入、枚举、符号化简、数值检验），必须输出
+  ```python 代码块``` 来计算——代码执行结果会反馈给你，继续下一步推理；
+- 不要一次写出所有代码；逐步计算，每步依赖上一步的执行结果；
+- 当你确定最终答案时，最后单独一行输出：最终答案：<答案>。
+
+{method_framework}"""
+
 _VIEWS = ("algebra", "construct", "enumerate",
           "algebra_low", "construct_high", "enumerate_low")
 
@@ -103,9 +115,62 @@ def _code_answer(stdout):
     return ""
 
 
+def _interleaved_solve(client, deps, problem, framework, feedback,
+                       max_steps=4):
+    """V5.3 交错推理：语言→代码→结果→语言逐步交错（最多 max_steps 步）。
+    返回最终答案字符串（无则 ""）。"""
+    system = _IL_SYSTEM.format(method_framework=framework)
+    messages = [{"role": "system", "content": system},
+                {"role": "user", "content": problem[:6000] + feedback}]
+    final = ""
+    for _step in range(max_steps):
+        if deps.time_budget and deps.time_budget.remaining_hard() < 200:
+            break
+        try:
+            resp = chat_prefilled(
+                client,
+                messages=messages,
+                prefix="",
+                temperature=0.4,
+                max_tokens=4096,
+                logger=deps.logger,
+                time_budget=deps.time_budget,
+                label="il_step",
+                thinking_mode=thinking_mode_flag(),
+            )
+        except Exception:  # noqa: BLE001
+            break
+        text = (resp or "").strip()
+        m = re.search(r"最终答案[：:]\s*(.+)$", text, re.MULTILINE)
+        if m:
+            final = m.group(1).strip()
+            break
+        code = _extract_code(text)
+        messages.append({"role": "assistant", "content": text})
+        if not code:
+            messages.append({"role": "user",
+                             "content": "请继续推理。如果下一步需要计算，输出 ```python 代码块```；"
+                                        "确定答案时输出：最终答案：<答案>"})
+            continue
+        try:
+            r = subprocess.run([sys.executable, "-c", code],
+                               capture_output=True, text=True, timeout=90,
+                               cwd=str(Path(__file__).resolve().parent.parent))
+            stdout, stderr = (r.stdout or "")[:600], (r.stderr or "")[:200]
+        except subprocess.TimeoutExpired:
+            stdout, stderr = "", "TIMEOUT"
+        except Exception as exc:  # noqa: BLE001
+            stdout, stderr = "", str(exc)[:200]
+        env = "代码执行结果：\n" + stdout if stdout else ""
+        if stderr:
+            env += "\n执行错误：\n" + stderr + "\n请修正代码后重新计算这一步。"
+        messages.append({"role": "user", "content": env or "（无输出）"})
+    return final
+
+
 def _sample_round(client, deps, problem, framework, feedback, n_views,
                   n_codes):
-    """一轮采样：n_views 视角推理 + n_codes 份代码。返回答案列表。"""
+    """一轮采样：n_views 视角推理 + 1 次交错推理 + n_codes 份代码。返回答案列表。"""
     answers = []
     for view in _VIEWS[:n_views]:
         vh = _VIEW_HINTS[view]
@@ -160,6 +225,11 @@ def _sample_round(client, deps, problem, framework, feedback, n_views,
             ans = ""
         if ans:
             answers.append(ans)
+    # V5.3 交错推理采样（每轮 1 次，逐步代码计算路径——补视角发散之外
+    # 的"中间量修正"路径，实验实证救回 #46/#62 类）。
+    il_ans = _interleaved_solve(client, deps, problem, framework, feedback)
+    if il_ans:
+        answers.append(il_ans)
     return answers
 
 
@@ -184,7 +254,12 @@ def _top_candidates(answers, k=2):
 
 def solve_deep_water(idx, problem, official, max_rounds=4):
     client = InternChatClient()
-    deps = Deps(client=client, time_budget=TimeBudget(1500),
+    from utils.python_mcp_client import PythonMCPClient
+    mcp = PythonMCPClient()
+    # V5.0-fix：迭代攻坚需 33+ 次调用/题（采样+双验证），默认 cap 26 会
+    # 耗尽导致验证器无法执行（小样本实测 0/5 根因）；1800s 覆盖 3 轮慢 API。
+    deps = Deps(client=client, mcp_client=mcp,
+                time_budget=TimeBudget(1800, max_llm_calls=90),
                 logger=logging.getLogger(f"deep_{idx}"))
     out = {"idx": idx, "official": str(official)[:80],
            "rounds": [], "adopted": "", "reason": "", "correct": None}
@@ -193,8 +268,15 @@ def solve_deep_water(idx, problem, official, max_rounds=4):
     history = []  # 所有已试候选（防重复采样）
 
     for rnd in range(1, max_rounds + 1):
-        n_views = 6 if rnd == 1 else 4
-        n_codes = 3 if rnd == 1 else 2
+        # V5.0-fix：轮次采样递减（9/5/4）+ 时间守卫——验证器必须能跑
+        # （小样本实测：3 轮各 6-9 份采样耗尽 1800s，验证器从未执行）。
+        # V5.1（RPM 30 限流适配）：轮 1 = 4 视角 + 1 代码（5 采样），
+        # 后续轮 3 视角（3 采样）——单轮命中率 ~30%，限流下效率最优。
+        n_views = 4 if rnd == 1 else 3
+        n_codes = 1 if rnd == 1 else 0
+        # 采样前留足验证时间（验证 top-2 需 ~4 次调用 × 80s ≈ 320s）
+        if deps.time_budget and deps.time_budget.remaining_hard() < 400:
+            break
         answers = _sample_round(client, deps, problem, framework, feedback,
                                 n_views, n_codes)
         new_answers = [a for a in answers
@@ -203,10 +285,12 @@ def solve_deep_water(idx, problem, official, max_rounds=4):
         top, scored = _top_candidates(new_answers or answers)
         round_info = {"round": rnd, "n_answers": len(new_answers),
                       "top": [str(t)[:120] for t in top]}
-        # 验证 top-2
+        # 验证 top-2（验证前守卫：至少 250s 剩余）
         locked = None
         locked_reason = ""
         for cand in top:
+            if deps.time_budget and deps.time_budget.remaining_hard() < 250:
+                break
             v = verify_candidate(client, deps, problem, cand)
             round_info["verifies"] = round_info.get("verifies", []) + [
                 {"candidate": str(cand)[:120],
@@ -277,7 +361,7 @@ def main():
 
     results = []
     t0 = time.monotonic()
-    with ThreadPoolExecutor(max_workers=5) as pool:
+    with ThreadPoolExecutor(max_workers=3) as pool:
         futs = {pool.submit(solve_deep_water, q["idx"], q["problem"],
                             q["official"], args.rounds): q["idx"] for q in qs}
         for i, fut in enumerate(as_completed(futs), 1):
