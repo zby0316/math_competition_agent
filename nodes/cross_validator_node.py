@@ -859,6 +859,10 @@ def cross_validator_node(state, config):
                             "上一轮结论为'无法确定/缺少条件'。竞赛题面必然完整，"
                             "请重新逐字阅读题目，找出全部隐含条件，然后完整求解，"
                             "输出明确的最终答案。")
+                        # V5.2 假性放弃强制 SC（#24/#13/#14 实证：重读一次
+                        # 仍放弃——easy/medium 题模型会做但坚称条件不足，
+                        # 强制 SC 多视角采样捞回，简单题采样命中率极高）。
+                        match_result["give_up_forced_sc"] = True
                         next_node = "reconciliation"
                     else:
                         status = "uncertain_arbitrating"

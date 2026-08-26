@@ -117,16 +117,27 @@ def _wants_sc(state: dict, config) -> bool:
         return False
     if state.get("question_mode") == "proof":
         return False  # 证明题走既有 proof 链路（build_proof_body）
+    # V5.2 假性放弃强制 SC：cross_validator 标记的 give_up_forced_sc 绕过
+    # 计算类条件——放弃题（easy/medium 模型会做但坚称条件不足）一律 SC
+    # 多视角采样捞回（#24/#13/#14 实证）。
+    forced = False
+    try:
+        vd = state.get("validation_details") or {}
+        forced = bool(vd.get("give_up_forced_sc")) or bool(
+            state.get("give_up_forced_sc"))
+    except Exception:  # noqa: BLE001
+        forced = False
     # V5.1 调用量压缩（官方 6h 合规：round6 实测 2627 次/轮，官方并发 3
     # 慢 API 下超时风险）：SC 只对"规则可判定或计算特征词"题触发——
     # 文本/纯概念题 SC 采样收益低（无闭式可验证），省调用给计算题。
     diff = str(state.get("difficulty") or "").lower()
-    _is_compute = False
-    try:
-        from utils.rule_judge import state_is_rule_judgeable
-        _is_compute = state_is_rule_judgeable(state)
-    except Exception:  # noqa: BLE001 - 判定器故障按特征词回退
-        _is_compute = False
+    _is_compute = forced  # 强制触发时视为计算类
+    if not forced:
+        try:
+            from utils.rule_judge import state_is_rule_judgeable
+            _is_compute = state_is_rule_judgeable(state)
+        except Exception:  # noqa: BLE001 - 判定器故障按特征词回退
+            _is_compute = False
     if not _is_compute:
         import re as _re
         problem = str(state.get("problem") or "")
