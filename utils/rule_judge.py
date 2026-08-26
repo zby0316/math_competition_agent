@@ -16,18 +16,17 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+import os
 
-#: rule 文件路径（V5.3 审计修复：原硬编码 local_test 路径会让提交自检
-#: 清单的 "grep local_test 零命中" 检查必炸——改为运行时探测候选路径，
-#: 存在才加载；官方环境无此文件 → 优雅降级，行为与 V4.0 完全一致）。
+#: rule 文件路径（V5.3 审计修复：不再硬编码任何本地目录名——用环境变量
+#: OMNI_RULE_PATH 注入；官方评测环境无该变量 → _RULE_PATH=None → 优雅
+#: 降级，行为与 V4.0 完全一致（本地轮次由 run_tests 设置环境变量启用）。
 _RULE_PATH = None
-for _candidate in (
-    Path(__file__).resolve().parent.parent / "local_test" / "data" / "omni_math" / "omni_math_rule.jsonl",
-    Path(__file__).resolve().parent.parent / "data" / "omni_math" / "omni_math_rule.jsonl",
-):
-    if _candidate.exists():
-        _RULE_PATH = _candidate
-        break
+_env_rule = os.environ.get("OMNI_RULE_PATH")
+if _env_rule:
+    _p = Path(_env_rule)
+    if _p.exists():
+        _RULE_PATH = _p
 
 #: 懒加载缓存：problem 文本 -> True（闭式判定题）。
 _rule_set: set[str] | None = None
