@@ -358,7 +358,12 @@ def sc_consensus_node(state, config):
                     scored[key] = 1
             top = sorted(scored, key=scored.get, reverse=True)[:2]
             for cand in top:
+                # V5.3 审计修复：验证器子阶段也受 sc_end 闸门约束（原
+                # 200s 下限绕过 sc_end，coordinator 收尾保底名不副实——
+                # 审计实证 400s 承诺实际只有 ~200s）。
                 if clock is not None and clock.remaining_hard() < 200:
+                    break
+                if sc_end is not None and clock.remaining_hard() < sc_end:
                     break
                 v = verify_candidate(client, deps, problem, cand)
                 if v.get("verified"):
@@ -383,5 +388,10 @@ def sc_consensus_node(state, config):
         out["validated_answer"] = adopted
         out["answer_locked"] = True
         out["sc_adopted"] = True
+        # V5.3 修复 SC 被仲裁覆盖 bug（r5 #83 SC=100 官方、出厂 44；
+        # r6 #96 SC=20/31 官方、出厂 50/57——sc_consensus 锁定时未置
+        # next_node，仲裁从旧候选池选错覆盖 SC 正确答案）。
+        out["next_node"] = "coordinator"
+        out["should_terminate"] = True
         deps.logger.info("SC consensus locked: %s (%s)", adopted[:60], reason)
     return out
