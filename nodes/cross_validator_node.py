@@ -637,6 +637,36 @@ def cross_validator_node(state, config):
             adopted_alt_result = reasoning_result
         else:
             validated_answer = _preferred_answer(state, match_result)
+        # V5.3 功能完整性（智能体 ccdc5f6c G9）：**匹配答案确定性再确认**——
+        # match 出厂是"推理+Python 一致"（同源），#0/#29 easy 同源同错实证、
+        # round3 双闭式等价 6/6 同错——match 锁错无任何独立确认。闭式答案
+        # + 预算充足时跑 verify_candidate：双 PASS 锁定（已确认），任一
+        # FAIL 推翻 match 走重推（同源同错不得出厂）。预算: 2 验证调用
+        # ≈120s，仅闭式 match 触发（easy/medium 大头）。
+        if validated_answer and problem_type == "computation" \
+                and not is_objective_mode(question_mode) \
+                and CONFIG.get("enable_match_reverify", True):
+            try:
+                from utils.rule_judge import is_closed_form_answer
+                from utils.answer_verifier import verify_candidate
+                from utils.deps import get_deps
+                _clock = get_deps(config).time_budget
+                _affordable = _clock is None or _clock.remaining_hard() > 700
+                if _affordable and is_closed_form_answer(validated_answer):
+                    _deps2 = get_deps(config)
+                    v = verify_candidate(_deps2.client, _deps2, state["problem"],
+                                         validated_answer)
+                    if v.get("verified"):
+                        match_result["routing_reason"] = "validated_match_reverified"
+                        match_result["verify_gate"] = "match_reverified"
+                    elif "FAIL" in v.get("verdicts", []):
+                        # 验证器明确 FAIL → 同源同错，推翻 match 走重推
+                        status = "mismatch_reconciling"
+                        match_result["routing_reason"] = "match_reverify_failed_reconcile"
+                        match_result["verify_gate"] = "match_reverify_failed"
+                        next_node = "reconciliation"
+            except Exception:  # noqa: BLE001 - 再确认失败保持原 match
+                pass
         next_node = "coordinator"
     elif status == "mismatch":
         # VeritasMath：计算题冲突先进 deterministic playoff（候选代回复算），

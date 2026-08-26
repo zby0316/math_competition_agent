@@ -173,6 +173,9 @@ CONFIG = {
     "enable_give_up_skip_arbitration": True,
     # V4.6 SC 共识：未 match 的 hard/规则可判定题 3 视角采样+3 代码投票
     "enable_sc_consensus": True,
+    # V5.3 匹配答案确定性再确认：match+闭式+预算充足时 verify_candidate
+    # 双 PASS 确认；FAIL 推翻 match 走重推（防同源同错出厂，#0/#29 实证）
+    "enable_match_reverify": True,
     # V4.0 代码化接管：hard/计算特征词题强制代码独立求解（不注入推理候选）
     "enable_independent_solve": True,
     # 评委建议 5：reserve 划出固定配额给语义仲裁与应急直答，杜绝
