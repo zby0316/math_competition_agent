@@ -172,6 +172,12 @@ class TimeBudget:
         with self._lock:
             self._llm_calls += 1
 
+    def set_llm_cap(self, cap: int) -> None:
+        """V5.3：按难度动态设置单题调用上限（官方 6h 合规：easy≤10/
+        medium≤16/hard≤24，langgraph_math_agent 按 metadata 难度预置）。"""
+        with self._lock:
+            self._llm_cap = int(cap) if cap and cap > 0 else 0
+
     def llm_calls_exhausted(self) -> bool:
         """是否已触及单题 LLM 请求上限（0/未配置 = 不限制）。"""
         cap = self._llm_cap

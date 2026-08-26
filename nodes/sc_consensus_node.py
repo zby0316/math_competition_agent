@@ -183,6 +183,65 @@ def _answer_from_stdout(stdout: str) -> str:
     return ""
 
 
+#: V5.3 交错推理（InternLM-Math agent 路线：语言→代码→结果→语言逐步交错，
+#: 实验实证救回 SC/代码/管线都没救过的 #46 #62——逐步计算补上"中间量
+#: 修正"路径）。主图版最多 3 步，预算由调用方闸门控制（remaining>=700s）。
+_IL_SYSTEM = """你是数学专家。解题时采用**交错推理**：
+- 每步先写推理文本（简短）；
+- 如果这一步需要计算/验证（代入、枚举、符号化简、数值检验），必须输出
+  ```python 代码块``` 来计算——代码执行结果会反馈给你，继续下一步推理；
+- 不要一次写出所有代码；逐步计算，每步依赖上一步的执行结果；
+- 当你确定最终答案时，最后单独一行输出：最终答案：<答案>。"""
+
+
+def _interleaved_sc(client, deps, problem: str, max_steps: int = 3) -> str:
+    """主图版交错推理：返回最终答案（无则 ""）。纯状态内执行。"""
+    messages = [{"role": "system", "content": _IL_SYSTEM},
+                {"role": "user", "content": problem[:6000]}]
+    mcp_client = deps.mcp_client
+    clock = deps.time_budget
+    final = ""
+    for _step in range(max_steps):
+        if clock is not None and clock.remaining_hard() < 200:
+            break
+        try:
+            resp = chat_prefilled(
+                client,
+                messages=messages,
+                prefix="",
+                temperature=0.4,
+                max_tokens=4096,
+                logger=deps.logger,
+                time_budget=clock,
+                label="sc_interleaved",
+                thinking_mode=thinking_mode_flag(),
+            )
+        except Exception:  # noqa: BLE001
+            break
+        text = (resp or "").strip()
+        m = re.search(r"最终答案[：:]\s*(.+)$", text, re.MULTILINE)
+        if m:
+            final = m.group(1).strip()
+            break
+        code = _extract_code(text)
+        messages.append({"role": "assistant", "content": text})
+        if not code:
+            messages.append({"role": "user",
+                             "content": "请继续推理。如果下一步需要计算，输出 ```python 代码块```；"
+                                        "确定答案时输出：最终答案：<答案>"})
+            continue
+        if mcp_client is None:
+            break
+        output = mcp_client.execute(code, timeout=60)
+        stdout = str(output.get("stdout") or "")[:600]
+        stderr = str(output.get("stderr") or "")[:200]
+        env = "代码执行结果：\n" + stdout if stdout else ""
+        if stderr:
+            env += "\n执行错误：\n" + stderr + "\n请修正代码后重新计算这一步。"
+        messages.append({"role": "user", "content": env or "（无输出）"})
+    return final
+
+
 def sc_consensus_node(state, config):
     """SC 共识主入口：返回带 sc_consensus 记录的 state 扩展。"""
     deps = __import__("utils.deps", fromlist=["get_deps"]).get_deps(config)
@@ -302,6 +361,17 @@ def sc_consensus_node(state, config):
             c_answers.append(ans)
             if len(c_answers) >= 2 and same_answer(c_answers[0], c_answers[1]):
                 break  # 早停
+        # V5.3 交错推理入主图（智能体建议：唯一确定性新增救回通道——
+        # 实验 2/46 救 #46/#62，SC/代码/管线都救不回；预算 >700s 才跑，
+        # 最多 3 步交错，逐步代码计算补"中间量修正"路径）。
+        if clock is None or clock.remaining_hard() >= 700:
+            try:
+                il_ans = _interleaved_sc(client, deps, problem)
+                if il_ans:
+                    c_answers.append(il_ans)
+                    c_samples.append({"algo": "interleaved", "answer": il_ans[:400]})
+            except Exception as exc:  # noqa: BLE001 - 交错失败不影响既有链路
+                deps.logger.warning("SC interleaved failed: %s", exc)
 
     c_consensus = None
     if len(c_answers) >= 2:
@@ -357,6 +427,16 @@ def sc_consensus_node(state, config):
                 else:
                     scored[key] = 1
             top = sorted(scored, key=scored.get, reverse=True)[:2]
+            # V5.3 验证器触发门（智能体建议）：剩余 <700s 只验 top-1，
+            # <500s 不跑（原 200s 下限太激进，会烧光 coordinator 预算）。
+            _verify_remaining_top1 = int(CONFIG.get(
+                "sc_verify_remaining_top1_s", 700))
+            _verify_remaining_stop = int(CONFIG.get(
+                "sc_verify_remaining_stop_s", 500))
+            if clock is not None and clock.remaining_hard() < _verify_remaining_stop:
+                top = []
+            elif clock is not None and clock.remaining_hard() < _verify_remaining_top1:
+                top = top[:1]
             for cand in top:
                 # V5.3 审计修复：验证器子阶段也受 sc_end 闸门约束（原
                 # 200s 下限绕过 sc_end，coordinator 收尾保底名不副实——

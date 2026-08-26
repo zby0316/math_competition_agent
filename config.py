@@ -188,5 +188,13 @@ CONFIG = {
     "compressed_reserve_margin_s": 150,
     "log_level": "INFO", "log_dir": "logs",
     # V2.5.6：单题 LLM 请求硬上限（逻辑调用数），防御失控路径；0=不限制。
+    # V5.3 提交前审计（智能体交付）：官方 6h 硬约束 = API 秒总量 64,800s，
+    # round6 实测 155,741 API 秒 = 官方并发 3 下 14.4h 超 2.4 倍。
+    # 按难度分级硬上限：easy≤10 / medium≤16 / hard≤24 / 深水区≤30，
+    # 全卷目标 ≤1,700 次（加权 ~4.5h 墙钟，留 1.5h 余量）。
     "max_llm_calls_per_problem": 26,
+    "max_llm_calls_by_difficulty": {"easy": 10, "medium": 16, "hard": 24},
+    # V5.3 验证器触发门：剩余 <700s 只验 top-1，<500s 不跑
+    "sc_verify_remaining_top1_s": 700,
+    "sc_verify_remaining_stop_s": 500,
 }

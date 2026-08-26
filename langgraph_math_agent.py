@@ -6,6 +6,7 @@ from nodes import (
     coordinator_node, critic_node, playoff_node,
 )
 from utils.error_handler import node_wrapper
+from config import CONFIG
 
 def build_math_agent_graph():
     """VeritasMath 主图。
@@ -98,6 +99,18 @@ class MathAgentGraph:
         # same origin. The platform's limit is wall-clock, so this is the budget
         # that actually decides pass/fail.
         clock = time_budget or TimeBudget()
+        # V5.3 提交前审计：官方 6h 硬约束 = API 秒总量（21600s×并发3）。
+        # 按难度分级调用上限（easy≤10/medium≤16/hard≤24）——分类画像在
+        # 求解子图中可用，这里在时钟创建时先按 metadata 难度预置，分类器
+        # 修正后由 TimeBudget.apply_difficulty_profile 再次收紧。
+        try:
+            _meta = initial_state.get("metadata") if isinstance(initial_state, dict) else {}
+            _diff = str(_meta.get("difficulty") or "").lower()
+            _caps = CONFIG.get("max_llm_calls_by_difficulty") or {}
+            if _diff in _caps:
+                clock.set_llm_cap(int(_caps[_diff]))
+        except Exception:  # noqa: BLE001 - 预算优化失败不影响单题
+            pass
         # V2 M1 全卷完成率引擎：按"剩余全卷时间 ÷ 剩余题数"收紧本
         # 题软预算（paper_cap），保证 6h 内 112 题全部完成。只影响软预算
         # （可选阶段购买力），remaining_hard（1200s 平台硬限）不动。
