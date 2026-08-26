@@ -104,6 +104,11 @@ def _wants_sc(state: dict, config) -> bool:
         return False
     if state.get("sc_consensus_done"):
         return False  # 每题只跑一次（修复循环重入时跳过，防重复消费）
+    # V5.3 配置审计（功能智能体 C3）：SC verify 与双验证预算双花——
+    # 已做过第二代码验证的题（second_python_done）不再重复 SC 验证
+    # 通道（SC 仍可采样投票，但验证器阶段可省）。
+    if state.get("second_python_done"):
+        return False  # 双验证已锁定过，SC 由原链路兜底即可
     # V5.3-审计修复（逻辑审计 6b3e2e4a H2）：cross_validator 显式路由
     # playoff（mismatch/contradict）时 SC 不得抢占——确定性代回复算是
     # 最强证据源，2/3 投票采样不能静默覆盖它；SC 在 playoff 之后仍可触发。
@@ -159,7 +164,10 @@ def _wants_sc(state: dict, config) -> bool:
     try:
         from utils.deps import get_deps
         clock = get_deps(config).time_budget
-        if clock is not None and clock.remaining_hard() < 600:
+        # V5.3 配置审计（②）：触发门配置化（easy/medium 600、hard 700）
+        _trigger = int((CONFIG.get("sc_trigger_remaining_s") or {}).get(
+            diff, CONFIG.get("sc_trigger_remaining_s", {}).get("medium", 600)))
+        if clock is not None and clock.remaining_hard() < _trigger:
             return False
     except Exception:  # noqa: BLE001 - 预算取不到时按可负担处理
         pass

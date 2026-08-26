@@ -17,9 +17,19 @@ CONFIG = {
     # unprefilled fallback measured 129.5s and 133.3s on a hard problem, so a 120s
     # ceiling killed a call that had already been paid for and discarded the usable
     # prefill result with it (game-theory olympiad problem, 2026-07-29).
-    "node_timeouts": {"input": 5, "classifier": 200, "solving": 1150,
+    "node_timeouts": {"input": 5, "classifier": 200,
+                      # V5.3 配置审计：node_timeouts["solving"]=1150 是死
+                      # 配置（solving 子图未包 node_wrapper，key 永不被读）
                       "reasoning_agent": 1100, "python_agent": 1100,
-                      "python_mcp_execute": 60, "cross_validator": 30,
+                      "python_mcp_execute": 60,
+                      # V5.3 配置审计（智能体 38e7263c ①）：30s 天花板与
+                      # 节点内部 _second_python_check（200-450s）矛盾——
+                      # round6 10 题恰好 30.0s 被砍，双验证全轮仅锁 2 次
+                      # （2/2 全对）。改 460：timeout_for 按 remaining_hard
+                      # 钳制 + 内部 remaining>300 闸门，无超时风险；被砍
+                      # 线程本就烧 API 秒，抬高天花板是让已付钱的结果
+                      # 被使用而非丢弃。
+                      "cross_validator": 460,
                       "reconciliation": 10, "semantic_arbiter": 150, "coordinator": 420,
                       "critic": 120, "playoff": 300,
                       # V4.6 SC 共识：3 推理(≤3×~90s) + 3 代码(≤3×60s执行)，
@@ -195,8 +205,16 @@ CONFIG = {
     # round6 实测 155,741 API 秒 = 官方并发 3 下 14.4h 超 2.4 倍。
     # 按难度分级硬上限：easy≤10 / medium≤16 / hard≤24 / 深水区≤30，
     # 全卷目标 ≤1,700 次（加权 ~4.5h 墙钟，留 1.5h 余量）。
-    "max_llm_calls_per_problem": 26,
-    "max_llm_calls_by_difficulty": {"easy": 10, "medium": 16, "hard": 24},
+    # V5.3 配置审计（智能体 38e7263c）：caps 8/14/20——最坏预算占用
+    # @35s/call 从 98% 压回 86%（留 1.5h 余量），杜绝"调用量不压→后
+    # 40 题超时→完成率 60-70%→分数 35-45%"的归零场景。
+    "max_llm_calls_per_problem": 24,
+    "max_llm_calls_by_difficulty": {"easy": 8, "medium": 14, "hard": 20},
+    # V5.3 配置审计（②）：SC 触发门配置化——easy/medium 600s、hard
+    # 700s（与验证器门对齐，让 hard 6 视角+3 代码+验证器全火力跑满，
+    # 避免 entry=601s 时 sc_end 只剩 ~200s 的饿死 SC——实测饿死 SC
+    # 采纳精度 25% < 全火力 32.4%）。
+    "sc_trigger_remaining_s": {"easy": 600, "medium": 600, "hard": 700},
     # V5.3 验证器触发门：剩余 <700s 只验 top-1，<500s 不跑
     "sc_verify_remaining_top1_s": 700,
     "sc_verify_remaining_stop_s": 500,
