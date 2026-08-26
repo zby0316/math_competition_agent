@@ -683,6 +683,18 @@ def _finalize_classification(deps, payload: dict, question_mode: str = "") -> di
             applied = clock.apply_difficulty_profile(difficulty)
         elif question_mode in {"choice", "true_false", "fill"}:
             applied = clock.apply_difficulty_profile("easy")
+            difficulty = "easy"
+        # V5.3-审计修复（并发审计 c66bb64a H1）：官方 runner metadata **无
+        # difficulty**，langgraph_math_agent 预置 cap 永不生效（全卷回退 26）。
+        # 这里在分类器出口按实际难度回写 LLM 调用上限（easy≤10/medium≤16/
+        # hard≤24），与 apply_difficulty_profile 同步生效。
+        if difficulty:
+            try:
+                _caps = CONFIG.get("max_llm_calls_by_difficulty") or {}
+                if difficulty in _caps:
+                    clock.set_llm_cap(int(_caps[difficulty]))
+            except Exception:  # noqa: BLE001 - 预算优化失败不影响主流程
+                pass
         if applied is not None:
             payload.setdefault("classification_stages_used", []).append(
                 f"difficulty_profile:{clock.difficulty_profile}")

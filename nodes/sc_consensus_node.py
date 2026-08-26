@@ -104,6 +104,11 @@ def _wants_sc(state: dict, config) -> bool:
         return False
     if state.get("sc_consensus_done"):
         return False  # 每题只跑一次（修复循环重入时跳过，防重复消费）
+    # V5.3-审计修复（逻辑审计 6b3e2e4a H2）：cross_validator 显式路由
+    # playoff（mismatch/contradict）时 SC 不得抢占——确定性代回复算是
+    # 最强证据源，2/3 投票采样不能静默覆盖它；SC 在 playoff 之后仍可触发。
+    if str(state.get("next_node") or "") == "playoff":
+        return False
     # MockClient（集成测试环境）：SC 是真实采样节点，mock 响应无意义且会
     # 破坏固定响应顺序——测试环境直接跳过（SC 逻辑由 test_sc_consensus
     # 与真机实验覆盖）。
@@ -194,8 +199,11 @@ _IL_SYSTEM = """你是数学专家。解题时采用**交错推理**：
 - 当你确定最终答案时，最后单独一行输出：最终答案：<答案>。"""
 
 
-def _interleaved_sc(client, deps, problem: str, max_steps: int = 3) -> str:
-    """主图版交错推理：返回最终答案（无则 ""）。纯状态内执行。"""
+def _interleaved_sc(client, deps, problem: str, max_steps: int = 3,
+                    sc_end=None) -> str:
+    """主图版交错推理：返回最终答案（无则 ""）。纯状态内执行。
+    V5.3-审计修复（M6）：每步也受 sc_end 闸门约束（原只查 remaining<200，
+    可一路吃到 200s 下限，吃掉 coordinator 的 400s 预留）。"""
     messages = [{"role": "system", "content": _IL_SYSTEM},
                 {"role": "user", "content": problem[:6000]}]
     mcp_client = deps.mcp_client
@@ -204,6 +212,8 @@ def _interleaved_sc(client, deps, problem: str, max_steps: int = 3) -> str:
     for _step in range(max_steps):
         if clock is not None and clock.remaining_hard() < 200:
             break
+        if sc_end is not None and clock.remaining_hard() < sc_end:
+            break  # SC 阶段预算封顶
         try:
             resp = chat_prefilled(
                 client,
@@ -366,7 +376,7 @@ def sc_consensus_node(state, config):
         # 最多 3 步交错，逐步代码计算补"中间量修正"路径）。
         if clock is None or clock.remaining_hard() >= 700:
             try:
-                il_ans = _interleaved_sc(client, deps, problem)
+                il_ans = _interleaved_sc(client, deps, problem, sc_end=sc_end)
                 if il_ans:
                     c_answers.append(il_ans)
                     c_samples.append({"algo": "interleaved", "answer": il_ans[:400]})
@@ -464,6 +474,11 @@ def sc_consensus_node(state, config):
         "r_consensus": r_consensus,
         "c_consensus": c_consensus,
     }
+    # V5.3-审计修复（逻辑审计 6b3e2e4a H1）：sc_consensus_done **必须置位**——
+    # 此前运行路径从不写入 True（仅 252 行回显旧值），"每题只跑一次"从未
+    # 生效，调解重入后 SC 每轮重跑满火力（10-15 次调用/题），直接对冲
+    # 6h 调用压缩。跑过即锁（无论是否 adopted）。
+    out["sc_consensus_done"] = True
     if adopted:
         out["validated_answer"] = adopted
         out["answer_locked"] = True

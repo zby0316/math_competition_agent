@@ -823,15 +823,31 @@ def _sample_vote_reasoning(state: dict, config) -> dict:
     clock = deps.time_budget
     temps = list(CONFIG.get("sample_temperatures") or [0.8])
     samples = []  # (temperature, answer, out)
+    # V5.3-审计修复（代码审计 95898ac3 P1-1）：采样循环原护栏仅
+    # remaining_hard<60s——3 次完整推理（每次 77-552s）最坏 ~1650s 击穿
+    # 1200s 平台硬限（2026-07-29 超时 198s 交白卷的回归）。改为按实测
+    # 成本定价：每次采样前用 can_afford_retry 门控，并预留 120s 收尾。
     for t in temps:
         if clock and clock.remaining_hard() < 60:
             break
+        if clock and clock.remaining_hard() < 120:
+            break  # 预留 coordinator 收尾余量
+        if samples and not can_afford_retry(clock, "reasoning"):
+            break  # 按上次采样实测成本定价（与主链路重试同规则）
         out = _reasoning_agent_impl({**state, "sample_temperature": t}, config)
         rr = out.get("reasoning_result") or {}
         ans = str(rr.get("answer") or "").strip()
         if ans and not is_placeholder_answer(ans):
             samples.append((t, ans, out))
     if len(samples) < 2:
+        # V5.3-审计修复（P2-6）：0 样本时不再无条件重复第 4 次完整推理——
+        # 直接返回最后的失败结果，让下游兜底接管（避免与采样叠加放大超时）。
+        if not samples:
+            return _reasoning_agent_impl(state, config) if False else \
+                {"reasoning_result": {}, "reasoning_trace": [
+                    {"attempt": 0, "status": "skipped",
+                     "reason": "sample_vote_all_failed"}],
+                 "reasoning_attempts": 0, "reasoning_raw_response": ""}
         return samples[0][2] if samples else _reasoning_agent_impl(state, config)
     from collections import Counter
     counter = Counter(a for _, a, _ in samples)

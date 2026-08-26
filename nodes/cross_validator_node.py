@@ -87,11 +87,20 @@ def _second_python_check(state: dict, config, require_playoff: bool = True) -> s
         out = python_agent_node(second_state, config)
         second = out.get("python_output") or {}
         sa = str(second.get("answer") or "").strip()
+        # V5.3-审计修复（逻辑审计 6b3e2e4a H3）：第二代码**无论成败**都要
+        # 闩锁——此前仅在成功路径由调用方置 second_python_done，失败返回
+        # None 不闩锁，导致 V3.4/V4.1/V4.7 三个入口条件重叠、同一目的最多
+        # 连跑 3 份完整 python 代码（每次 200-450s，预算被烧穿）。
+        # 返回值加哨兵标记：第二份代码实际已执行（成功或失败）。
+        if out.get("python_attempts", 0) >= 1 or second.get("success"):
+            state["second_python_done"] = True
+            state["second_python_attempted"] = True
         if not sa or is_placeholder_answer(sa):
             return None
         if AnswerMatcher._sympy_equivalent(pa, sa, 1e-6) is True:
             return pa
     except Exception:  # noqa: BLE001 - 双验证失败保持原链路
+        state["second_python_attempted"] = True
         pass
     return None
 
