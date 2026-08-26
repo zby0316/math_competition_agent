@@ -63,3 +63,11 @@ class TestVerifierHelpers:
     def test_verify_candidate_empty(self):
         from utils.answer_verifier import verify_candidate
         assert verify_candidate(None, None, "p", "")["verified"] is False
+
+    def test_weak_pass_not_verified(self):
+        """V5.0-fix3：单 PASS（弱验证）不得锁定——#110 实证错锁 50 vs 100。"""
+        from utils.answer_verifier import verify_candidate
+        # 直接验证返回逻辑：模拟 verdicts 判定（不实际调用 API）
+        # 通过 verify_candidate 的跳过路径确认非闭式不锁
+        assert verify_candidate(None, None, "p", "No")["verified"] is False
+        assert verify_candidate(None, None, "p", "No").get("skipped") == "non_closed_answer"

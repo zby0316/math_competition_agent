@@ -163,10 +163,13 @@ def verify_candidate(client, deps, problem: str, candidate: str,
     except Exception as exc:  # noqa: BLE001 - 验证失败不锁定
         logger.warning("verify_candidate failed: %s", exc)
         return {"verified": False, "strong": False, "verdicts": verdicts}
+    # V5.0-fix3（深水区实证 #110：单 PASS 弱验证锁错 50 vs 官方 100）：
+    # **只有双 PASS 强验证才可锁定**。单 PASS 视为"提示信号"（weak_pass
+    # 标记），不锁定——验证代码单份可能出错（同源确认偏误残留）。
     strong = verdicts.count("PASS") >= 2
-    weak = verdicts.count("PASS") >= 1 and "FAIL" not in verdicts
-    return {
-        "verified": strong or weak,
-        "strong": strong,
-        "verdicts": verdicts,
-    }
+    if strong:
+        return {"verified": True, "strong": True, "verdicts": verdicts}
+    if verdicts.count("PASS") >= 1 and "FAIL" not in verdicts:
+        return {"verified": False, "strong": False, "verdicts": verdicts,
+                "weak_pass": True}
+    return {"verified": False, "strong": False, "verdicts": verdicts}
