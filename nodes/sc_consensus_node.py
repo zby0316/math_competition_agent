@@ -136,10 +136,10 @@ def _wants_sc(state: dict, config) -> bool:
             problem, _re.IGNORECASE))
     if not _is_compute:
         return False  # 文本/概念题不触发 SC（省调用）
-    if diff == "easy":
-        return False  # 简单题不做 SC（调用量压缩：官方 6h 合规）
-    if diff == "medium" and not _is_compute:
-        return False
+    # V5.1-修正：easy 题**恢复** SC 触发——round6 实证 easy 仅 50%
+    # （#0/#29 同源同错 match 锁错、#13 假性放弃），SC 多视角采样对
+    # 简单题命中率极高（6 视角几乎必中）且成本低（主链路快、预算充足）。
+    # 之前"easy 不触发"是错误压缩，已回滚。
     try:
         from utils.deps import get_deps
         clock = get_deps(config).time_budget
