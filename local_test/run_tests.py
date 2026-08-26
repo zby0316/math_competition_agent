@@ -30,6 +30,14 @@ _ROOT = _HERE.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+# V5.3 审计修复配套：本地运行注入规则可判定文件路径（官方环境无此变量，
+# 判定器优雅降级行为不变）。路径：local_test/data/omni_math/omni_math_rule.jsonl
+import os  # noqa: E402
+if not os.environ.get("OMNI_RULE_PATH"):
+    _rule_f = _HERE / "data" / "omni_math" / "omni_math_rule.jsonl"
+    if _rule_f.exists():
+        os.environ["OMNI_RULE_PATH"] = str(_rule_f)
+
 from utils.logger import get_logger  # noqa: E402
 
 logger = get_logger("local_test")
