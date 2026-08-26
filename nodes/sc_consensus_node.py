@@ -23,9 +23,9 @@ logger = logging.getLogger("sc_consensus")
 
 #: 采样视角（V4.8 规模化：3 视角 × 2 温度轮 = 6 份；实验实证单视角
 #: 命中率仅 ~12%，n 份采样至少一次对 = 1-(1-p)^n，6 份 ≈ 54%）。
-#: V5.1 调用量压缩（官方 6h 合规）：主图 SC 用 4 视角（3 方法 + 1 低温
-#: 精确轮），早停 2/3 一致；6 视角完整版保留在深水区攻坚工具
-#: （deep_water_solver）。
+#: V5.1 动态预算适配：保留 6 视角 + 3 代码全火力（准确率不降），
+#: 由 SC 阶段预算封顶（sc_end = remaining-400）自动控制——预算充足跑满，
+#: 预算紧张自动少跑（官方 6h 完成率保底，快 API 准确率拉满）。
 _VIEW_HINTS = {
     "algebra": "\n求解视角：代数法——直接建立方程/不等式/递推关系，符号推导求解。",
     "construct": "\n求解视角：构造法——构造具体对象/反例/极端情形，先验证小规模再推广。",
@@ -37,9 +37,10 @@ _VIEW_HINTS = {
 _TEMPS = {"algebra": 0.7, "construct": 1.0, "enumerate": 1.3,
           "algebra_low": 0.4, "construct_high": 1.5, "enumerate_low": 0.2}
 
-#: V5.1 主图 SC 视角数（调用量压缩：6→4）+ 代码数（3→2）
-_SC_VIEWS = ("algebra", "construct", "enumerate", "algebra_low")
-_SC_CODE_ALGOS = ("brute", "sympy")
+#: 主图 SC 全火力（动态预算适配：完整视角 + 完整代码，由 sc_end 控制）
+_SC_VIEWS = ("algebra", "construct", "enumerate",
+             "algebra_low", "construct_high", "enumerate_low")
+_SC_CODE_ALGOS = ("brute", "sympy", "dp")
 
 _CODE_HINTS = {
     "brute": "用暴力枚举/搜索（itertools/for 循环）直接计算，小规模验证后再放大。",
