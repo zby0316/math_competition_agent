@@ -104,11 +104,13 @@ def _wants_sc(state: dict, config) -> bool:
         return False
     if state.get("sc_consensus_done"):
         return False  # 每题只跑一次（修复循环重入时跳过，防重复消费）
-    # V5.3 配置审计（功能智能体 C3）：SC verify 与双验证预算双花——
-    # 已做过第二代码验证的题（second_python_done）不再重复 SC 验证
-    # 通道（SC 仍可采样投票，但验证器阶段可省）。
-    if state.get("second_python_done"):
-        return False  # 双验证已锁定过，SC 由原链路兜底即可
+    # V5.3-审计修正（智能体交付复核）：second_python_done 不能整体跳过 SC——
+    # 双验证**锁定成功**会走 match 分支在下方被拦（validation_status=="match"），
+    # 能走到这里的 second_python_done=True 恰恰是双验证**失败未锁定**的题，
+    # 正是 SC 多视角采样该救的场景（注释原意"SC 仍可采样投票，仅验证器阶段
+    # 可省"）。实现与注释矛盾：return False 会吞掉这类题的 SC 救回。正确做法：
+    # SC 照常触发，仅跳过节点内的程序化验证器阶段（见下方 verifier gate，
+    # 双验证已花过确定性验证预算，不再重复花）。
     # V5.3-审计修复（逻辑审计 6b3e2e4a H2）：cross_validator 显式路由
     # playoff（mismatch/contradict）时 SC 不得抢占——确定性代回复算是
     # 最强证据源，2/3 投票采样不能静默覆盖它；SC 在 playoff 之后仍可触发。
@@ -430,47 +432,51 @@ def sc_consensus_node(state, config):
         # V4.9 SVC 阶段 3：投票未决时对 top-2 候选做**程序化验证**——
         # 验证器（代入/枚举对照/反例搜索）是确定性证据，强于投票。
         # 只验证 top-2（预算：2 候选 × 2 验证代码 ≈ 4 调用/题）。
-        try:
-            from utils.answer_verifier import verify_candidate
-            scored: dict[str, int] = {}
-            for a in r_answers + c_answers:
-                key = str(a).strip()[:200]
-                if not key:
-                    continue
-                if any(same_answer(key, k) for k in scored):
-                    for k in scored:
-                        if same_answer(key, k):
-                            scored[k] += 1
-                            break
-                else:
-                    scored[key] = 1
-            top = sorted(scored, key=scored.get, reverse=True)[:2]
-            # V5.3 验证器触发门（智能体建议）：剩余 <700s 只验 top-1，
-            # <500s 不跑（原 200s 下限太激进，会烧光 coordinator 预算）。
-            _verify_remaining_top1 = int(CONFIG.get(
-                "sc_verify_remaining_top1_s", 700))
-            _verify_remaining_stop = int(CONFIG.get(
-                "sc_verify_remaining_stop_s", 500))
-            if clock is not None and clock.remaining_hard() < _verify_remaining_stop:
-                top = []
-            elif clock is not None and clock.remaining_hard() < _verify_remaining_top1:
-                top = top[:1]
-            for cand in top:
-                # V5.3 审计修复：验证器子阶段也受 sc_end 闸门约束（原
-                # 200s 下限绕过 sc_end，coordinator 收尾保底名不副实——
-                # 审计实证 400s 承诺实际只有 ~200s）。
-                if clock is not None and clock.remaining_hard() < 200:
-                    break
-                if sc_end is not None and clock.remaining_hard() < sc_end:
-                    break
-                v = verify_candidate(client, deps, problem, cand)
-                if v.get("verified"):
-                    adopted, reason = cand, (
-                        "程序化双验证通过" if v.get("strong")
-                        else "程序化弱验证通过")
-                    break
-        except Exception as exc:  # noqa: BLE001 - 验证失败走原链路
-            deps.logger.warning("SC verifier failed: %s", exc)
+        # V5.3-审计修正：second_python_done（双验证已跑过、无论成败）时跳过
+        # 本验证器阶段——双验证已花过确定性验证预算，SC 验证器是重复花费；
+        # SC 采样投票仍在上面跑完，只是不再叠加第三重程序化验证。
+        if not state.get("second_python_done"):
+            try:
+                from utils.answer_verifier import verify_candidate
+                scored: dict[str, int] = {}
+                for a in r_answers + c_answers:
+                    key = str(a).strip()[:200]
+                    if not key:
+                        continue
+                    if any(same_answer(key, k) for k in scored):
+                        for k in scored:
+                            if same_answer(key, k):
+                                scored[k] += 1
+                                break
+                    else:
+                        scored[key] = 1
+                top = sorted(scored, key=scored.get, reverse=True)[:2]
+                # V5.3 验证器触发门（智能体建议）：剩余 <700s 只验 top-1，
+                # <500s 不跑（原 200s 下限太激进，会烧光 coordinator 预算）。
+                _verify_remaining_top1 = int(CONFIG.get(
+                    "sc_verify_remaining_top1_s", 700))
+                _verify_remaining_stop = int(CONFIG.get(
+                    "sc_verify_remaining_stop_s", 500))
+                if clock is not None and clock.remaining_hard() < _verify_remaining_stop:
+                    top = []
+                elif clock is not None and clock.remaining_hard() < _verify_remaining_top1:
+                    top = top[:1]
+                for cand in top:
+                    # V5.3 审计修复：验证器子阶段也受 sc_end 闸门约束（原
+                    # 200s 下限绕过 sc_end，coordinator 收尾保底名不副实——
+                    # 审计实证 400s 承诺实际只有 ~200s）。
+                    if clock is not None and clock.remaining_hard() < 200:
+                        break
+                    if sc_end is not None and clock.remaining_hard() < sc_end:
+                        break
+                    v = verify_candidate(client, deps, problem, cand)
+                    if v.get("verified"):
+                        adopted, reason = cand, (
+                            "程序化双验证通过" if v.get("strong")
+                            else "程序化弱验证通过")
+                        break
+            except Exception as exc:  # noqa: BLE001 - 验证失败走原链路
+                deps.logger.warning("SC verifier failed: %s", exc)
 
     out["sc_consensus"] = {
         "adopted": (adopted or "")[:400],

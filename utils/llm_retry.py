@@ -199,7 +199,8 @@ class LLMRetryWrapper:
         - V2.6 修正（官方实测 truncated=203 雪球教训）：续写轮数默认 1（config
           truncation_continue_max_rounds），一次续写不够就走压缩重试（答案先行、
           max_tokens 更大），不再循环续写累积截断计数；续写 tokens 按 label
-          分级：reasoning 主链路 8192（一次覆盖答案尾部），其余 4096。
+          分级：reasoning 主链路 8192（一次覆盖答案尾部），其余 2048
+          （config truncation_continue_tokens，与注释一致）。
         """
         max_rounds = int(CONFIG.get("truncation_continue_max_rounds", 1))
         continue_tokens = int(CONFIG.get(

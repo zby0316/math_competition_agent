@@ -49,7 +49,7 @@ CONFIG = {
     "classifier_top_k": 3,
     "temperatures": {"classifier": 0.1, "reasoning": 0.8, "objective_reasoning": 0.2,
                      "python": 0.6,
-                     "reconciliation": 0.2, "semantic_arbiter": 0.1, "coordinator": 0.4},
+                     "semantic_arbiter": 0.1, "coordinator": 0.4},
     # V2.5 小 N 自洽投票（克制版）：只在 hard 难度或分类低置信的计算题首轮触发，
     # 用 prefill 短答案做 N=3 次多温度采样 + 多数投票。与 V2.9 大 N 采样的关键
     # 区别：N=3（非 6~8）、prefill 抑制 CoT（非 thinking）、token 沿用难度分级
@@ -81,7 +81,6 @@ CONFIG = {
                    "objective_reasoning": 4096,
                    "reasoning": 12288, "python": 8192,
                    "reasoning_compressed": 12288, "python_compressed": 8192,
-                   "reconciliation": 32768,
                    "semantic_arbiter": 96, "semantic_arbiter_fallback": 4096,
                    "coordinator": 16384, "emergency_answer": 1280},
     # finish_reason=length 截断时的续写补全 max_tokens（只续一次，prefill 抑制 CoT）。
@@ -203,12 +202,15 @@ CONFIG = {
     # V2.5.6：单题 LLM 请求硬上限（逻辑调用数），防御失控路径；0=不限制。
     # V5.3 提交前审计（智能体交付）：官方 6h 硬约束 = API 秒总量 64,800s，
     # round6 实测 155,741 API 秒 = 官方并发 3 下 14.4h 超 2.4 倍。
-    # 按难度分级硬上限：easy≤10 / medium≤16 / hard≤24 / 深水区≤30，
+    # 按难度分级硬上限：easy≤8 / medium≤14 / hard≤20（深水区按 hard 封顶，
+    # 不再单列 ≤30——注释曾声称"深水区≤30"但无对应 key，实际被 hard 上限覆盖），
     # 全卷目标 ≤1,700 次（加权 ~4.5h 墙钟，留 1.5h 余量）。
     # V5.3 配置审计（智能体 38e7263c）：caps 8/14/20——最坏预算占用
     # @35s/call 从 98% 压回 86%（留 1.5h 余量），杜绝"调用量不压→后
     # 40 题超时→完成率 60-70%→分数 35-45%"的归零场景。
-    "max_llm_calls_per_problem": 24,
+    # max_llm_calls_per_problem=20 为未知难度（metadata/分类均未报）的
+    # 默认上限，与 hard 对齐（round6 仅 1 题未知难度）。
+    "max_llm_calls_per_problem": 20,
     "max_llm_calls_by_difficulty": {"easy": 8, "medium": 14, "hard": 20},
     # V5.3 配置审计（②）：SC 触发门配置化——easy/medium 600s、hard
     # 700s（与验证器门对齐，让 hard 6 视角+3 代码+验证器全火力跑满，
