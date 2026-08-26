@@ -165,6 +165,15 @@ def sc_consensus_node(state, config):
     budget = deps.token_budget
     clock = deps.time_budget
     mcp_client = deps.mcp_client
+    # V5.1 官方预算合规（1200s 单题硬限）：SC 阶段预算封顶——进入时的
+    # remaining_hard 只允许消耗到 <400s 为止，保证 coordinator 至少有
+    # 400s 收尾（官方 6h/并发 3 下每题 ~580s 墙钟余量）。
+    sc_end = None
+    if clock is not None:
+        try:
+            sc_end = max(400, clock.remaining_hard() - 400)
+        except Exception:  # noqa: BLE001
+            sc_end = None
 
     r_answers: list[str] = []
     r_samples = []
@@ -177,6 +186,8 @@ def sc_consensus_node(state, config):
                  "algebra_low", "construct_high", "enumerate_low"):
         if clock is not None and clock.remaining_hard() < 300:
             break
+        if sc_end is not None and clock.remaining_hard() < sc_end:
+            break  # V5.1 SC 阶段预算封顶（保 coordinator 收尾）
         view_hint = _VIEW_HINTS[view]
         if view in ("construct", "construct_high") and method_framework:
             view_hint += method_framework
@@ -225,6 +236,8 @@ def sc_consensus_node(state, config):
         for algo in ("brute", "sympy", "dp"):
             if clock is not None and clock.remaining_hard() < 200:
                 break
+            if sc_end is not None and clock.remaining_hard() < sc_end:
+                break  # V5.1 SC 阶段预算封顶
             if mcp_client is None:
                 break
             prompt = _CODE_PROMPT.format(problem=problem[:6000],
