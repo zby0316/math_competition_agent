@@ -49,7 +49,9 @@ class TestCompetitionRouting:
 class TestVerifierHelpers:
     def test_parse_verdict(self):
         from utils.answer_verifier import _parse_verdict
-        assert _parse_verdict("...\nVERIFY: PASS\n") == "PASS"
+        # V5.0-fix：PASS 必须带数值对照证据行
+        assert _parse_verdict("n=1: cand=7, actual=7\nVERIFY: PASS\n") == "PASS"
+        assert _parse_verdict("VERIFY: PASS\n") == "INCONCLUSIVE"  # 无证据不 PASS
         assert _parse_verdict("VERIFY: FAIL - counterexample found") == "FAIL"
         assert _parse_verdict("nothing") == "INCONCLUSIVE"
 
