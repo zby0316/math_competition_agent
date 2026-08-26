@@ -17,15 +17,15 @@ import re
 
 from utils.llm_retry import chat_prefilled, thinking_mode_flag
 from utils.token_budget import estimate_tokens
-from utils.cot_stripper import strip_cot_prefix
 from config import CONFIG
 
 logger = logging.getLogger("sc_consensus")
 
 #: 采样视角（V4.8 规模化：3 视角 × 2 温度轮 = 6 份；实验实证单视角
 #: 命中率仅 ~12%，n 份采样至少一次对 = 1-(1-p)^n，6 份 ≈ 54%）。
-#: 低温轮（0.4/0.2）求精确，高温轮（1.5）求发散——覆盖"思路不同但都
-#: 收敛"与"边缘思路碰巧对"两类成功模式。
+#: V5.1 调用量压缩（官方 6h 合规）：主图 SC 用 4 视角（3 方法 + 1 低温
+#: 精确轮），早停 2/3 一致；6 视角完整版保留在深水区攻坚工具
+#: （deep_water_solver）。
 _VIEW_HINTS = {
     "algebra": "\n求解视角：代数法——直接建立方程/不等式/递推关系，符号推导求解。",
     "construct": "\n求解视角：构造法——构造具体对象/反例/极端情形，先验证小规模再推广。",
@@ -36,6 +36,10 @@ _VIEW_HINTS = {
 }
 _TEMPS = {"algebra": 0.7, "construct": 1.0, "enumerate": 1.3,
           "algebra_low": 0.4, "construct_high": 1.5, "enumerate_low": 0.2}
+
+#: V5.1 主图 SC 视角数（调用量压缩：6→4）+ 代码数（3→2）
+_SC_VIEWS = ("algebra", "construct", "enumerate", "algebra_low")
+_SC_CODE_ALGOS = ("brute", "sympy")
 
 _CODE_HINTS = {
     "brute": "用暴力枚举/搜索（itertools/for 循环）直接计算，小规模验证后再放大。",
@@ -112,14 +116,29 @@ def _wants_sc(state: dict, config) -> bool:
         return False
     if state.get("question_mode") == "proof":
         return False  # 证明题走既有 proof 链路（build_proof_body）
+    # V5.1 调用量压缩（官方 6h 合规：round6 实测 2627 次/轮，官方并发 3
+    # 慢 API 下超时风险）：SC 只对"规则可判定或计算特征词"题触发——
+    # 文本/纯概念题 SC 采样收益低（无闭式可验证），省调用给计算题。
     diff = str(state.get("difficulty") or "").lower()
-    if diff != "hard":
-        try:
-            from utils.rule_judge import state_is_rule_judgeable
-            if not state_is_rule_judgeable(state):
-                return False
-        except Exception:  # noqa: BLE001
-            return False
+    _is_compute = False
+    try:
+        from utils.rule_judge import state_is_rule_judgeable
+        _is_compute = state_is_rule_judgeable(state)
+    except Exception:  # noqa: BLE001 - 判定器故障按特征词回退
+        _is_compute = False
+    if not _is_compute:
+        import re as _re
+        problem = str(state.get("problem") or "")
+        _is_compute = bool(_re.search(
+            r"how many|number of|probability|compute|evaluate|find the (?:value|"
+            r"minimum|maximum)|sum of|枚举|多少个|概率|计算|求[出]?.{0,4}(值|结果)",
+            problem, _re.IGNORECASE))
+    if not _is_compute:
+        return False  # 文本/概念题不触发 SC（省调用）
+    if diff == "easy":
+        return False  # 简单题不做 SC（调用量压缩：官方 6h 合规）
+    if diff == "medium" and not _is_compute:
+        return False
     try:
         from utils.deps import get_deps
         clock = get_deps(config).time_budget
@@ -182,8 +201,7 @@ def sc_consensus_node(state, config):
     # 采样-验证-确认攻坚管线）。
     from utils.competition_methods import route_competition_method
     method_framework = route_competition_method(problem)
-    for view in ("algebra", "construct", "enumerate",
-                 "algebra_low", "construct_high", "enumerate_low"):
+    for view in _SC_VIEWS:
         if clock is not None and clock.remaining_hard() < 300:
             break
         if sc_end is not None and clock.remaining_hard() < sc_end:
@@ -233,7 +251,7 @@ def sc_consensus_node(state, config):
     c_answers: list[str] = []
     c_samples = []
     if r_consensus is None:  # 推理未一致才花代码预算
-        for algo in ("brute", "sympy", "dp"):
+        for algo in _SC_CODE_ALGOS:
             if clock is not None and clock.remaining_hard() < 200:
                 break
             if sc_end is not None and clock.remaining_hard() < sc_end:

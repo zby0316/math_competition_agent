@@ -173,6 +173,8 @@ CONFIG = {
     "enable_give_up_skip_arbitration": True,
     # V4.6 SC 共识：未 match 的 hard/规则可判定题 3 视角采样+3 代码投票
     "enable_sc_consensus": True,
+    # V4.0 代码化接管：hard/计算特征词题强制代码独立求解（不注入推理候选）
+    "enable_independent_solve": True,
     # 评委建议 5：reserve 划出固定配额给语义仲裁与应急直答，杜绝
     # `arbiter=skipped(0.0s)`。含义：硬上限前剩余 ≥ 该值时，prefill 仲裁
     # （~10s）与应急直答（~30s）仍然放行；再低则只做确定性兜底。
