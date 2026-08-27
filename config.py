@@ -72,7 +72,9 @@ CONFIG = {
                    "semantic_arbiter": 96, "semantic_arbiter_fallback": 4096,
                    "coordinator": 16384, "emergency_answer": 1280},
     # finish_reason=length 截断时的续写补全 max_tokens（只续一次，prefill 抑制 CoT）。
-    "truncation_continue_tokens": 2048,
+    # V2.5 修复（官方 truncated_count=203）：2048→4096——难题截断缺口常超 2048，
+    # 单轮补不完；4096 在 prefill 抑制 CoT 下耗时 ~90s，预算可承受。
+    "truncation_continue_tokens": 4096,
     # V2.6 截断根治：thinking_mode=False 确定性关"深度思考"（长 CoT）。截断根因
     # 是 CoT 计入 max_tokens、难题上吃光预算导致答案没写完。V2.4 用 prefill 变相
     # 关 CoT 拿到 59.82 最佳分（对比 V1 开 CoT 53.53），证明数学场景关 CoT 反而
@@ -80,7 +82,9 @@ CONFIG = {
     # 若实测降质，改回 False 退回纯 prefill。
     "enable_thinking_mode_off": True,
     # 截断续写最大轮次（V2.6 从"只续一次"升级为"续到完整，最多 N 次"）。
-    "truncation_continue_max_rounds": 2,
+    # V2.5 修复（官方 truncated_count=203）：2→4——难题（奥赛级）截断缺口
+    # 常需 3-4 轮 4096 续写才能完整；每轮前有预算闸门，不会无界烧时。
+    "truncation_continue_max_rounds": 4,
     # V2.4 token 分级恢复：V2.1 把 reasoning 一刀切到 8192 导致难题推理被截断
     # （正确率 60→45）。恢复为按难度分级：简单题省 token（快），难题给足（推理
     # 充分）。hard 恢复到 V1 峰值 24576（V1 正是用 24576 拿到 60 correct），

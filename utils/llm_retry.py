@@ -179,16 +179,18 @@ class LLMRetryWrapper:
         - V2.6 从"只续一次"升级为"续到完整，最多 N 轮"（N=truncation_continue_max_rounds）：
           单次 2048 token 续写不够时（超长证明/多问项），循环续写直到完整或达到上限。
         """
-        max_rounds = int(CONFIG.get("truncation_continue_max_rounds", 2))
-        continue_tokens = CONFIG.get("truncation_continue_tokens", 2048)
+        max_rounds = int(CONFIG.get("truncation_continue_max_rounds", 4))
+        continue_tokens = CONFIG.get("truncation_continue_tokens", 4096)
         current = result
         try:
             for _round in range(max_rounds):
                 if self.time_budget:
-                    # 慢 API 下一次续写估 ~45s，硬上限前留 60s 余量
-                    if getattr(self.time_budget, "remaining_hard", lambda: 0)() < 105:
+                    # V2.5 修复：续写估时随轮数调整（首轮 ~45s，4096 token 后
+                    # ~90s），硬上限前留 60s 收尾余量——不再固定 105s 只放 2 轮。
+                    _est = 45 if _round == 0 else 90
+                    if getattr(self.time_budget, "remaining_hard", lambda: 0)() < (_est + 60):
                         return current
-                    if not self._affordable():
+                    if not self._affordable(_est):
                         return current
                 tail = current[-120:] if len(current) > 120 else current
                 raw2 = chat_compatible(
@@ -224,6 +226,11 @@ def _looks_truncated(text: str, max_tokens: int) -> bool:
       结尾反斜杠命令残片——正常答案几乎不会出现，出现即大概率截断。
     - 弱信号（依赖写满判据，即输出达到 max_tokens 量级）：结尾未完成标点
       （冒号/逗号/等号/空括号）、枚举空项、写满 1.5 倍以上。
+
+    V2.5 修复（官方 truncated_count=203）：官方 client 在 finish_reason 不可见时
+    （日志实证 finish_reason_visible=False），输出长度 ≈ max_tokens 即被截断——
+    旧判据要求 1.2 倍（19660 vs 16384）会漏判。写满 max_tokens（非 1.2 倍）
+    且尾部存在未完成标点时即判定截断。
     """
     if not isinstance(text, str) or max_tokens <= 0:
         return False
@@ -236,9 +243,11 @@ def _looks_truncated(text: str, max_tokens: int) -> bool:
     if re.search(r"\\[a-zA-Z]+$", s):  # 结尾反斜杠命令残片（如 "\\alpha" 无闭合）
         return True
     # —— 弱信号：写满判据是前提 ——
-    if len(s) < max_tokens * 1.2:
+    # V2.5 修复：官方 client 截断时输出恰好 ≈ max_tokens，按 1.0 倍判定
+    # （旧 1.2 倍漏判 203 次截断中的大部分）；继续保留 1.5 倍无标点兜底。
+    if len(s) < max_tokens:
         return False
-    tail = s[-60:]
+    tail = s[-80:]
     if re.search(r"[-:：,，、=＝]\s*$", tail):
         return True
     if re.search(r"[（(]\s*$", tail):
@@ -247,6 +256,8 @@ def _looks_truncated(text: str, max_tokens: int) -> bool:
         return True
     if re.search(r"^\s*(?:\d+[.、)]|[-*•])\s*$", tail[-3:].lstrip()):  # 枚举项后无内容
         return True
+    # 写满且无未完成标点：长度 ≥1.5 倍才判（输出正好 max_tokens 且结尾干净
+    # 时可能是正常完整答案，不误伤）
     return len(s) >= max_tokens * 1.5
 
 

@@ -442,14 +442,22 @@ def python_agent_node(state, config):
             # max_tokens). Re-asking for the same program truncates the same way —
             # 评委报告模式 A 的 Python 侧（大量 "Python 无代码/无产出"）。改发
             # prefill 压缩重生成；压缩后仍无代码则放弃本分支。
-            exhausted = len(resp or "") >= _EXHAUSTION_MIN_CHARS
+            # V2.5 修复（官方 truncated_count=203）：未闭合代码围栏（```python
+            # 出现但无闭合 ```）是"代码被截断"的强信号——即使响应不长也走压缩
+            # 重试，普通重试会以同样方式再截断一次。
+            import re as _re_extract
+            _unclosed_fence = bool(_re_extract.search(
+                r"```python[ \t]*\n[\s\S]*$", resp or "")) \
+                and "```" not in (resp or "").split("```python", 1)[-1]
+            exhausted = (len(resp or "") >= _EXHAUSTION_MIN_CHARS) or _unclosed_fence
             last_output = {"success": False, "stdout": "",
                            "stderr": "code generation truncated before any code block"
                                      if exhausted else "no code block extracted",
                            "answer": None, "execution_time": 0.0}
             trace.append({"attempt": attempts, "status": "failed",
                           "error": "truncated before code" if exhausted else "no code block",
-                          "response_chars": len(resp or "")})
+                          "response_chars": len(resp or ""),
+                          **({"unclosed_fence": True} if _unclosed_fence else {})})
             if compressed_used:
                 break
             if exhausted:

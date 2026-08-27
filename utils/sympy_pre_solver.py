@@ -84,9 +84,24 @@ class SympyPreSolver:
 
         math_parts = self._math_parts(problem)
 
-        # 积分
-        if re.search(r"积分|\\int|integral|integrate", problem, re.IGNORECASE):
+        # 积分（LaTeX \int 与 Unicode ∫ 双兼容）
+        if re.search(r"积分|\\int|∫|integral|integrate", problem, re.IGNORECASE):
             for part in math_parts:
+                # Unicode 形态: ∫_0^1 x^2 dx 或 ∫0^1 x^2 dx 或 ∫ x^2 dx
+                # 下界/上界分开提取：下界 [^}\s^] 防止吞掉 ^上界
+                definite_uni = re.search(
+                    r"∫\s*(?:_\{?([^}\s^]+)\}?)?\s*(?:\^\{?([^}\s]+)\}?)?\s*(.+?)(?:\\,|\s)*d([A-Za-z])\b",
+                    part)
+                if definite_uni:
+                    lower = definite_uni.group(1) or ""
+                    upper = definite_uni.group(2) or ""
+                    if lower and upper:
+                        result = self._definite_integral(
+                            self._latex_to_sympy(definite_uni.group(3)), definite_uni.group(4),
+                            self._latex_to_sympy(lower), self._latex_to_sympy(upper))
+                        if result is not None:
+                            hints.append({"operation": "definite_integral", "result": result, "whole_goal": True})
+                        break
                 definite = re.search(
                     r"\\int_\{?([^}\s]+)\}?\^\{?([^}\s]+)\}?\s*(.+?)(?:\\,|\s)*d([A-Za-z])\b", part)
                 if definite:
@@ -118,6 +133,10 @@ class SympyPreSolver:
         if re.search(r"导数|求导|微分|derivative|differentiate", problem, re.IGNORECASE):
             partial = re.search(
                 r"f\s*\(\s*[A-Za-z]\s*,\s*[A-Za-z]\s*\)\s*=\s*(?P<expr>[^，。；;]+?)\s*关于\s*\$?(?P<var>[A-Za-z])\$?\s*的?(?:偏导|导数)", problem)
+            # V2.5 扩展：任意多元函数 u(x,y)/f(x,y) 的偏导数（偏微分方程/数学分析）
+            if not partial:
+                partial = re.search(
+                    r"(?:u|f|g|h|z)\s*\(\s*[A-Za-z]\s*,\s*[A-Za-z]\s*\)\s*=\s*(?P<expr>[^，。；;]+?)\s*关于\s*\$?(?P<var>[A-Za-z])\$?\s*的?(?:偏导|导数|偏微分)", problem)
             match = partial or re.search(
                 r"(?:f\s*\(\s*(?P<var>[A-Za-z])\s*\)|y)\s*=\s*(?P<expr>[^，。；;]+?)(?=\s*(?:的(?:导数|微分)|[,，。；;]|$))", problem)
             if match:
@@ -158,6 +177,54 @@ class SympyPreSolver:
                     if result is not None:
                         hints.append({"operation": "matrix", "result": result, "whole_goal": False})
                     break
+
+        # ---- V2.5 扩展：18 领域确定性覆盖（与 det_solver 互补，不重复） ----
+
+        # 1) 数论：gcd / lcm（抽象代数/离散数学）
+        gcd_lcm = self._gcd_lcm(problem)
+        if gcd_lcm:
+            hints.append({"operation": "gcd_lcm", "result": gcd_lcm, "whole_goal": True})
+
+        # 2) 数论：模逆 a^{-1} mod m（抽象代数）
+        mod_inv = self._modular_inverse(problem)
+        if mod_inv:
+            hints.append({"operation": "modular_inverse", "result": mod_inv, "whole_goal": True})
+
+        # 3) 统计推断：均值/中位数/方差/标准差/极差（数据列表）
+        stats = self._statistics(problem)
+        if stats:
+            hints.append({"operation": "statistics", "result": stats, "whole_goal": True})
+
+        # 4) 线性回归：最小二乘斜率/截距（给定数据点）
+        lr = self._linear_regression(problem)
+        if lr:
+            hints.append({"operation": "linear_regression", "result": lr, "whole_goal": True})
+
+        # 5) 高等代数：矩阵目标运算（行列式/逆/秩/迹/转置）
+        mtarget = self._matrix_target(problem)
+        if mtarget:
+            hints.append({"operation": "matrix_target", "result": mtarget, "whole_goal": True})
+
+        # 6) 复分析：|z| / 共轭 / 实部 / 虚部
+        zops = self._complex_ops(problem)
+        if zops:
+            hints.append({"operation": "complex_ops", "result": zops, "whole_goal": True})
+
+        # 7) 微分几何/泛函：向量点积/叉积/模长/夹角
+        vops = self._vector_ops(problem)
+        if vops:
+            hints.append({"operation": "vector_ops", "result": vops, "whole_goal": True})
+
+        # 8) 数学分析/离散：等差/等比数列求和
+        ssum = self._series_sum(problem)
+        if ssum:
+            hints.append({"operation": "series_sum", "result": ssum, "whole_goal": True})
+
+        # 9) 常微分方程：一阶线性/可分离 ODE 显式解
+        ode = self._ode_first_order(problem)
+        if ode:
+            hints.append({"operation": "ode_first_order", "result": ode, "whole_goal": True})
+
         return hints
 
     # ------------------------------------------------------------------
@@ -196,6 +263,325 @@ class SympyPreSolver:
             return [[self._format(item) for item in row] for row in self.sympy.Matrix(rows).tolist()]
         except Exception:
             return None
+
+    # ------------------------------------------------------------------
+    # V2.5 扩展：18 领域确定性覆盖（与 det_solver 互补）
+    # ------------------------------------------------------------------
+
+    # 1) gcd / lcm（抽象代数/离散数学）
+    def _gcd_lcm(self, problem: str) -> Optional[str]:
+        if not re.search(r"最大公约数|最小公倍数|gcd|lcm", problem, re.IGNORECASE):
+            return None
+        m = re.search(r"(?:gcd|最大公约数)\s*[（(]?\s*(\d+)\s*[,，]\s*(\d+)", problem, re.IGNORECASE) \
+            or re.search(r"(\d+)\s*和\s*(\d+)\s*的(?:gcd|最大公约数)", problem, re.IGNORECASE)
+        if m:
+            a, b = int(m.group(1)), int(m.group(2))
+            return f"gcd({a},{b}) = {self._run(lambda s: s.gcd(a, b))}"
+        m = re.search(r"(?:lcm|最小公倍数)\s*[（(]?\s*(\d+)\s*[,，]\s*(\d+)", problem, re.IGNORECASE) \
+            or re.search(r"(\d+)\s*和\s*(\d+)\s*的(?:lcm|最小公倍数)", problem, re.IGNORECASE)
+        if m:
+            a, b = int(m.group(1)), int(m.group(2))
+            return f"lcm({a},{b}) = {self._run(lambda s: s.lcm(a, b))}"
+        return None
+
+    # 2) 模逆 a^{-1} mod m（抽象代数/数论）
+    def _modular_inverse(self, problem: str) -> Optional[str]:
+        if not re.search(r"逆元|模逆|inverse|^{-1}", problem, re.IGNORECASE):
+            return None
+        m = re.search(r"(\d+)\s*(?:\^\{?-1\}|的?逆元)\s*(?:mod|模)\s*(\d+)", problem, re.IGNORECASE)
+        if not m:
+            m = re.search(r"(\d+)\s*(?:mod|模)\s*(\d+)\s*的?(?:逆元|inverse)", problem, re.IGNORECASE)
+        if not m:
+            return None
+        a, mod = int(m.group(1)), int(m.group(2))
+        if mod <= 0:
+            return None
+        try:
+            inv = pow(a % mod, -1, mod)
+            return f"{a} 模 {mod} 的逆元 = {inv}"
+        except ValueError:
+            return f"{a} 与 {mod} 不互素，无模逆"
+        except Exception:
+            return None
+
+    # 3) 统计推断：均值/中位数/方差/标准差/极差（数据列表）
+    def _statistics(self, problem: str) -> Optional[str]:
+        want = None
+        if re.search(r"平均|mean|average", problem, re.IGNORECASE):
+            want = "mean"
+        elif re.search(r"中位数|median", problem, re.IGNORECASE):
+            want = "median"
+        elif re.search(r"方差|variance", problem, re.IGNORECASE):
+            want = "variance"
+        elif re.search(r"标准差|standard deviation|std", problem, re.IGNORECASE):
+            want = "std"
+        elif re.search(r"极差|range", problem, re.IGNORECASE):
+            want = "range"
+        if not want:
+            return None
+        # 数据列表形态：[1, 2, 3, 4, 5] / {1,2,3} / 1, 2, 3, 4
+        m = re.search(r"[\[{（(]\s*(-?\d+(?:\.\d+)?(?:\s*[,，;；]\s*-?\d+(?:\.\d+)?)+)\s*[\]}）)]", problem)
+        if not m:
+            m = re.search(r"(?:列表|数据)[：:为]?\s*(-?\d+(?:\.\d+)?(?:\s*[,，]\s*-?\d+(?:\.\d+)?){2,})", problem)
+        if not m:
+            return None
+        try:
+            nums = [float(x) for x in re.findall(r"-?\d+(?:\.\d+)?", m.group(1))]
+        except Exception:
+            return None
+        if len(nums) < 2:
+            return None
+        n = len(nums)
+        if want == "mean":
+            return f"平均值 = {self._format(self.sympy.Rational(sum(nums), n))}"
+        if want == "median":
+            s = sorted(nums)
+            med = s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
+            return f"中位数 = {med}"
+        if want == "variance":
+            mu = sum(nums) / n
+            var = sum((x - mu) ** 2 for x in nums) / n
+            return f"方差 = {var}"
+        if want == "std":
+            mu = sum(nums) / n
+            var = sum((x - mu) ** 2 for x in nums) / n
+            return f"标准差 = {self.sympy.sqrt(var)}"
+        if want == "range":
+            return f"极差 = {max(nums) - min(nums)}"
+        return None
+
+    # 4) 线性回归：最小二乘斜率/截距（给定数据点）
+    def _linear_regression(self, problem: str) -> Optional[str]:
+        if not re.search(r"回归|regression|least squares|最小二乘", problem, re.IGNORECASE):
+            return None
+        # 数据点形态：(1,2),(2,3),(3,5) 或 (1,2) (2,3) (3,5)
+        points = re.findall(r"[（(]\s*(-?\d+(?:\.\d+)?)\s*[,，]\s*(-?\d+(?:\.\d+)?)\s*[)）]", problem)
+        if len(points) < 2:
+            return None
+        try:
+            xs = [float(x) for x, _ in points]
+            ys = [float(y) for _, y in points]
+            n = len(xs)
+            sx, sy = sum(xs), sum(ys)
+            sxy = sum(x * y for x, y in zip(xs, ys))
+            sxx = sum(x * x for x in xs)
+            denom = n * sxx - sx * sx
+            if abs(denom) < 1e-12:
+                return None
+            slope = (n * sxy - sx * sy) / denom
+            intercept = (sy - slope * sx) / n
+            want_slope = re.search(r"斜率|slope", problem, re.IGNORECASE)
+            want_int = re.search(r"截距|intercept", problem, re.IGNORECASE)
+            if want_slope and not want_int:
+                return f"回归斜率 = {self._format(self.sympy.nsimplify(slope))}"
+            if want_int and not want_slope:
+                return f"回归截距 = {self._format(self.sympy.nsimplify(intercept))}"
+            return (f"回归方程 y = {self._format(self.sympy.nsimplify(slope))}x "
+                    f"{'+' if intercept >= 0 else '-'} {self._format(self.sympy.nsimplify(abs(intercept)))}")
+        except Exception:
+            return None
+
+    # 5) 矩阵目标运算：行列式/逆/秩/迹/转置
+    def _matrix_target(self, problem: str) -> Optional[str]:
+        if not re.search(r"矩阵|matrix", problem, re.IGNORECASE):
+            return None
+        want = None
+        if re.search(r"行列式|determinant|det\b", problem, re.IGNORECASE):
+            want = "det"
+        elif re.search(r"逆矩阵|inverse", problem, re.IGNORECASE):
+            want = "inv"
+        elif re.search(r"秩|rank", problem, re.IGNORECASE):
+            want = "rank"
+        elif re.search(r"迹|trace", problem, re.IGNORECASE):
+            want = "trace"
+        elif re.search(r"转置|transpose", problem, re.IGNORECASE):
+            want = "transpose"
+        if not want:
+            return None
+        parts = self._math_parts(problem)
+        # V2.5 扩展：Python 列表格式 [[1,2],[3,4]] 直接从题面提取（不经 math_parts）
+        py_rows = None
+        mpy = re.search(r"\[\s*\[[-\d\s,.]+\]\s*(?:,\s*\[[-\d\s,.]+\]\s*)+\]", problem)
+        if mpy:
+            try:
+                py_rows = [
+                    [self._latex_to_sympy(cell) for cell in row_text.split(",")]
+                    for row_text in re.findall(r"\[([-\d\s,.]+)\]", mpy.group(0))
+                ]
+            except Exception:
+                py_rows = None
+        for part in parts:
+            m = re.search(r"\\begin\{[pb]?matrix\}(.+?)\\end\{[pb]?matrix\}", part, re.DOTALL)
+            rows = None
+            if m:
+                try:
+                    rows = [
+                        [self._latex_to_sympy(cell) for cell in row.split("&")]
+                        for row in re.split(r"\\\\", m.group(1))
+                    ]
+                except Exception:
+                    rows = None
+            if rows is None and py_rows is not None:
+                rows = py_rows
+            if not rows or any(len(r) != len(rows) for r in rows):
+                continue
+            try:
+                mat = self.sympy.Matrix(rows)
+                if want == "det":
+                    return f"行列式 = {self._format(mat.det())}"
+                if want == "inv":
+                    return f"逆矩阵 = {self._format(mat.inv())}"
+                if want == "rank":
+                    return f"秩 = {mat.rank()}"
+                if want == "trace":
+                    return f"迹 = {self._format(mat.trace())}"
+                if want == "transpose":
+                    return f"转置 = {self._format(mat.T)}"
+            except Exception:
+                continue
+        return None
+
+    # 6) 复分析：|z| / 共轭 / 实部 / 虚部
+    def _complex_ops(self, problem: str) -> Optional[str]:
+        want = None
+        if re.search(r"模长|模\b|magnitude|absolute value", problem, re.IGNORECASE):
+            want = "abs"
+        elif re.search(r"共轭|conjugate", problem, re.IGNORECASE):
+            want = "conj"
+        elif re.search(r"实部|real part", problem, re.IGNORECASE):
+            want = "real"
+        elif re.search(r"虚部|imaginary part", problem, re.IGNORECASE):
+            want = "imag"
+        if not want:
+            return None
+        m = re.search(r"([-+]?\d+(?:\.\d+)?\s*[-+]\s*\d+(?:\.\d+)?[ij])", problem, re.IGNORECASE)
+        if not m:
+            return None
+        text = m.group(1).replace("i", "I").replace("j", "I")
+        try:
+            expr = self._parse(text)
+            if want == "abs":
+                return f"|{m.group(1)}| = {self._format(self.sympy.Abs(expr))}"
+            if want == "conj":
+                return f"共轭 = {self._format(self.sympy.conjugate(expr))}"
+            if want == "real":
+                return f"实部 = {self._format(self.sympy.re(expr))}"
+            if want == "imag":
+                return f"虚部 = {self._format(self.sympy.im(expr))}"
+        except Exception:
+            return None
+        return None
+
+    # 7) 向量运算：点积/叉积/模长/夹角
+    def _vector_ops(self, problem: str) -> Optional[str]:
+        want = None
+        if re.search(r"点积|内积|dot product|inner product", problem, re.IGNORECASE):
+            want = "dot"
+        elif re.search(r"叉积|外积|cross product", problem, re.IGNORECASE):
+            want = "cross"
+        elif re.search(r"夹角|angle between", problem, re.IGNORECASE):
+            want = "angle"
+        elif re.search(r"模长|范数|长度|norm|magnitude", problem, re.IGNORECASE):
+            want = "norm"
+        if not want:
+            return None
+        vecs = re.findall(r"[（(]\s*(-?\d+(?:\.\d+)?)\s*[,，]\s*(-?\d+(?:\.\d+)?)(?:\s*[,，]\s*(-?\d+(?:\.\d+)?))?\s*[)）]", problem)
+        # 单向量模长：只有一个向量
+        if want == "norm" and not vecs:
+            vecs = re.findall(r"向量\s*[（(]\s*(-?\d+(?:\.\d+)?)\s*[,，]\s*(-?\d+(?:\.\d+)?)(?:\s*[,，]\s*(-?\d+(?:\.\d+)?))?\s*[)）]", problem)
+        if not vecs or (want != "norm" and len(vecs) < 2):
+            return None
+        try:
+            def _v(t):
+                return [float(x) for x in t if x not in (None, "")]
+            v1, v2 = _v(vecs[0]), _v(vecs[1]) if len(vecs) > 1 else None
+            if want == "norm":
+                n1 = sum(a * a for a in v1) ** 0.5
+                return f"模长 = {self._format(self.sympy.nsimplify(n1))}"
+            if want == "dot":
+                d = sum(a * b for a, b in zip(v1, v2))
+                return f"点积 = {self._format(self.sympy.nsimplify(d))}"
+            if want == "cross":
+                if len(v1) != 3:
+                    return None
+                import itertools
+                c = [
+                    v1[1] * v2[2] - v1[2] * v2[1],
+                    v1[2] * v2[0] - v1[0] * v2[2],
+                    v1[0] * v2[1] - v1[1] * v2[0],
+                ]
+                return f"叉积 = ({c[0]}, {c[1]}, {c[2]})"
+            if want == "angle":
+                d = sum(a * b for a, b in zip(v1, v2))
+                n1 = sum(a * a for a in v1) ** 0.5
+                n2 = sum(b * b for b in v2) ** 0.5
+                if n1 == 0 or n2 == 0:
+                    return None
+                cos_theta = d / (n1 * n2)
+                if cos_theta < -1 or cos_theta > 1:
+                    return None
+                import math
+                deg = math.degrees(math.acos(cos_theta))
+                return f"夹角 = {deg:.2f}°"
+        except Exception:
+            return None
+        return None
+
+    # 8) 等差/等比数列求和
+    def _series_sum(self, problem: str) -> Optional[str]:
+        if not re.search(r"数列求和|前\s*\d+\s*项和|sum of the first", problem, re.IGNORECASE):
+            return None
+        # 等差数列：首项 a、公差 d、项数 n
+        m = re.search(r"首项\s*[=为]?\s*(-?\d+)", problem) \
+            or re.search(r"first\s+term\s*[=:]?\s*(-?\d+)", problem, re.IGNORECASE)
+        n = re.search(r"前\s*(\d+)\s*项|first\s+(\d+)\s*terms?", problem, re.IGNORECASE)
+        d = re.search(r"公差\s*[=为]?\s*(-?\d+)", problem) \
+            or re.search(r"common\s+difference\s*[=:]?\s*(-?\d+)", problem, re.IGNORECASE)
+        if not (m and n and d):
+            return None
+        try:
+            a1, diff, count = int(m.group(1)), int(d.group(1)), int(n.group(1) or n.group(2))
+            total = count * (2 * a1 + (count - 1) * diff) // 2
+            return f"前 {count} 项和 = {total}"
+        except Exception:
+            return None
+
+    # 9) 一阶 ODE：y' = f(x) 或 y' + p y = q 型显式解
+    def _ode_first_order(self, problem: str) -> Optional[str]:
+        if not re.search(r"微分方程|ode|differential equation", problem, re.IGNORECASE):
+            return None
+        if not re.search(r"求.{0,20}(?:解|通解|y\b)", problem) \
+                and not re.search(r"solve", problem, re.IGNORECASE):
+            return None
+        # 撇号兼容：ASCII ' 与 Unicode ′ (U+2032)
+        _prime = "['\u2032]"
+        # 形态1: y' = f(x)（最简单：直接积分）。用排除法取表达式
+        # （不含中文/逗号/分号），避免惰性匹配在空格+中文处无法收敛。
+        m = re.search(
+            r"y" + _prime + r"?\s*=\s*([0-9A-Za-z_+\-*/^().\s]+?)(?=[,，。；;]|[\u4e00-\u9fff]|$)",
+            problem)
+        if m:
+            expr_text = self._latex_to_sympy(m.group(1).strip())
+            result = self._integral(expr_text)
+            if result is not None and "Integral" not in result:
+                return f"通解 y = {result} + C"
+        # 形态2: y' + p(x) y = q(x)（一阶线性）。q 用排除法取到中文/标点前。
+        m2 = re.search(
+            r"y" + _prime + r"?\s*\+\s*(\d+)\s*y\s*=\s*([0-9A-Za-z_+\-*/^().\s]+?)(?=[,，。；;]|[\u4e00-\u9fff]|$)",
+            problem)
+        if m2:
+            p, q = m2.group(1), m2.group(2)
+            expr_q = self._parse(self._latex_to_sympy(q.strip()))
+            x = self.sympy.Symbol("x")
+            try:
+                import sympy as sp
+                pp = sp.Integer(int(p))
+                if pp != 0:
+                    sol = sp.exp(-pp * x) * sp.integrate(sp.exp(pp * x) * expr_q, x)
+                    return f"通解 y = {self._format(sol)} + C e^{{-{p}x}}"
+            except Exception:
+                return None
+        return None
 
     def _run(self, operation) -> Optional[str]:
         if not self.sympy:
@@ -256,6 +642,11 @@ class SympyPreSolver:
         parts = re.findall(r"\$([^$]+)\$", problem)
         parts.extend(self._raw_latex_parts(problem))
         parts.extend(self._plain_equations(problem))
+        # V2.5 扩展：裸 Unicode 积分（∫）与 Python 列表矩阵（[[...]]）不经 $ 包裹
+        if not parts and "∫" in problem:
+            parts.append(problem)
+        if not parts and re.search(r"\[\s*\[[-\d\s,.]+\]\s*(?:,\s*\[[-\d\s,.]+\]\s*)+\]", problem):
+            parts.append(problem)
         return parts
 
     @staticmethod
