@@ -346,6 +346,78 @@ def _raw_excerpt(text, head=600, tail=1400):
 #: sympy 预解器的惰性单例（进程内复用，避免每题重新 import sympy）。
 _SYMPY_SOLVER = None
 
+#: det_solver 确定性求解器矩阵的惰性引用（V2.5 移植 backup-v255，15 管线
+#: 强制自验 + 问目标守卫）。easy112 实测 45% 错题为"模型心算错"——
+#: 该确定性管线正是此类题的靶心。
+_DET_SOLVER = None
+
+
+def _det_solve(state, deps):
+    """确定性求解器矩阵（utils/det_solver.py，15 条管线强制自验 + 问目标守卫）。
+
+    sympy 精确解析未命中时尝试；与 sympy 路径不同，**hard 也触发**（硬题恰是
+    "该确定性计算处 LLM 手算"的重灾区）。客观题/多问项不短路。任何失败/
+    超时（det_solver_timeout_s 软超时，守护线程实现）返回 None 交回 LLM。
+    """
+    if not CONFIG.get("enable_det_solver", True):
+        return None
+    if is_objective_mode(state.get("question_mode", "computation")):
+        return None
+    if is_multi_ask(str(state.get("problem") or "")):
+        return None
+    global _DET_SOLVER
+    if _DET_SOLVER is None:
+        try:
+            from utils.det_solver import det_solve
+            _DET_SOLVER = det_solve
+        except Exception:  # noqa: BLE001 - 模块缺失/依赖不可用 → 静默关闭
+            _DET_SOLVER = False
+    if not _DET_SOLVER:
+        return None
+    try:
+        # 守护线程 + join(timeout) 软超时：个别管线异常慢时不阻塞关键路径
+        # （超时后线程残留为 daemon，不再拖慢解题）。
+        import threading
+        result_box: dict = {}
+
+        def _run_det():
+            try:
+                result_box["value"] = _DET_SOLVER(str(state.get("problem") or ""))
+            except Exception:  # noqa: BLE001
+                result_box["value"] = {}
+
+        worker = threading.Thread(target=_run_det, daemon=True)
+        worker.start()
+        worker.join(float(CONFIG.get("det_solver_timeout_s", 15)))
+        if worker.is_alive():
+            return None
+        result = result_box.get("value") or {}
+    except Exception:  # noqa: BLE001 - 确定性工具失败交回 LLM
+        return None
+    answer = str((result or {}).get("answer") or "").strip()
+    if not answer:
+        return None
+    if _reject_bad_answer(answer) == "" or looks_incomplete_answer(answer):
+        return None
+    kind = str((result or {}).get("kind") or "det_solver")
+    evidence = str((result or {}).get("evidence") or f"{kind} 自验通过")
+    parsed = {
+        "analysis": f"由确定性求解管线 {kind} 直接计算得出。",
+        "steps": [{"step_num": 1,
+                   "description": f"{kind} 确定性计算：{answer}（{evidence}）"}],
+        "answer": answer,
+        "validation_points": [evidence],
+        "answer_source": "det_solver",
+    }
+    return {
+        "reasoning_result": parsed,
+        "reasoning_trace": [{"attempt": 0, "status": "det_solver_direct",
+                             "reason": f"{kind}_verified"}],
+        "reasoning_attempts": 0,
+        "reasoning_raw_response": answer,
+    }
+
+
 # V2.5 修复（audit_v25_function P1-2）：sympy 短路"答非所问"护栏。
 # sympy 解出的是"解集/原式"（如 x=2，x=3），而题面可能问的是投影量
 # （两根之和/根的个数/较大根/f'(2)/在 x=1 处的值/最大值…）。命中投影
@@ -424,6 +496,12 @@ def _reasoning_agent_impl(state, config):
     pre = _sympy_pre_solve(state, deps)
     if pre is not None:
         return pre
+    # V2.5 确定性求解器矩阵：sympy 未命中时用通用管线（含 hard）再试一次，
+    # 命中且自验通过（含问目标守卫）则同样跳过 LLM 求解。easy112 错题归因
+    # 显示 45% 错题为"模型心算错"——正是该管线的靶心。
+    det = _det_solve(state, deps)
+    if det is not None:
+        return det
     sl = deps.skills_loader
     client = deps.client
     budget = deps.token_budget
