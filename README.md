@@ -11,9 +11,13 @@
 
 在 2026-08-12 官方规则更新（并发 3 / 单题 20min / 总运行 6h，超时未答不计分）后，
 进一步升级为 **V2（全卷完成率 + 资源分级）**、**V2.1（证明结构对齐 + 提速）**、
-**V2.3（初解质量 + 证明自检 + 难题兜底）** 与 **V2.4（prefill 抑制 CoT 提速 +
-判分口径对齐 + 客观题格式兜底）**：累计 **M1-M14 十四个机制**（详见第 10 节），
-V2.4 全量验收 **110/112（98.2%，历史最高）**。
+**V2.3（初解质量 + 证明自检 + 难题兜底）**、**V2.4（prefill 抑制 CoT 提速 +
+判分口径对齐 + 客观题格式兜底）** 与 **V2.5（确定性计算前置）**：累计
+**M1-M14 十四个机制**（详见第 10 节），V2.4 本地全量验收 **110/112（98.2%）**；
+V2.5 在官方评测拿下 **61.61%（69/112，历史最佳，0 invalid/skipped/error，
+1402 请求 / 203 截断 / 3h52m）**，其后追加 **7 批修复**（审计修复 / det_solver
+确定性求解器矩阵 / 解集完整性守卫 / 截断根治 / sympy 18 领域全覆盖 / 零风险防御，
+详见第 11 节），当前 HEAD = `c787224`。
 
 竞赛接口保持约定：评测侧导入 `user_agent.py` 的 `ReasoningAgent`，平台以其官方 client 构造，
 调用 `solve(problem, metadata)` 取得 `final_response` 与 `trace`。
@@ -152,6 +156,13 @@ flowchart LR
   + 独立进程组。
 - **trace 可审计**：diverse_reasoning / deterministic_playoff / process_audit /
   objective_revote / modular_guard 各阶段证据全部入 trace，供 judger 综合判定。
+- **确定性求解矩阵（V2.5+）**：sympy 事前求解（18 领域全覆盖）→ det_solver
+  确定性求解器矩阵（15 条管线，sympy 未命中后触发，每条强制自验 + 问目标守卫，
+  15s 守护线程软超时）→ 仍无果才进入 LLM 主路径——计算题先算后想，easy112 实测
+  45% 的计算错不再依赖模型心算。
+- **零风险防御（V2.5+）**：答案定义域守卫（概率 >1 / 百分比 >100 / 角度越界 /
+  负计数数学必错拦截，出厂前检查）、解集完整性守卫（Find all/所有解/最小保证类
+  强制解集枚举对照）、截断根治（写满判据 + 运算符结尾信号 + 4 轮 × 4096 续写）。
 
 ## 3. 目录结构（相对基线的新增）
 
@@ -180,10 +191,14 @@ flowchart LR
 │   ├── prompt_templates.py       # 【新】集中提示词模板（分类/推理/仲裁/审计）
 │   ├── response_normalize.py     # 【新】官方 client 全形态响应归一化（0 分防线）
 │   ├── verification_authenticity.py # 【新】证据真实性校验（防伪造）
+│   ├── det_solver.py              # 【新】V2.5 确定性求解器矩阵（15 条管线）
+│   ├── sympy_pre_solver.py        # 【新】V2.5 sympy 事前求解（18 领域全覆盖）
+│   ├── solution_completeness_guard.py # 【新】解集完整性守卫（Find all 枚举对照）
+│   ├── answer_domain_guard.py     # 【新】答案定义域守卫（概率/百分比/角度/负计数）
 │   └── answer_matcher.py         # 【改】+ 限时代简、符号对齐、≤4 维采样
 ├── mcp_servers/python_executor/server.py  # 【改】+ 静态安全扫描 + 资源限额
 ├── graph/solving_subgraph.py     # 【改】+ 条件扇出异构第二路径
-├── tests/                        # 【新】153 项离线回归测试（基线未随仓附带）
+├── tests/                        # 【新】283 项离线回归测试（基线未随仓附带）
 │   ├── test_veritas_upgrades.py
 │   ├── test_integration_graph.py
 │   ├── test_integration_repair_loop.py
@@ -195,7 +210,13 @@ flowchart LR
 │   ├── test_stress_faults.py
 │   ├── test_v24_budget.py         # 【新】V2.4 token 分级 + 单题预算
 │   ├── test_v24_grade_boost.py    # 【新】V2.4 数值比对/统计口径/执行修复
-│   └── test_form_align.py         # 【新】形式对齐（含客观题格式）
+│   ├── test_form_align.py         # 【新】形式对齐（含客观题格式）
+│   ├── test_det_solver.py         # 【新】V2.5 确定性求解矩阵（50 用例）
+│   ├── test_sympy_18domains.py    # 【新】V2.5 sympy 18 领域（37 用例）
+│   ├── test_truncation_fix.py     # 【新】V2.5 截断根治（9 用例）
+│   ├── test_domain_guard.py       # 【新】V2.5 答案定义域守卫（17 用例）
+│   ├── test_solution_guard.py     # 【新】V2.5 解集完整性守卫（8 用例）
+│   └── test_v25_enhancements.py   # 【新】V2.5 增强集成（8 用例）
 └── （以下与基线一致）state/、skills_pythonscripts/（18 领域手册+验证知识）、
     main.py、user_agent.py、llm_client.py、config.py、requirements.txt
 ```
@@ -228,12 +249,13 @@ python main.py --input_file input.jsonl --output_dir outputs
 python -B -m unittest discover -s tests -v
 ```
 
-**153 项测试 + 30 项子测试**（`pytest tests/` 全绿），零 API 调用：升级机制单测
+**283 项测试 + 30 项子测试**（`pytest tests/` 全绿），零 API 调用：升级机制单测
 （审计解析/模守护/季后赛裁决/软预算/matcher 加固/执行器拦截/判断题双向确认/
 计数枚举守护/平台防线三形态加载/PaperPacer/置信门控/DeepSolver/形式对齐/
-限流退避/ProofDeepener/V2.4 数值比对/客观题格式）+ 多条全图集成链路（happy path；
-双证伪→异构重算翻盘；contradict 假证据→playoff 裁决）+ 题面滥用/故障注入/ReDoS 压测。
-Python 验证代码由真实执行器子进程运行。
+限流退避/ProofDeepener/V2.4 数值比对/客观题格式/V2.5 det_solver 50 项/sympy
+18 域 37 项/截断根治 9 项/域守卫 17 项/解集守卫 8 项/V2.5 增强 8 项）+ 多条全图
+集成链路（happy path；双证伪→异构重算翻盘；contradict 假证据→playoff 裁决）+
+题面滥用/故障注入/ReDoS 压测。Python 验证代码由真实执行器子进程运行。
 
 ### 4.4 本地测试与监控（local_test/）
 
@@ -248,7 +270,8 @@ python local_test/server.py --port 8000                                     # �
 - **判分口径**：统一 LLM 判分（Intern-S 模拟官方 Judger，correct/wrong/partial），
   不使用本地符号/字符串判分器——与官方口径一致（模型综合判定，等价表达判对）。
 - 面板实时显示：进度/正确率/API 次数/耗时/难度分布/推理过程（trace 展开）。
-- `--resume` 支持断点续跑（跳过已成功题）。
+- `--resume` 支持断点续跑（跳过已成功题；批7 修复：成功判定排除"未能求解"类答案，
+  续跑不误跳过）。
 
 ## 5. 配置（新增项）
 
@@ -264,6 +287,12 @@ python local_test/server.py --port 8000                                     # �
 | `enable_modular_guard` | True | 模结构三重守护 |
 | `enable_judge_confirm` | True | 判断题双向确认（结论→自证→反向重解） |
 | `enable_counting_guard` | True | 计数题小规模枚举对照守护 |
+| `enable_det_solver` / `det_solver_timeout_s` | True / 15 | V2.5 确定性求解器矩阵开关与软超时（s） |
+| `enable_solution_guard` | True | V2.5 解集完整性守卫（Find all 枚举对照） |
+| `enable_thinking_mode_off` | True | 官方原生关深度思考（抑制 CoT 截断） |
+| `truncation_continue_tokens` / `truncation_continue_max_rounds` | 4096 / 4 | 截断续写额度与最大轮次 |
+| `paper_total_seconds` | 18000 | 全卷 5h 目标 + 1h 缓冲（V2.4 自 21600 收紧） |
+| `node_timeouts.cross_validator` | 15 | 交叉验证节点上限（s） |
 | `node_timeouts.critic` / `playoff` | 120 / 300 | 新节点上限（仍受 deadline 钳制） |
 
 ## 6. 与基线的兼容性
@@ -371,11 +400,11 @@ assert 'final_response' in result
 |---|---|
 | 并发 3 | ✅ 平台控制，本地 `--concurrency 3` 对齐 |
 | 单题 ≤20min | ✅ `problem_time_budget_s=1200` |
-| 总运行 ≤6h | ✅ `paper_total_seconds=21600`（PaperPacer 保障） |
+| 总运行 ≤6h | ✅ `paper_total_seconds=18000`（V2.4 起 5h 目标 + 1h 缓冲，PaperPacer 保障） |
 | user_agent.py 存在 | ✅ 根目录 + 平台防线测试通过 |
 | 依赖无缺失 | ✅ 全部声明于 requirements.txt（含 mpmath 版本对齐） |
 
-### 10.2 全机制清单（M1-M14，当前 V2.3）
+### 10.2 全机制清单（M1-M14，当前 V2.5）
 
 | 机制 | 模块 | 作用 | 版本 |
 |---|---|---|---|
@@ -433,7 +462,8 @@ V2.4 新增（2026-08-14，不新增编号，均为现有链路的确定性加�
 ```
 V1（官方 53.57 分）→ V2（PaperPacer 完成率）→ V2.1（M7/M8/M9 证明结构）
 → V2.3（M10-M14 初解质量 + 证明自检 + 覆盖检查 + 难题兜底）
-→ V2.4（prefill 提速 + 判分口径对齐 + 客观题格式兜底，全量 98.2%）
+→ V2.4（prefill 提速 + 判分口径对齐 + 客观题格式兜底，本地全量 98.2%）
+→ V2.5（官方 61.61% 历史最佳 + 7 批修复：det_solver / 18 域 / 截断根治 / 零风险防御）
 ```
 
 详见 `docs/V2.3验收报告.md`（含 L1-L4 定义与分层数据）。
@@ -473,8 +503,9 @@ Intern-S2 模型的私有思维链（CoT）计入 `max_tokens`，慢 API 下单�
 
 #### 测试规模
 
-**153 项测试 + 30 子测试全绿**（较 V2.3 新增 `test_v24_budget`、
-`test_v24_grade_boost`、`test_form_align` 客观题 9 用例）。
+**V2.4 当时 153 项测试 + 30 子测试全绿**（较 V2.3 新增 `test_v24_budget`、
+`test_v24_grade_boost`、`test_form_align` 客观题 9 用例）；当前 V2.5 + 7 批修复
+为 **283 项测试 + 30 子测试全绿**（见 11.9）。
 
 ### 10.7 V2.5：截断根治 + 确定性计算嫁接（2026-08-19）
 
@@ -537,4 +568,138 @@ LLM 判分（与官方 Judger 同口径）：
 - **额外发现**：idx=46 出现 sympy `Limit(Piecewise(...))` 原语泄漏进
   final_response（成稿缺 sympy 输出清洗）——列入后续修复
 - 测试题集与全部测试产物已删除（`local_test/` 目录不入仓库）
+
+#### 官方评测（V2.5 = d396205，历史最佳）
+
+- **61.61%（69/112）**，0 invalid / 0 skipped / 0 error
+- 1402 次 API 请求、**203 次截断**（truncated_count=203，≈14.5%）、墙钟 **3h52m**
+  （官方 6h 上限内余量充足）
+- 截断仍是首要失分形态 → 引出第 11 节的 7 批修复（写满判据收紧、续写 4 轮 × 4096、
+  python 未闭合围栏强信号等）
+
+#### 本地 easy112 实验（V2.5 + 7 批修复后）
+
+- 官方 easy 难度带（1.0-3.5）112 题，Intern-S LLM 判分（与官方 Judger 同口径）
+- **82.1%（92/112）**；错题归因：45% 计算错 / 25% 题意错 / 15% 漏解 / 10% 判分噪声
+  （详见 `docs/easy112_error_analysis.md`）——计算错正是 det_solver / Python 主解的靶心
+- **easy+medium112 实验进行中**（官方 18 科分布，easy 40% / medium 60%）
+
+---
+
+## 11. V2.5 + 7 批修复：修复与增强（当前状态）
+
+> V2.5（d396205，官方 61.61% 历史最佳）之后追加的 **7 批修复**全部合入当前 HEAD
+> `c787224`（批5/批6 同属 commit `12ae6bf`）。总原则：**零风险优先**——所有新机制
+> 出厂前检查、`config.py` 可独立关闭、绝不恶化已通过的题。
+
+### 11.1 批1（`37887db`）：审计 6 项缺陷修复
+
+| 修复 | 内容 |
+|---|---|
+| `.gitignore` 红线 | 补充 `参赛资料/`（官方评测日志 / 赛题 PDF / 标准答案不得入仓） |
+| 客观题采纳修正 | cross_validator 客观题采纳 revote / judge_confirm 的修正结果，而非主候选 |
+| sympy 短路护栏 | "答非所问"投影护栏：sympy 解出但与题问目标不符时不劫持 |
+| python_agent 漏括号族 4 处 | remaining_hard / is_tight / fast_path / lower 四处的括号错误 |
+| is_noise_answer 误杀 | 阶乘（`!`）被误判为噪声的修复 |
+| 复核投票标签 | 多轮投票时取最后一个答案标签 |
+| coordinator NameError | form_align 调用处 `re.DOTALL` 关键字拼写错误修复 |
+
+### 11.2 批2（`c3f7406`）：4 项 P1 机制缺陷
+
+| 修复 | 内容 |
+|---|---|
+| answer_contract | 单值极值（"最小值/最大值"只有单一取值）不再误判为残缺 |
+| playoff 反伪造门 | 无实质计算却打印 `PLAYOFF_RESULT` 的候选不执行、直接作废 |
+| form_align 数值等价校验 | LLM 重述不得改变数值（重述前后必须数值等价） |
+| semantic_arbiter 证据强度 | 候选证据标注强度：Python 验证 = 高 / 异构方法 = 中 / 同源 = 低 |
+
+### 11.3 批3（`7966aa0`）：det_solver 确定性求解器矩阵
+
+移植 `backup-v255` 的 `utils/det_solver.py`（**15 条通用确定性管线**）：
+
+| 管线 | 覆盖 |
+|---|---|
+| modular_period / linear_recurrence | 模周期（含 Pisano）、线性递推（特征根） |
+| partitions_hook / count_combinatorics | 整数划分 hook 长度、组合计数（二项式/错排/卡特兰/Stirling/排列） |
+| matrix_eigen / linear_system | 矩阵特征值、线性方程组（消元） |
+| quadrature | 数值积分（复合梯形 / Simpson） |
+| graph_opt | 最短路 / 最小生成树 / 最大流最小割 / 匹配（含暴力对照） |
+| probability_exact / expectation_var | 精确概率（骰子/取球）、期望与方差 |
+| poly_interp / series_coeff | 多项式插值、级数展开系数 |
+| residue_complex / ode_ivp / bvp_shoot | 复变留数、ODE 初值问题、BVP 打靶法 |
+
+- 每条管线**强制自验**（解代回原式核对）+ **问目标守卫**（题面顺带出现 C(n,k)/
+  矩阵/方程组但题问别的时绝不劫持）；**hard 也触发**
+- `det_solver_timeout_s=15` 守护线程软超时，超时交回 LLM
+- 接线在 `reasoning_agent_node._det_solve`：**sympy 未命中后触发**，命中且自验通过
+  → 作为推理候选进入原生交叉验证流程（不锁定、不跳过反证——easy112 45% 计算错
+  正是其靶心）
+
+### 11.4 批4（`9bef0de`）：解集完整性守卫 + 比值方向 + 三角化简 + MockClient 队列
+
+- **解集完整性守卫**（`utils/solution_completeness_guard.py`）：Find all / 所有解 /
+  最小保证类题强制**解集枚举对照** + 静态核查，漏解打回（easy112 idx=111 漏周期解
+  5π/4、idx=11 鸽巢差 1 即此类）
+- **form_align 比值方向检测**：`ratio of A to B` 句式方向颠倒识别（easy112 idx=6
+  16:9 ↔ 9:16 教训）
+- **answer_formatter 三角复合化简**：`180*acos(...)/pi` → `54°` 类表达式化简
+  （easy112 idx=103 判分器未识别等价表达教训）
+- **MockClient 每关键词队列**：`route(keyword, [r1, r2])` 顺序出队，消除并发扇出
+  竞态（测试基建）
+
+### 11.5 批5（`12ae6bf`）：截断根治（官方 truncated_count=203）
+
+- `_looks_truncated` 写满判据 **1.2× → 1.0×**（写满即视为截断候选）
+- 续写轮次 **2 → 4**、续写 token **2048 → 4096**（`truncation_continue_max_rounds=4` /
+  `truncation_continue_tokens=4096`）；续写预算闸门按轮次估时，不会无界烧时
+- python_agent：**未闭合代码围栏 = 截断强信号 → 强制压缩重试**
+
+### 11.6 批6（`12ae6bf`）：sympy_pre_solver 18 领域全覆盖
+
+在 V2.5 基础（积分/方程/极限/导数/同余/模幂/矩阵等）之上**新增 9 类**，合计覆盖
+官方 18 个子领域：
+
+| 新增类别 | 覆盖运算 |
+|---|---|
+| gcd/lcm、模逆 | 最大公约数、最小公倍数、乘法逆元 |
+| 统计量 | 均值 / 中位数 / 方差 / 标准差 |
+| 最小二乘回归 | 一元线性回归系数 |
+| 矩阵目标运算 | 行列式 / 逆 / 秩 / 迹 |
+| 复数 | 模 / 共轭 / 实部 / 虚部 |
+| 向量 | 点积 / 叉积 / 模长 / 夹角 |
+| 数列求和 | 等差 / 等比 / 常见通项求和 |
+| 一阶 ODE | 一阶常微分方程求解 |
+
+另修复：Unicode `∫` 积分、Python 列表矩阵 `[[1,2],[3,4]]`、多元偏导、撇号兼容。
+
+### 11.7 批7（`c787224`）：零风险防御
+
+- **答案定义域守卫**（`utils/answer_domain_guard.py`）：概率 >1 / 百分比 >100 /
+  角度越界（排除同余语境）/ 负计数——数学上必错的答案出厂前拦截，违反时优先换
+  Python 候选（最坏 = 现状，绝不恶化）
+- `_looks_truncated` 补**运算符结尾**信号（`+ - * / =` 等结尾视为截断）
+- `run_tests --resume` 成功判定排除"未能求解"类答案（断点续跑不误跳过）
+
+### 11.8 实验数据（当前）
+
+| 实验 | 结果 |
+|---|---|
+| 官方评测 V2.5（d396205） | **61.61%（69/112，历史最佳）**，0 invalid/skipped/error，1402 请求 / 203 截断 / 3h52m |
+| 本地 easy112（V2.5 + 7 批） | **82.1%（92/112）**，Intern-S 判分，官方 easy 带（1.0-3.5）；错题归因 45% 计算错 / 25% 题意错 / 15% 漏解 / 10% 判分噪声，详见 `docs/easy112_error_analysis.md` |
+| easy+medium112 | **进行中**（官方 18 科分布 easy 40% / medium 60%） |
+
+### 11.9 配置与测试要点
+
+- 关键配置（`config.py`）：`model=intern-s2-preview-397b`；
+  `enable_thinking_mode_off=True`（官方原生关 CoT）；`node_timeouts.cross_validator=15`；
+  `paper_total_seconds=18000`（5h 目标 + 1h 缓冲）；难度软预算 easy 480 / medium 840 /
+  hard 1200；`truncation_continue_tokens=4096`、`truncation_continue_max_rounds=4`；
+  `enable_det_solver=True`、`det_solver_timeout_s=15`；`enable_solution_guard=True`；
+  `max_tokens.reasoning=12288`，难度分级 easy 8192 / medium 12288 / hard 16384
+- 测试：**283 passed + 30 subtests**（`pytest tests/` 全绿，零 API 调用），含
+  test_det_solver 50 项、test_sympy_18domains 37 项、test_truncation_fix 9 项、
+  test_domain_guard 17 项、test_solution_guard 8 项、test_v25_enhancements 8 项
+- 合规：`.gitignore` 已排除 `local_test/` 与 `参赛资料/`；无硬编码密钥；唯一网络出口
+  官方 client；沙箱为纯正则黑名单（已知风险——官方题集无恶意题面，已评估，初赛后
+  加固为 AST 白名单）
 
