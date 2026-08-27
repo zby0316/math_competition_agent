@@ -256,6 +256,10 @@ def _looks_truncated(text: str, max_tokens: int) -> bool:
         return True
     if re.search(r"^\s*(?:\d+[.、)]|[-*•])\s*$", tail[-3:].lstrip()):  # 枚举项后无内容
         return True
+    # V2.5 零风险增强：以二元运算符结尾（+ - * / ^ 前后有内容）→ 表达式未写完。
+    # 正常完整答案几乎不会以裸运算符收尾；命中只多触发一次续写，不伤好路径。
+    if re.search(r"[\w)}\]\d]\s*[+\-*/^]\s*$", tail):
+        return True
     # 写满且无未完成标点：长度 ≥1.5 倍才判（输出正好 max_tokens 且结尾干净
     # 时可能是正常完整答案，不误伤）
     return len(s) >= max_tokens * 1.5

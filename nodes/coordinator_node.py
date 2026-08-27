@@ -282,6 +282,23 @@ def coordinator_node(state, config):
     evidence_note = ""
     if not state.get("answer_locked"):
         validated, evidence_note = _evidence_override(state, validated)
+        # V2.5 零风险防御：答案定义域守卫（概率>1/百分比>100/角度越界/负计数）。
+        # 数学定义域约束，误拦概率≈0；违反时优先换 Python 数值候选（复用
+        # _evidence_override 的切换逻辑），无候选则保持现状（不恶化）。
+        if validated and ptype != "proof":
+            try:
+                from utils.answer_domain_guard import check_answer_domain
+                _dom = check_answer_domain(state.get("problem", ""), validated)
+                if _dom.get("violation"):
+                    deps.logger.warning(
+                        "Answer domain guard: %s (%.60s)", _dom.get("reason"), validated)
+                    po = state.get("python_output") or {}
+                    _py_ans = str(po.get("answer") or "").strip()
+                    if _py_ans and _py_ans != validated:
+                        validated = _py_ans
+                        evidence_note = "domain_guard_python_override"
+            except Exception:  # noqa: BLE001 - 守卫失败不阻塞
+                pass
         # 洁净度终门（2026-08-09 冒烟 idx 43）：交叉验证在双分支皆弱时可能放行一段
         # 探索散文；deadline 路径会把它原样出厂。修复优先于丢弃——"1/2 works." 这类
         # 正确值+口癖要剥尾保值（idx 2），修不出干净头部才置空。仲裁锁定的选择不经
