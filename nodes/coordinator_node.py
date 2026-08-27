@@ -249,6 +249,20 @@ def coordinator_node(state, config):
                 fixed = _form_align_reframe(client, deps, state.get("problem", ""),
                                             validated, check["expected"])
                 if fixed:
+                    # V2.5 修复（audit_v25_mechanism #3）：重述是又一次同源
+                    # LLM 输出，不得在重述时改掉数学本体——数值可解析时做
+                    # 确定性等价校验，不等价的重述一律拒绝（宁可保持原答案）。
+                    from utils.numeric_crosscheck import numeric_crosscheck
+                    try:
+                        _xc = numeric_crosscheck(validated, fixed)
+                        if _xc["status"] == "mismatch":
+                            deps.logger.warning(
+                                "Form alignment rejected (value changed): %s -> %s",
+                                validated[:60], fixed[:60])
+                            fixed = ""
+                    except Exception:  # noqa: BLE001 - 校验失败保持重述（不阻塞）
+                        pass
+                if fixed:
                     deps.logger.info(
                         "Form alignment fixed %s → %s (%.60s)",
                         check["expected"], fixed, validated)

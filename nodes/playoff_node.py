@@ -146,6 +146,42 @@ def playoff_node(state, config):
         return {"playoff_status": "indecisive", "playoff_trace": trace,
                 "next_node": "semantic_arbiter"}
 
+    # V2.5 修复（audit_v25_mechanism 交叉发现 P1）：playoff 反伪造门——
+    # 生成代码若无实质计算（循环/求解/枚举/比较）却打印 PLAYOFF_RESULT/
+    # 候选核验 PASS，裁决就是同源模型的断言回声，不是确定性证据。
+    # 复用 verification_authenticity 的静态检测：伪造 → 不执行，退回仲裁。
+    from utils.verification_authenticity import assess_verification_authenticity
+    from utils.verification_authenticity import (
+        _COMPUTE_RE, _VAR_ARITH_RE, _ASSERT_RE,
+    )  # 复用实质计算/比较信号
+    try:
+        _auth = assess_verification_authenticity(code)
+        # 补充 playoff 专有形态：assess_verification_authenticity 只识别
+        # "验证状态: PASS"，不识别 PLAYOFF_RESULT 标记——这里单独检测
+        # "打印裁决但代码无任何实质计算/比较" 的断言回声。
+        _skeleton = __import__(
+            "utils.verification_authenticity", fromlist=["_strip_comments_and_strings"]
+        )._strip_comments_and_strings(code)[0]
+        _claims_verdict = "PLAYOFF_RESULT" in code or "候选" in code
+        _has_compute = bool(_COMPUTE_RE.search(_skeleton)) or bool(
+            _VAR_ARITH_RE.search(_skeleton)
+        )
+        _has_compare = bool(_ASSERT_RE.search(_skeleton))
+        if _auth.get("fabricated") or (
+            _claims_verdict and not _has_compute and not _has_compare
+        ):
+            reasons = list(_auth.get("reasons") or [])
+            if not _has_compute and not _has_compare:
+                reasons.append("代码无实质计算/比较却打印了裁决标记")
+            trace.append({
+                "status": "indecisive", "reason": "fabricated_verification",
+                "detail": "；".join(reasons)[:300],
+            })
+            return {"playoff_status": "indecisive", "playoff_trace": trace,
+                    "next_node": "semantic_arbiter"}
+    except Exception:  # noqa: BLE001 - 反伪造检测失败不阻塞执行（保持现状）
+        pass
+
     if deps.mcp_client is None:
         trace.append({"status": "error", "reason": "executor_unavailable"})
         return {"playoff_status": "error", "playoff_trace": trace,

@@ -52,10 +52,23 @@ def _extremum_satisfied(answer):
     `y=\\frac{1}{2}x+\\frac{1}{2}` and silently dropped the minimum area
     `2-\\frac{4\\sqrt{2}}{3}`, which the problem asks for as its whole point.
     Requiring an explicit optimum value alongside the location catches that.
+
+    V2.5 修复（audit_v25_function P2-2）：纯数值单值答案（"5"、"3/4"、
+    "2-\\frac{4\\sqrt{2}}{3}"）是极值本身，不应判残缺——大量"求 f(x) 的
+    最大值"类题的正确单值答案曾触发无谓 Critic 修复轮（烧 500-900s 且有
+    换错风险）。带等号/多分量仍保持严格（"a=1" 只有最优点、缺极值）。
     """
     text = answer or ""
     if not _NUMERIC_OR_SYMBOLIC_RE.search(text):
         return False
+    # 纯数值单值（无 =、无字母变量）→ 极值本身，满足契约。
+    # LaTeX 标记（frac/sqrt/pi/cdot/times/pm 等）先剥掉再查字母。
+    _latex_stripped = (text.replace("\\frac", " ").replace("\\sqrt", " ")
+                       .replace("\\pi", " ").replace("\\cdot", " ")
+                       .replace("\\times", " ").replace("\\pm", " ")
+                       .replace("\\left", " ").replace("\\right", " "))
+    if "=" not in _latex_stripped and not re.search(r"[A-Za-z]", _latex_stripped):
+        return True
     # An explicitly named extremum ("最大值为 …", "最小面积 = …") settles it.
     if re.search(r"(?:最大值|最小值|最值|极大值|极小值|最大|最小)[^。\n]{0,12}"
                  r"(?:为|是|=|等于)", text):

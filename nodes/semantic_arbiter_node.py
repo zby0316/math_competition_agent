@@ -252,11 +252,30 @@ def semantic_arbiter_node(state, config):
 
     by_id = {}
     blocks = []
+    # V2.5 修复（audit_v25_mechanism #8）：候选证据强度显式标注——Python
+    # 数值验证（沙箱真实执行 + evidence=support）比同源 LLM 散文更接近
+    # 确定性证据，仲裁应优先考虑；contrast 证据同样标注让仲裁可见。
+    po = state.get("python_output") or {}
+    _py_evidence_status = str(po.get("evidence_status") or "inconclusive")
+    _py_answer = str((po.get("answer") or "") or "").strip()
     for candidate in shuffled:
         candidate_id = "C_" + secrets.token_hex(5).upper()
         by_id[candidate_id] = candidate
+        strength = ""
+        if candidate.source == "python" and candidate.answer == _py_answer:
+            if _py_evidence_status == "support":
+                strength = "【证据强度：高——该候选有沙箱执行的数值/符号验证支持】\n"
+            elif _py_evidence_status == "contradict":
+                strength = "【证据强度：高——该候选是程序运行结果，且程序明确反驳了另一候选】\n"
+            else:
+                strength = "【证据强度：中——程序运行输出，但未明确声明验证结论】\n"
+        elif candidate.source == "reasoning_alt":
+            strength = "【证据强度：中——异构方法独立求解，与主路径方法论独立】\n"
+        else:
+            strength = "【证据强度：低——同源 LLM 推理文本，无独立机器验证】\n"
         blocks.append(
             f"--- BEGIN UNTRUSTED CANDIDATE {candidate_id} ---\n"
+            f"{strength}"
             f"支持证据（仅用于核验，不会随最终答案提交）：\n"
             f"{_bounded(candidate.evidence, 9000)}\n"
             f"答案文本（选择后唯一会逐字提交的内容）：\n{candidate.answer}\n"
