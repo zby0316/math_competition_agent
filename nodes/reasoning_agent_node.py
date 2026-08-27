@@ -346,6 +346,26 @@ def _raw_excerpt(text, head=600, tail=1400):
 #: sympy 预解器的惰性单例（进程内复用，避免每题重新 import sympy）。
 _SYMPY_SOLVER = None
 
+# V2.5 修复（audit_v25_function P1-2）：sympy 短路"答非所问"护栏。
+# sympy 解出的是"解集/原式"（如 x=2，x=3），而题面可能问的是投影量
+# （两根之和/根的个数/较大根/f'(2)/在 x=1 处的值/最大值…）。命中投影
+# 修饰即放弃短路交回 LLM——宁可少提速，绝不以错答案高置信出厂。
+_SYMPY_PROJECTION_RE = None
+
+
+def _sympy_target_unsafe(problem: str) -> bool:
+    """题面是否含"所问 ≠ 解集"的投影/取值修饰。True = 不可短路。"""
+    global _SYMPY_PROJECTION_RE
+    if _SYMPY_PROJECTION_RE is None:
+        import re as _re
+        _SYMPY_PROJECTION_RE = _re.compile(
+            r"之和|之差|之积|之比|的个数|个数是|根数|较大|较小|最大|最小|"
+            r"两根|实根|虚根|复根|正整数解|整数解|方程组的|同余方程组的|"
+            r"在\s*[xyz]\s*=|f\s*\(|g\s*\(|h\s*\(|取值范围|等于多少|是多少|为多少|"
+            r"^求\s*f"
+        )
+    return bool(_SYMPY_PROJECTION_RE.search(str(problem or "")))
+
 
 def _sympy_pre_solve(state, deps):
     """V2.5a 主线 1：sympy 事前直接解，解出完整目标且非 hard → 跳过 LLM。
@@ -361,6 +381,10 @@ def _sympy_pre_solve(state, deps):
         return None
     # 多问项不短路：sympy 的 whole_answer 只取首个无歧义式子，会漏掉其余问项。
     if is_multi_ask(str(state.get("problem") or "")):
+        return None
+    # V2.5 修复（P1-2）：题面问的是"解集的投影量"时，sympy 的 whole_answer
+    # （解集/原式）≠ 题目所问——短路会以错答案高置信出厂，交回 LLM。
+    if _sympy_target_unsafe(str(state.get("problem") or "")):
         return None
     global _SYMPY_SOLVER
     if _SYMPY_SOLVER is None:

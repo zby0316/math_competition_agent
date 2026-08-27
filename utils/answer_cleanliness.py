@@ -94,7 +94,12 @@ def is_noise_answer(text: str) -> bool:
     if _SELF_DOUBT_RE.search(s):
         return True
     # 疑问/感叹收尾：结论不以问句结束。（允许内部含 '?' 的合法记号，如 "P(X>1)"）
-    if re.search(r"[？?！!]\s*$", s):
+    # V2.5 修复（audit_v25_function P2-1）：阶乘 "5!" 与感叹词 "正确！" 是
+    # 合法答案形态——先排除纯数学表达式，感叹号只对非数学文本判噪声。
+    if re.search(r"[？?]\s*$", s):
+        return True
+    if re.search(r"!\s*$", s) and not re.fullmatch(
+            r"[-+]?[\d\w!*/+\-^().,·\s]+", s):
         return True
     # 句首疑问句（2026-08-09 冒烟 idx 14："Are there any other ... sequences?
     # The known theorem says..."）：答案不会以问句开场；含 boxed 结论时除外。

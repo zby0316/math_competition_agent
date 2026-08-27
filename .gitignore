@@ -37,6 +37,9 @@ local_test/
 # 浏览器自动化工具临时目录（截图/快照）
 .playwright-mcp/
 
+# 参赛资料（官方评测日志/赛题PDF/标准答案）不得入库——官方红线
+参赛资料/
+
 # 本地代码审查产物（不提交评测仓库）
 review_results.json
 reports/

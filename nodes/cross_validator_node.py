@@ -145,7 +145,10 @@ def _objective_revote(state: dict, config, current_answer: str, question_mode: s
     if deps.token_budget:
         deps.token_budget.consume(estimate_tokens(prompt), estimate_tokens(raw))
     import re as _re
-    m = _re.search(r"答案\s*[：:]\s*(.+)", str(raw or ""))
+    # V2.5 修复（audit_v25_function P2-4）：取最后一个"答案："标签——
+    # 模型中途自我纠正时（"答案：A\n（核对后）答案：B"）首标签是旧值。
+    matches = list(_re.finditer(r"答案\s*[：:]\s*(.+)", str(raw or "")))
+    m = matches[-1] if matches else None
     revote = normalize_objective_answer(m.group(1).strip() if m else "", question_mode)
     if not objective_answer_is_usable(revote, question_mode):
         return {"agree": None, "revote_answer": "", "adopted": current_answer}
@@ -422,9 +425,11 @@ def cross_validator_node(state, config):
             match_result["bypass_reason"] = "python_success_and_symbolic_equivalence"
         match_result["routing_reason"] = "validated_match"
         if match_result.get("method") == "objective_direct":
-            validated_answer = normalize_objective_answer(
-                reasoning_result.get("answer", ""), question_mode
-            )
+            # V2.5 修复（audit_v25_function P1-1）：必须使用局部 candidate——
+            # 它已包含 _objective_revote 分歧换票（L219）与 judge_confirm
+            # 双向确认反向改判（L248）的修正；取 reasoning_result 原值会把
+            # 这些修正全部丢弃（判断题双向确认旗舰机制功能死亡）。
+            validated_answer = normalize_objective_answer(candidate, question_mode)
             if not validated_answer:
                 validated_answer = normalize_objective_answer(
                     python_output.get("answer", ""), question_mode
