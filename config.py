@@ -181,4 +181,7 @@ CONFIG = {
     # 正是该确定性管线的靶心）。
     "enable_det_solver": True,
     "det_solver_timeout_s": 15,
+    # V2.5 解集完整性守护（easy112 错题归因 P1）：Find all/所有解/最小保证
+    # 类题强制解集枚举对照——idx111 漏周期解 5π/4、idx11 鸽巢差 1 即此类。
+    "enable_solution_guard": True,
 }

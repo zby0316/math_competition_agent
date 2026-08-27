@@ -23,27 +23,30 @@ class TestNeitherThenDiverseRescue(unittest.TestCase):
             'print("候选B核验:", "PASS" if 5 == truth else "FAIL")\n'
             'print("PLAYOFF_RESULT:", "NEITHER")\n```'
         )
-        responses = [
-            # 分类：高风险领域 + hard（首轮即扇出三路）
-            '离散数学", "confidence": 0.93, "difficulty": "hard"}',
-            # A 路径小 N 采样（V2.5：hard 题触发 3 次多温度采样，都答 4 投票一致）
-            _four_sections("4"),
-            _four_sections("4"),
-            _four_sections("4"),
-            # 首轮三路：主推理 4（采样投票结果）、异构路径 4、Python 5 —— 三方全不一致
-            _four_sections("4"),
-            _code_block("5"),
-            # Playoff 裁决代码：双证伪
-            neither_code,
-            # 重算轮（换方法提示 + 异构路径）：三路收敛到 6
-            _four_sections("6"),
-            _four_sections("6"),
-            _code_block("6"),
-            # Critic 放行 + coordinator 成稿
-            ' true, "missing": [], "calc_checks": [], "verdict": "pass"}',
-            "最终答案：6",
-        ]
-        client = MockClient(responses)
+        # V2.5 修复（det_solver 移植后）：solving 子图 reasoning/python 并发扇出，
+        # MockClient 顺序响应存在线程竞态（det_solver 本地计算改变了相对时序）。
+        # 改用关键词路由（backup-v255 同款写法）：每条路由按 prompt 特征词命中，
+        # 与线程调度顺序无关。
+        client = MockClient([])
+        client.route("可选类别", '离散数学", "confidence": 0.93, "difficulty": "hard"}')
+        # 推理系：hard 触发小 N 采样（3 票）+ 主推理 + B 异构路径（首轮，无 hint），
+        # 重算轮（带 playoff 定向 hint）。MockClient 按插入顺序匹配关键词，
+        # 最特定的路由先注册：
+        # 1) Python 分支（prompt 同时含"你是Python数学计算专家"与 hint 文本）
+        #    → PY 路由最优先，首轮 5、重算轮 6；
+        # 2) 推理重算轮（含 hint）→ HINT 路由 → "6"；
+        # 3) 推理首轮（无 hint）→ 通用 MATH 路由 → "4"。
+        client.route("你是Python数学计算专家", [_code_block("5"), _code_block("6")])
+        client.route("彻底更换解题方法重新独立求解",
+                     [_four_sections("6")] * 2)
+        client.route("你是一个数学专家", [_four_sections("4")] * 6)
+        # Playoff 双证伪
+        client.route("你是数学裁判工程师", neither_code)
+        # Critic 放行
+        client.route("你是数学解答审计员",
+                     ' true, "missing": [], "calc_checks": [], "verdict": "pass"}')
+        # Coordinator 成稿
+        client.route("你是一个数学教学专家", "最终答案：6")
         graph = MathAgentGraph(
             client=client, skills_loader=SkillsLoader(), mcp_client=PythonMCPClient())
         # 题目措辞避开计数信号词（个数/几种），让本测试聚焦 playoff/修复链路；

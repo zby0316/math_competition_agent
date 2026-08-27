@@ -43,6 +43,18 @@ _ENUM_RE = re.compile(
     r"(?:列出|列举|枚举|的所有解|的全部解|共有哪些|分别是|的所有取值|"
     r"的全部取值|全体|所有可能)", re.IGNORECASE)
 
+#: V2.5 比值方向检测（easy112 错题 idx=6：模型答 16:9，标准答案 9:16）。
+#: 题面问"ratio of A to B / A:B / A 与 B 之比"时，答案的 a:b 方向必须一致。
+_RATIO_ASK_RE = re.compile(
+    r"ratio\s+of\s+([A-Za-z]+)\s+to\s+([A-Za-z]+)|"
+    r"([A-Za-z]+)\s*:\s*([A-Za-z]+)|"
+    r"([A-Za-z]+)与([A-Za-z]+)之?比|"
+    r"([A-Za-z]+)和([A-Za-z]+)的比|"
+    r"比值为|比值是|之比为|之比是", re.IGNORECASE)
+
+_RATIO_ANS_RE = re.compile(
+    r"([A-Za-z]+)\s*[:：]\s*([A-Za-z]+)|\b(\d+)\s*[:：]\s*(\d+)\b")
+
 #: 选择题答案形态：允许的选项字母（A-E，含全角）。
 _CHOICE_LETTER_RE = re.compile(r"[A-EＡ-Ｅ]")
 #: 判断题判定词（与 judge_confirm 口径一致：正确/错误/对/错/是/否/成立）
@@ -158,6 +170,52 @@ def _looks_fill(s: str) -> bool:
     return bool(re.search(r"\d|[\u4e00-\u9fff]|\\frac|\\sqrt", core))
 
 
+def _check_ratio_direction(problem: str, answer: str) -> tuple[bool, str]:
+    """V2.5 比值方向校验（easy112 idx=6：16:9 vs 9:16 方向颠倒）。
+
+    题面出现 "ratio of A to B"/"A:B"/"A 与 B 之比" 且答案含 "a:b" 时，
+    校验答案方向与题面一致。无法可靠提取方向（如题面用文字描述）
+    时返回 (True, "")——宁可不拦，不可误伤。
+    """
+    p = str(problem or "")
+    a = str(answer or "")
+    ask = _RATIO_ASK_RE.search(p)
+    if not ask:
+        return True, ""
+    groups = ask.groups()
+    first = next((g for g in groups if g), None)
+    if not first:
+        return True, ""
+    # 提取题面比值方向（ratio of A to B → A:B；A 与 B 之比 → A:B）
+    if ask.group(1) and ask.group(2):
+        ask_first, ask_second = ask.group(1).lower(), ask.group(2).lower()
+    elif ask.group(3) and ask.group(4):
+        ask_first, ask_second = ask.group(3).lower(), ask.group(4).lower()
+    elif ask.group(5) and ask.group(6):
+        ask_first, ask_second = ask.group(5).lower(), ask.group(6).lower()
+    elif ask.group(7) and ask.group(8):
+        ask_first, ask_second = ask.group(7).lower(), ask.group(8).lower()
+    else:
+        return True, ""
+    ans = _RATIO_ANS_RE.findall(a)
+    if not ans:
+        return True, ""
+    # 取最后一个比值（结论通常在末尾）
+    last = ans[-1]
+    if last[0] and last[1]:
+        ans_first, ans_second = last[0].lower(), last[1].lower()
+    elif last[2] and last[3]:
+        ans_first, ans_second = last[2].lower(), last[3].lower()
+    else:
+        return True, ""
+    # 数字比值方向无法与题面字母方向直接比较（如 16:9 vs apples:bananas），
+    # 只有题面也是数值比值（"3:2"）时才可比——此时两个数值都出现在题面中。
+    if ans_first in (ask_first, ask_second) and ans_second in (ask_first, ask_second):
+        if ans_first == ask_second and ans_second == ask_first:
+            return False, f"比值方向颠倒：题面问 {ask_first}:{ask_second}，答案给 {ans_first}:{ans_second}"
+    return True, ""
+
+
 def check_form_alignment(problem: str, answer: str) -> dict:
     """检查最终答案与题面期望形态是否错配。
 
@@ -168,7 +226,10 @@ def check_form_alignment(problem: str, answer: str) -> dict:
     expected = expected_form(problem)
     answer_text = str(answer or "").strip()
     if expected == "unknown" or not answer_text:
-        return {"aligned": True, "expected": expected, "reason": "无法判断"}
+        # V2.5：形态未知时仍做比值方向校验（idx=6 形态判定为 unknown 才漏网）
+        ok, reason = _check_ratio_direction(problem, answer_text)
+        return {"aligned": ok, "expected": "ratio",
+                "reason": reason} if not ok else {"aligned": True, "expected": expected, "reason": "无法判断"}
     if expected == "choice":
         ok = _looks_choice(answer_text)
         return {"aligned": ok, "expected": expected,

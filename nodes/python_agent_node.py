@@ -262,6 +262,18 @@ def python_agent_node(state, config):
         counting = {"hit": detect_counting(problem)}
         if counting["hit"]:
             prompt += counting_clause(problem)
+    # V2.5 解集完整性守护（easy112 错题归因 P1：漏解类 3/20 题——
+    # idx111 漏周期解 5π/4、idx11 鸽巢差1、idx76 漏翻牌）。
+    # 检出"Find all/所有解/最小保证"类题注入强制条款，生成后静态核查
+    # 代码必须含解集枚举/求解证据，否则打回。
+    solution = {"hit": False}
+    if CONFIG.get("enable_solution_guard", True):
+        from utils.solution_completeness_guard import (
+            code_has_solution_enumeration, detect_solution_completeness)
+        from utils.solution_completeness_guard import prompt_clause as solution_clause
+        solution = {"hit": detect_solution_completeness(problem)}
+        if solution["hit"]:
+            prompt += solution_clause(problem)
 
     trace = []
     attempts = 0
@@ -307,6 +319,7 @@ def python_agent_node(state, config):
             "python_attempts": attempts,
             "modular_guard": modular,
             "counting_guard": counting,
+            "solution_guard": solution,
             "python_evidence_status": enriched.get("evidence_status", "inconclusive"),
             "python_evidence_summary": enriched.get("evidence_summary", ""),
             "python_contradictions": enriched.get("contradictions", []),
@@ -408,6 +421,19 @@ def python_agent_node(state, config):
                 "先把规模缩到最小实例（n=2,3,4），用 for/range/itertools 暴力枚举出精确值，"
                 "再让候选公式在同规模逐点 assert 比对，全部吻合才外推。请只输出修正后的 "
                 "```python``` 代码块（含枚举对照打印），结尾 print(\"最终答案:\", answer)。",
+                problem, candidate_answer)
+            continue
+        if code and solution.get("hit") and not code_has_solution_enumeration(code):
+            # V2.5 静态核查（解集完整性）：Find all/最小保证类题代码无解集
+            # 枚举/求解证据（无 solve/枚举/len(解集)）——打回修复，防漏解出厂。
+            trace.append({"attempt": attempts, "status": "solution_guard_violation"})
+            if attempts >= max_attempts:
+                break
+            prompt = _retry_prompt(
+                "上一次的代码没有求完整解集/验证边界。本题要求完整解集或最少保证数："
+                "用 sympy solveset/solve 或在给定范围内完整枚举（含周期解/边界解），"
+                "打印解的数量 print(\"解数:\", len(解集))，最小保证类先验证 k-1 不行、k 一定行。"
+                "请只输出修正后的 ```python``` 代码块，结尾 print(\"最终答案:\", answer)。",
                 problem, candidate_answer)
             continue
         if not code:

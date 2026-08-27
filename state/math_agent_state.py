@@ -69,6 +69,8 @@ class MathAgentState(TypedDict):
     objective_revote_trace: NotRequired[List[Dict]]
     # 模结构守护命中标记（F_2 / Z_m 语境；提示注入与静态核查记录）
     modular_guard: NotRequired[Dict[str, Any]]
+    # V2.5 解集完整性守护命中标记（Find all/最小保证类；提示注入与打回记录）
+    solution_guard: NotRequired[Dict[str, Any]]
     # 定向修复提示来源标记（critic/playoff → reconciliation 直通用，一次性消费）
     repair_hint_source: NotRequired[Optional[str]]
     # 输出阶段
