@@ -17,7 +17,9 @@
 V2.5 在官方评测拿下 **61.61%（69/112，历史最佳，0 invalid/skipped/error，
 1402 请求 / 203 截断 / 3h52m）**，其后追加 **7 批修复**（审计修复 / det_solver
 确定性求解器矩阵 / 解集完整性守卫 / 截断根治 / sympy 18 领域全覆盖 / 零风险防御，
-详见第 11 节），当前 HEAD = `c787224`。
+详见第 11 节），再经 **cap 适配（max_tokens ≤8192）+ 超越 71 分改造（答案前置 /
+官方别名表 / 首轮 550s 超时 / 结论线索复用 / socket 1200s）+ 400 Bad Request
+修复**（详见第 11.8-11.12 节），当前 HEAD = `daa6911`。
 
 竞赛接口保持约定：评测侧导入 `user_agent.py` 的 `ReasoningAgent`，平台以其官方 client 构造，
 调用 `solve(problem, metadata)` 取得 `final_response` 与 `trace`。
@@ -198,7 +200,7 @@ flowchart LR
 │   └── answer_matcher.py         # 【改】+ 限时代简、符号对齐、≤4 维采样
 ├── mcp_servers/python_executor/server.py  # 【改】+ 静态安全扫描 + 资源限额
 ├── graph/solving_subgraph.py     # 【改】+ 条件扇出异构第二路径
-├── tests/                        # 【新】283 项离线回归测试（基线未随仓附带）
+├── tests/                        # 【新】246 项离线回归测试（基线未随仓附带）
 │   ├── test_veritas_upgrades.py
 │   ├── test_integration_graph.py
 │   ├── test_integration_repair_loop.py
@@ -249,7 +251,7 @@ python main.py --input_file input.jsonl --output_dir outputs
 python -B -m unittest discover -s tests -v
 ```
 
-**283 项测试 + 30 项子测试**（`pytest tests/` 全绿），零 API 调用：升级机制单测
+**246 项测试 + 30 项子测试**（`pytest tests/` 全绿），零 API 调用：升级机制单测
 （审计解析/模守护/季后赛裁决/软预算/matcher 加固/执行器拦截/判断题双向确认/
 计数枚举守护/平台防线三形态加载/PaperPacer/置信门控/DeepSolver/形式对齐/
 限流退避/ProofDeepener/V2.4 数值比对/客观题格式/V2.5 det_solver 50 项/sympy
@@ -463,7 +465,8 @@ V2.4 新增（2026-08-14，不新增编号，均为现有链路的确定性加�
 V1（官方 53.57 分）→ V2（PaperPacer 完成率）→ V2.1（M7/M8/M9 证明结构）
 → V2.3（M10-M14 初解质量 + 证明自检 + 覆盖检查 + 难题兜底）
 → V2.4（prefill 提速 + 判分口径对齐 + 客观题格式兜底，本地全量 98.2%）
-→ V2.5（官方 61.61% 历史最佳 + 7 批修复：det_solver / 18 域 / 截断根治 / 零风险防御）
+→ V2.5（官方 61.61% 历史最佳 + 7 批修复：det_solver / 18 域 / 截断根治 / 零风险防御
+   + cap 适配 + 71 分改造：答案前置/别名表/550s/线索复用/socket 1200s + 400 修复）
 ```
 
 详见 `docs/V2.3验收报告.md`（含 L1-L4 定义与分层数据）。
@@ -505,7 +508,7 @@ Intern-S2 模型的私有思维链（CoT）计入 `max_tokens`，慢 API 下单�
 
 **V2.4 当时 153 项测试 + 30 子测试全绿**（较 V2.3 新增 `test_v24_budget`、
 `test_v24_grade_boost`、`test_form_align` 客观题 9 用例）；当前 V2.5 + 7 批修复
-为 **283 项测试 + 30 子测试全绿**（见 11.9）。
++ cap 适配 + 71 分改造 + 400 修复为 **246 项测试 + 30 子测试全绿**（见 11.14）。
 
 ### 10.7 V2.5：截断根治 + 确定性计算嫁接（2026-08-19）
 
@@ -574,22 +577,25 @@ LLM 判分（与官方 Judger 同口径）：
 - **61.61%（69/112）**，0 invalid / 0 skipped / 0 error
 - 1402 次 API 请求、**203 次截断**（truncated_count=203，≈14.5%）、墙钟 **3h52m**
   （官方 6h 上限内余量充足）
-- 截断仍是首要失分形态 → 引出第 11 节的 7 批修复（写满判据收紧、续写 4 轮 × 4096、
-  python 未闭合围栏强信号等）
+- 截断仍是首要失分形态 → 引出第 11 节的修复批（写满判据收紧、续写 4 轮 × 4096、
+  python 未闭合围栏强信号，以及官方 cap=8192 适配等）
 
 #### 本地 easy112 实验（V2.5 + 7 批修复后）
 
 - 官方 easy 难度带（1.0-3.5）112 题，Intern-S LLM 判分（与官方 Judger 同口径）
 - **82.1%（92/112）**；错题归因：45% 计算错 / 25% 题意错 / 15% 漏解 / 10% 判分噪声
   （详见 `docs/easy112_error_analysis.md`）——计算错正是 det_solver / Python 主解的靶心
-- **easy+medium112 实验进行中**（官方 18 科分布，easy 40% / medium 60%）
+- **官方分布模拟轮（112 题官方分布 easy21/medium52/hard39）已完成**：综合
+  **75.9%（85/112）**（见 11.13）；**easy+medium112 实验进行中**（官方 18 科分布，
+  easy 40% / medium 60%）
 
 ---
 
-## 11. V2.5 + 7 批修复：修复与增强（当前状态）
+## 11. V2.5 修复与增强：7 批修复 + cap 适配 + 71 分改造 + 400 修复（当前状态）
 
-> V2.5（d396205，官方 61.61% 历史最佳）之后追加的 **7 批修复**全部合入当前 HEAD
-> `c787224`（批5/批6 同属 commit `12ae6bf`）。总原则：**零风险优先**——所有新机制
+> V2.5（d396205，官方 61.61% 历史最佳）之后追加的 **7 批修复**（批5/批6 同属
+> commit `12ae6bf`）与 **cap 适配（批8）+ 超越 71 分改造（批9-批11）+ 400 修复
+> （批12）** 全部合入当前 HEAD `daa6911`。总原则：**零风险优先**——所有新机制
 > 出厂前检查、`config.py` 可独立关闭、绝不恶化已通过的题。
 
 ### 11.1 批1（`37887db`）：审计 6 项缺陷修复
@@ -680,25 +686,82 @@ LLM 判分（与官方 Judger 同口径）：
 - `_looks_truncated` 补**运算符结尾**信号（`+ - * / =` 等结尾视为截断）
 - `run_tests --resume` 成功判定排除"未能求解"类答案（断点续跑不误跳过）
 
-### 11.8 实验数据（当前）
+### 11.8 批8（`efb41d2`）：max_tokens 适配官方 cap=8192（官方 56.25% 退步根因）
+
+用户实测确认：官方评测环境 **max_tokens 上限 8192**，传更大值被**静默截断**，不传
+默认 4096。此前配置 reasoning 12288 / hard 16384 / coordinator 16384 /
+reconciliation 32768 全部超 cap——官方环境实际只给 8192，难题必然截断（官方
+truncated_count 的直接来源），本地 API 不 cap 导致本地成绩虚高。适配：
+
+- `max_tokens` 全部压到 **≤8192**（reasoning / compressed / reconciliation /
+  coordinator 12288-32768 → 8192）
+- `reasoning_tokens_by_difficulty` **全难度 8192**（easy/medium/hard 不再分级），
+  难题靠**截断续写 4 轮 × 4096 补全**，不靠单次大 max_tokens
+
+成绩轨迹：官方 V2.5 基线 **61.61%** → V2.5+7 批（cap 适配前）官方 **56.25%
+（63/112，退步 5.36pp）** → cap 适配 + 71 分改造 + 400 修复（当前 daa6911）。
+
+### 11.9 批9（`89c6422`）：超越 71 分改造批1——答案前置 + 官方别名表 + 首轮 550s
+
+移植竞品 71 分代码的核心机制（四维拆解报告 `docs/b1-b4`，结论：与竞品同源——
+prefill/判等/洁净度/画像/知识库均同源，增量改造为下述机制）：
+
+- **答案前置**：`REASONING_PROMPT` 增加 **"## 结论速览"前置章节**（boxed 结论最前，
+  与"## 最终答案"强制一致）；解析层 `_parse_reasoning_output` 增加 **quick_conclusion
+  兜底**；压缩重试 prefill 种子升级为 `## 结论速览\n\boxed{`——42% 响应被截断的
+  常态下不丢答案
+- **官方别名表** `OFFICIAL_DOMAIN_ALIASES`（`nodes/classifier_node.py`）：数论/组合/
+  解析几何/实变函数/数理统计等官方领域名 → 知识目录**确定性映射**（防 LCS 错配，
+  竞品实测无此表 50% 分类错配）
+- **首轮 550s 单次超时** `first_attempt_timeout_s=550`：难题首轮不再吃光节点 1100s
+  掐死压缩重试，超时就地转挽救
+
+### 11.10 批10（`b11f7b7`）：超越 71 分改造批2——首轮结论线索复用
+
+`_extract_clues`（salvage_conclusion + extract_partial_findings）：压缩重试**复用首轮
+CoT 已算出的结论**——散文泄漏里往往已推导到关键结论、只是没来得及写进"## 最终答案"，
+线索注入后压缩重试**不从零重算**（竞品实测：从头重解产出错误值，复用首轮结论则正确）；
+接入 token 耗尽 / 客观题升级两处有首轮响应的压缩重试调用点。
+
+### 11.11 批11（`0b01571`）：超越 71 分改造批3——socket timeout 780→1200s
+
+`utils/client_tuning.py` `DESIRED_SOCKET_TIMEOUT_S` **780 → 1200**：官方日志 **50+
+次 "Read timed out"** 切断仍健康的调用（该模型 CoT 慢速负载下可超 780s；cap=8192
+后典型 ~546s / 慢速 ~900s）——跟到 1200s 贴单题硬上限，保证软窗口内发出的调用能在
+硬上限前收尾或超时返回。
+
+### 11.12 批12（`daa6911`）：400 Bad Request 根因修复（\boxed 转义）
+
+prompt 中 `\boxed` 单反斜杠在 Python 字符串里 **`\b` 是退格符**——渲染进请求后
+JSON 出现非法转义 → **HTTP 400**，reasoning/python 全部 1s 快速失败（模拟轮 5 题
+"未能求解"的根因）。修复：格式模板 "## 结论速览" 的 `\boxed` 源码 1 反斜杠 → **4
+反斜杠**（渲染后字面 `\boxed`，与竞品 71 分一致）。
+
+### 11.13 实验数据（当前）
 
 | 实验 | 结果 |
 |---|---|
 | 官方评测 V2.5（d396205） | **61.61%（69/112，历史最佳）**，0 invalid/skipped/error，1402 请求 / 203 截断 / 3h52m |
+| 官方评测 V2.5+7 批（cap 适配前） | **56.25%（63/112，退步 5.36pp）**——根因：官方 max_tokens cap=8192，配置 12288-32768 全被静默截断（见 11.8） |
+| 官方分布模拟轮（当前 daa6911，112 题官方分布 easy21/medium52/hard39，本地 Intern-S 判分） | **75.9%（85/112）**：easy 81.0%（17/21）/ medium 82.7%（43/52）/ hard 64.1%（25/39）；⚠️ 本地判分比官方宽松 ~20pp，官方预期 **55-65%** |
 | 本地 easy112（V2.5 + 7 批） | **82.1%（92/112）**，Intern-S 判分，官方 easy 带（1.0-3.5）；错题归因 45% 计算错 / 25% 题意错 / 15% 漏解 / 10% 判分噪声，详见 `docs/easy112_error_analysis.md` |
 | easy+medium112 | **进行中**（官方 18 科分布 easy 40% / medium 60%） |
 
-### 11.9 配置与测试要点
+### 11.14 配置与测试要点
 
 - 关键配置（`config.py`）：`model=intern-s2-preview-397b`；
   `enable_thinking_mode_off=True`（官方原生关 CoT）；`node_timeouts.cross_validator=15`；
   `paper_total_seconds=18000`（5h 目标 + 1h 缓冲）；难度软预算 easy 480 / medium 840 /
   hard 1200；`truncation_continue_tokens=4096`、`truncation_continue_max_rounds=4`；
   `enable_det_solver=True`、`det_solver_timeout_s=15`；`enable_solution_guard=True`；
-  `max_tokens.reasoning=12288`，难度分级 easy 8192 / medium 12288 / hard 16384
-- 测试：**283 passed + 30 subtests**（`pytest tests/` 全绿，零 API 调用），含
+  **cap 适配（11.8）**：`max_tokens.reasoning=8192`（compressed/reconciliation/
+  coordinator 均 8192），`reasoning_tokens_by_difficulty` 全难度 8192；
+  **71 分改造（11.9-11.11）**：`first_attempt_timeout_s=550`、
+  `DESIRED_SOCKET_TIMEOUT_S=1200`（`utils/client_tuning.py`）
+- 测试：**246 passed + 30 subtests**（`pytest tests/` 全绿，零 API 调用），含
   test_det_solver 50 项、test_sympy_18domains 37 项、test_truncation_fix 9 项、
-  test_domain_guard 17 项、test_solution_guard 8 项、test_v25_enhancements 8 项
+  test_domain_guard 17 项、test_solution_guard 8 项、test_v25_enhancements 8 项；
+  cap 适配与 71 分改造仅修改既有断言（如 test_v24_budget 分级断言），无新增测试文件
 - 合规：`.gitignore` 已排除 `local_test/` 与 `参赛资料/`；无硬编码密钥；唯一网络出口
   官方 client；沙箱为纯正则黑名单（已知风险——官方题集无恶意题面，已评估，初赛后
   加固为 AST 白名单）
