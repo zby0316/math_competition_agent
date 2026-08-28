@@ -40,6 +40,16 @@ def _parse_reasoning_output(response, question_mode="computation"):
     am = re.search(r"## 最终答案\s+(.*?)(?=##|$)", response, re.DOTALL)
     if am:
         r["answer"] = _distill_answer(am.group(1).strip())
+    # V2.5 移植竞品 71 分核心：结论速览答案前置。模型把 \boxed{结论} 写在最前
+    # 的 "## 结论速览" 章节——当 "## 最终答案" 因 max_tokens 截断还没写出来时，
+    # 开头的结论速览仍是完整可判分的答案落点。仅在最终答案缺失时兜底，并打
+    # quick_conclusion 来源标记，与正式答案区分（截断不丢答案）。
+    if not r["answer"]:
+        qc = re.search(r"## 结论速览\s+(.*?)(?=##|$)", response, re.DOTALL)
+        if qc:
+            r["answer"] = _distill_answer(qc.group(1).strip())
+            if r["answer"]:
+                r["answer_source"] = "quick_conclusion"
     vm = re.search(r"## 关键验证点\s+(.*?)(?=##|$)", response, re.DOTALL)
     if vm:
         r["validation_points"] = re.findall(r"-\s*(.+)", vm.group(1))
@@ -280,15 +290,18 @@ _COMPRESSED_RESERVE_MARGIN_S = CONFIG.get("compressed_reserve_margin_s", 150)
 
 #: 压缩重试的 assistant 种子。以内容开头接管助手轮，模型进入续写模式后不再打开
 #: reasoning_content（与分类器/仲裁器 prefill 同机制，见 utils/prefill.py 实测），
-#: 因此 8192 token 全部落在四章节上。
-# V2.6 答案先行：压缩重试是"截断挽救"通道，价值在于把答案抢救出来。种子从
-# "## 问题分析"改为"## 最终答案"，让答案永远在输出最前面——即使 12288 token
-# 仍不够写满，截断点也只会落在答案之后的验证点，答案本身不再被切掉。
-_COMPRESSED_PREFILL = "## 最终答案\n"
+#: 因此 8192 token 全部落在可见章节上。
+# V2.6 答案先行 + V2.5 移植竞品 71 分：种子从"## 最终答案"升级为
+# "## 结论速览\n\boxed{"——结论速览必须含 \boxed{}，模型从框内开始续写，
+# 答案永远在输出最前面；即使 8192 仍不够写满，截断点只会落在答案之后的
+# 推导/验证点，答案本身不被切掉（截断不丢答案）。
+_COMPRESSED_PREFILL = "## 结论速览\n\\boxed{"
 
 _COMPRESSED_INSTRUCTION = (
     "\n\n注意：上一次输出{failure}。现在禁止展开探索性思考，直接给答案："
-    "先写 '## 最终答案'（明确具体结论——数值/表达式/集合，必须具体，不得留空、不得说无法确定），"
+    "先写 '## 结论速览'（把最终结论用 \\boxed{{...}} 包起来写在第一行，如 \\boxed{{19/35}}），"
+    "再写 '## 最终答案'（明确具体结论——数值/表达式/集合，必须具体，不得留空、不得说无法确定，"
+    "且必须与结论速览一致），"
     "再写 '## 关键验证点'（1-3 条关键计算或核对，每条一行，说明该答案如何满足题面条件）。"
     "不要写 '## 问题分析' 和 '## 详细解题步骤'。{coverage}"
 )
@@ -767,18 +780,72 @@ def _reasoning_agent_impl(state, config):
             # V2.6 双保险：叠加 thinking_mode=False 官方原生关 CoT，prefill 若在
             # 官方 backend 下失效（忽略 trailing assistant turn），thinking_mode
             # 仍能确定性关 CoT，根治"CoT 吃光 max_tokens 答案没写完"的截断。
-            resp = chat_prefilled(
-                client,
-                messages=[{"role": "user", "content": prompt}],
-                prefix="## 问题分析\n",
-                temperature=state.get("sample_temperature")
-                or CONFIG["temperatures"]["reasoning"],
-                max_tokens=_mt,
-                logger=deps.logger,
-                time_budget=deps.time_budget,
-                label="reasoning",
-                thinking_mode=thinking_mode_flag(),
-            )
+            # V2.5 移植竞品 71 分（first_attempt_timeout_s=550）：首轮调用加单次
+            # 墙钟上限——难题上首轮会把整个节点 1100s 上限吃光、被 node_wrapper
+            # 掐断后压缩重试永远没机会触发。压到 550s 后，超时就地转入压缩重试
+            # （真正的挽救手段），而不是让 node_wrapper 掐死整条分支。
+            _first_timeout = float(CONFIG.get("first_attempt_timeout_s", 0) or 0)
+            if attempts == 1 and _first_timeout > 0:
+                from utils.timeout_control import run_with_timeout, NodeTimeoutError
+                try:
+                    resp = run_with_timeout(
+                        lambda: chat_prefilled(
+                            client,
+                            messages=[{"role": "user", "content": prompt}],
+                            prefix="## 问题分析\n",
+                            temperature=state.get("sample_temperature")
+                            or CONFIG["temperatures"]["reasoning"],
+                            max_tokens=_mt,
+                            logger=deps.logger,
+                            time_budget=deps.time_budget,
+                            label="reasoning",
+                            thinking_mode=thinking_mode_flag(),
+                        ),
+                        _first_timeout,
+                    )
+                except NodeTimeoutError:
+                    deps.logger.warning(
+                        "Reasoning first attempt hit %.0fs ceiling; switching to compressed retry",
+                        _first_timeout)
+                    trace.append({"attempt": attempts, "status": "failed",
+                                  "reason": "first_attempt_timeout"})
+                    attempts += 1
+                    rescued, fail_reason = _compressed_reasoning_retry(
+                        deps, hinted_base, failure="因首轮生成超出时限被切断",
+                        coverage=coverage_clause)
+                    if rescued is None:
+                        trace.append({"attempt": attempts, "status": "skipped",
+                                      "reason": fail_reason or "compressed_rescue_failed"})
+                        break
+                    resp = rescued
+                    rescued_parsed = _parse_reasoning_output(
+                        resp, question_mode=question_mode)
+                    if rescued_parsed.get("answer") or rescued_parsed.get("steps") \
+                            or rescued_parsed.get("analysis"):
+                        parsed = rescued_parsed
+                        parsed["answer_source"] = parsed.get(
+                            "answer_source") or "compressed_prefill"
+                    entry = {"attempt": attempts,
+                             "status": "success" if _is_complete(rescued_parsed) else "failed",
+                             "reason": "compressed_prefill_after_first_attempt_timeout",
+                             "response_chars": len(resp or "")}
+                    if not _is_complete(rescued_parsed):
+                        entry["raw_excerpt"] = _raw_excerpt(resp)
+                    trace.append(entry)
+                    break
+            else:
+                resp = chat_prefilled(
+                    client,
+                    messages=[{"role": "user", "content": prompt}],
+                    prefix="## 问题分析\n",
+                    temperature=state.get("sample_temperature")
+                    or CONFIG["temperatures"]["reasoning"],
+                    max_tokens=_mt,
+                    logger=deps.logger,
+                    time_budget=deps.time_budget,
+                    label="reasoning",
+                    thinking_mode=thinking_mode_flag(),
+                )
         except Exception as exc:  # noqa: BLE001 - keep whatever we already parsed.
             deps.logger.warning("Reasoning attempt %s failed: %s", attempts, exc)
             trace.append({"attempt": attempts, "status": "failed", "error": str(exc)[:200]})

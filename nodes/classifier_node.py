@@ -56,6 +56,41 @@ def _normalize_cat(s: str) -> str:
     return _PUNCT_STRIP.sub("", s or "")
 
 
+#: V2.5 移植竞品 71 分（OFFICIAL_DOMAIN_ALIASES）：官方 18 子领域 → 本项目知识
+#: 目录的别名映射。官方评测按 18 子领域组织题目（数论/组合/解析几何/实变函数/
+#: 数理统计等），而知识目录用的是另一套目录名。LLM 分类器直接吐出官方领域名时，
+#: 先经此表落到真实目录，避免 LCS/Levenshtein 把「数论」错配到「统计推断」这类
+#: 无关目录（竞品实测无此表时 50% 的题分类落错领域）。
+OFFICIAL_DOMAIN_ALIASES = {
+    "数论": "离散数学",
+    "组合数学": "离散数学",
+    "组合": "离散数学",
+    "解析几何": "非基础及进阶课程",
+    "平面几何": "非基础及进阶课程",
+    "立体几何": "非基础及进阶课程",
+    "欧氏几何": "非基础及进阶课程",
+    "实变函数": "测度积分",
+    "实分析": "测度积分",
+    "数理统计": "统计推断",
+    "统计": "统计推断",
+    "数理逻辑": "离散数学",
+    "数学建模": "运筹学",
+    "初等数论": "离散数学",
+}
+
+
+def _apply_official_alias(s: str, valid_categories: set) -> str | None:
+    """把官方领域名（或其归一化形态）映射到真实知识目录；无匹配返回 None。"""
+    if not s:
+        return None
+    target = OFFICIAL_DOMAIN_ALIASES.get(s)
+    if not target:
+        target = OFFICIAL_DOMAIN_ALIASES.get(_normalize_cat(s))
+    if target and target in valid_categories:
+        return target
+    return None
+
+
 def _lcs_length(a: str, b: str) -> int:
     """最长公共子串长度（连续字符）。对中文类别名比编辑距离更可靠。"""
     if not a or not b:
@@ -91,6 +126,11 @@ def _resolve_category(raw, valid_categories, fallback):
     # 1. 精确匹配
     if s in valid_categories:
         return s
+    # 1.5 V2.5 官方别名表：LLM 吐官方领域名（数论/实变函数/数理统计…）时
+    # 直接映射到真实知识目录（防 LCS 错配，竞品实测 50% 错配率由此修复）
+    alias_target = _apply_official_alias(s, set(valid_categories))
+    if alias_target:
+        return alias_target
     # 2. 归一化匹配（去空白/标点后比较）
     sn = _normalize_cat(s)
     for c in valid_categories:
