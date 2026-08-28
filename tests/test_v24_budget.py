@@ -12,11 +12,13 @@ class TestV24Config(unittest.TestCase):
     def test_token_by_difficulty(self):
         from config import CONFIG
         by_diff = CONFIG["reasoning_tokens_by_difficulty"]
+        # V2.5 修复（官方 max_tokens cap=8192）：全难度压到 cap 内，难题靠
+        # 截断续写 4 轮×4096 补全，不再单次给大 max_tokens。
         self.assertEqual(by_diff["easy"], 8192)
-        self.assertEqual(by_diff["medium"], 12288)
-        self.assertEqual(by_diff["hard"], 16384)
-        # 难题 token > 简单题 token（分级恢复，V2.1 一刀切 8192 的教训）
-        self.assertGreater(by_diff["hard"], by_diff["easy"])
+        self.assertEqual(by_diff["medium"], 8192)
+        self.assertEqual(by_diff["hard"], 8192)
+        # cap 合规：全部 ≤ 官方上限
+        self.assertLessEqual(by_diff["hard"], 8192)
 
 
 class TestV24DeepProcessingGate(unittest.TestCase):
@@ -43,10 +45,11 @@ class TestV24DeepProcessingGate(unittest.TestCase):
             return CONFIG.get("reasoning_tokens_by_difficulty", {}).get(
                 str(difficulty or "medium").lower(),
                 CONFIG["max_tokens"]["reasoning"])
+        # V2.5 cap 适配后全难度统一 8192
         self.assertEqual(pick("easy"), 8192)
-        self.assertEqual(pick("hard"), 16384)
-        self.assertEqual(pick("medium"), 12288)
-        self.assertEqual(pick(None), 12288)  # None → 默认 medium 档
+        self.assertEqual(pick("hard"), 8192)
+        self.assertEqual(pick("medium"), 8192)
+        self.assertEqual(pick(None), 8192)  # None → 默认 medium 档
 
 
 if __name__ == "__main__":

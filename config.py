@@ -64,13 +64,16 @@ CONFIG = {
     # 大量题无法产出有效答案。首轮降至 8192（中档题实测 5-7k token 覆盖大部分），
     # 配合 *_compressed 8192 双通道，单次推理时长显著缩短，官方环境下更可能在
     # 超时前完成。牺牲的仅是极少数"贴 24576 上限"的奥赛题成功区间。
+    # 官方评测环境 max_tokens cap = 8192（实测确认：传超 cap 会被静默截断）。
+    # 所有值压到 ≤8192：本地 API 不 cap 时同样生效（8192 对中档题足够，
+    # 难题靠截断续写 4 轮×4096 补全，不靠单次大 max_tokens）。
     "max_tokens": {"classifier": 96, "classifier_fallback": 8192,
                    "objective_reasoning": 4096,
-                   "reasoning": 12288, "python": 8192,
-                   "reasoning_compressed": 12288, "python_compressed": 8192,
-                   "reconciliation": 32768,
+                   "reasoning": 8192, "python": 8192,
+                   "reasoning_compressed": 8192, "python_compressed": 8192,
+                   "reconciliation": 8192,
                    "semantic_arbiter": 96, "semantic_arbiter_fallback": 4096,
-                   "coordinator": 16384, "emergency_answer": 1280},
+                   "coordinator": 8192, "emergency_answer": 1280},
     # finish_reason=length 截断时的续写补全 max_tokens（只续一次，prefill 抑制 CoT）。
     # V2.5 修复（官方 truncated_count=203）：2048→4096——难题截断缺口常超 2048，
     # 单轮补不完；4096 在 prefill 抑制 CoT 下耗时 ~90s，预算可承受。
@@ -93,7 +96,9 @@ CONFIG = {
     # reconciliation 重算 3 次 → 单题 7-8min → 全卷墙钟逼近 6h。回落：
     # hard 16384（单次 reasoning 实测 ~34s）、medium 12288。16384 对难题已够
     # （V1 每题均 3.8K token，峰值 24576 是极少数题）。
-    "reasoning_tokens_by_difficulty": {"easy": 8192, "medium": 12288, "hard": 16384},
+    # V2.5 修复（官方 cap=8192）：官方评测环境 max_tokens 上限 8192，传更大值
+    # 被静默截断——分级全部压到 8192，难题靠截断续写 4 轮×4096 补全。
+    "reasoning_tokens_by_difficulty": {"easy": 8192, "medium": 8192, "hard": 8192},
     "reconciliation_max_rounds": 2,
     "token_budget_max": 256000, "token_budget_warn_ratio": 0.9,
     # Wall-clock budget per problem. The platform's hard limit is 20 min; the
