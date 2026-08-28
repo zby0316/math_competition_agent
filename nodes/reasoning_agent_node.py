@@ -9,6 +9,7 @@ from utils.answer_extractor import (
     looks_like_latex_fragment,
 )
 from utils.conclusion_salvage import salvage_conclusion
+from utils.answer_cleanliness import extract_partial_findings
 from utils.cot_stripper import is_placeholder_answer, strip_cot_prefix
 from utils.skill_excerpt import select_skill_excerpt
 from utils.retry_affordability import can_afford_retry, last_attempt_cost
@@ -307,9 +308,32 @@ _COMPRESSED_INSTRUCTION = (
 )
 
 
+def _extract_clues(text, limit=2000):
+    """V2.5 移植竞品 71 分：从首轮响应提取模型已算出的有效结论，作为压缩重试的线索。
+
+    散文泄漏（模型把私有 CoT 写进 content）里往往已经一路推导到了关键结论，
+    只是没来得及写进 '## 最终答案' 章节就被截断。这些结论可信、可直接复用，
+    让压缩重试不必从头重算（竞品实测：idx 0 首轮已算出 T=29，但从头重解却
+    产出错误值）。
+    """
+    parts = []
+    salvaged = salvage_conclusion(text)
+    if salvaged:
+        parts.append(salvaged)
+    findings = extract_partial_findings(text, limit_chars=1200)
+    if findings:
+        parts.append(findings)
+    if not parts:
+        return ""
+    return (
+        "\n\n你上一次推导已经得到以下结论（可信，直接复用，不要再重新推导）：\n"
+        + "\n".join(parts)[:limit]
+    )
+
+
 def _compressed_reasoning_retry(deps, base_prompt,
                                 failure="因长度超限被截断，没有产出任何章节",
-                                coverage=""):
+                                coverage="", first_resp=None):
     """Token 耗尽/传输超时后的阶段性熔断（评委建议 4；2026-08-10 建议 1-3）。
 
     普通重试会以同样的方式再耗尽一次 ~450s；prefill 压缩重试把整份额度花在
@@ -325,10 +349,14 @@ def _compressed_reasoning_retry(deps, base_prompt,
             < _COMPRESSED_CALL_ESTIMATE_S:
         return None, "compressed_retry_unaffordable"
     instruction = _COMPRESSED_INSTRUCTION.format(failure=failure, coverage=coverage)
+    # V2.5 移植竞品 71 分：复用首轮已算出的结论——压缩重试不再从头重解，
+    # 而是把首轮 CoT 里已经推导出的关键结果作为线索注入（防"从头重解产出
+    # 错误值"事故）。仅在有首轮响应时启用。
+    clue_block = _extract_clues(first_resp) if first_resp else ""
     try:
         resp = chat_prefilled(
             deps.client,
-            messages=[{"role": "user", "content": base_prompt + instruction}],
+            messages=[{"role": "user", "content": base_prompt + clue_block + instruction}],
             prefix=_COMPRESSED_PREFILL,
             temperature=CONFIG["temperatures"]["reasoning"],
             max_tokens=CONFIG["max_tokens"]["reasoning_compressed"],
@@ -709,7 +737,8 @@ def _reasoning_agent_impl(state, config):
             # 答案行；客观题路径此时耗时尚少，压缩额度负担得起。
             attempts += 1
             esc_resp, esc_fail = _compressed_reasoning_retry(
-                deps, base_prompt, failure="过短且未能解析出答案行")
+                deps, base_prompt, failure="过短且未能解析出答案行",
+                first_resp=response if isinstance(response, str) else None)
             if esc_resp is None:
                 trace.append({"attempt": attempts, "status": "skipped",
                               "reason": esc_fail or "objective_escalation_failed"})
@@ -897,7 +926,7 @@ def _reasoning_agent_impl(state, config):
         if exhausted:
             attempts += 1
             compressed_resp, fail_reason = _compressed_reasoning_retry(
-                deps, hinted_base, coverage=coverage_clause)
+                deps, hinted_base, coverage=coverage_clause, first_resp=resp)
             if compressed_resp is None:
                 trace.append({"attempt": attempts, "status": "skipped",
                               "reason": fail_reason or "compressed_retry_failed"})
