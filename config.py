@@ -172,4 +172,13 @@ CONFIG = {
     # 软预算定价时压缩重试 30 题 0 次放行，6 题以捞回残片出厂。
     "compressed_reserve_margin_s": 150,
     "log_level": "INFO", "log_dir": "logs",
+    # ==================== V2.6 确定性求解器矩阵（移植 backup-v255） ====================
+    # utils/det_solver.py：15 条通用确定性管线（枚举/模周期/递推/特征值/插值/
+    # 求积/图优化/计数/概率/ODE/BVP/留数/级数/方程组/期望），每条强制自验 +
+    # 问目标守卫（题面顺带出现 C(n,k)/矩阵/方程组但题问别的时绝不劫持）。
+    # 命中且自验通过 → answer_source=det_solver 作为推理候选进入 V2.5 原生
+    # 交叉验证流程（不锁定、不跳过反证——easy112 实测 45% 错题为计算错，
+    # 正是该确定性管线的靶心）。
+    "enable_det_solver": True,
+    "det_solver_timeout_s": 15,
 }

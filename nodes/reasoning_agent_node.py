@@ -297,6 +297,12 @@ _COMPRESSED_RESERVE_MARGIN_S = CONFIG.get("compressed_reserve_margin_s", 150)
 # 仍不够写满，截断点也只会落在答案之后的验证点，答案本身不再被切掉。
 _COMPRESSED_PREFILL = "## 最终答案\n"
 
+#: 首轮 prefill 种子（V2.6 答案前置）：与 REASONING_PROMPT 格式模板一致，
+#: 模型从"## 结论速览"开始写——boxed 答案在最前（抗截断），随后继续
+#: 问题分析/步骤/最终答案/验证点四章节（保住判分所需关键步骤）。
+#: 源码 2 反斜杠 → 字符串单个 \boxed{（\b 转义陷阱，同 prompt_templates）。
+_FIRST_TURN_PREFILL = "## 结论速览\n\\boxed{"
+
 _COMPRESSED_INSTRUCTION = (
     "\n\n注意：上一次输出{failure}。现在禁止展开探索性思考，直接给答案："
     "先写 '## 最终答案'（明确具体结论——数值/表达式/集合，必须具体，不得留空、不得说无法确定），"
@@ -357,6 +363,77 @@ def _raw_excerpt(text, head=600, tail=1400):
 #: sympy 预解器的惰性单例（进程内复用，避免每题重新 import sympy）。
 _SYMPY_SOLVER = None
 
+#: det_solver 确定性求解器矩阵的惰性引用（V2.6 移植 backup-v255，15 管线
+#: 强制自验 + 问目标守卫）。easy112 实测 45% 错题为"模型心算错"——
+#: 该确定性管线正是此类题的靶心。
+_DET_SOLVER = None
+
+
+def _det_solve(state, deps):
+    """确定性求解器矩阵（utils/det_solver.py，15 条管线强制自验 + 问目标守卫）。
+
+    sympy 精确解析未命中时尝试；与 sympy 路径不同，**hard 也触发**（硬题恰是
+    "该确定性计算处 LLM 手算"的重灾区）。客观题/多问项不短路。任何失败/
+    超时（det_solver_timeout_s 软超时，守护线程实现）返回 None 交回 LLM。
+    """
+    if not CONFIG.get("enable_det_solver", True):
+        return None
+    if is_objective_mode(state.get("question_mode", "computation")):
+        return None
+    if is_multi_ask(str(state.get("problem") or "")):
+        return None
+    global _DET_SOLVER
+    if _DET_SOLVER is None:
+        try:
+            from utils.det_solver import det_solve
+            _DET_SOLVER = det_solve
+        except Exception:  # noqa: BLE001 - 模块缺失/依赖不可用 → 静默关闭
+            _DET_SOLVER = False
+    if not _DET_SOLVER:
+        return None
+    try:
+        # 守护线程 + join(timeout) 软超时：个别管线异常慢时不阻塞关键路径
+        # （超时后线程残留为 daemon，不再拖慢解题）。
+        import threading
+        result_box: dict = {}
+
+        def _run_det():
+            try:
+                result_box["value"] = _DET_SOLVER(str(state.get("problem") or ""))
+            except Exception:  # noqa: BLE001
+                result_box["value"] = {}
+
+        worker = threading.Thread(target=_run_det, daemon=True)
+        worker.start()
+        worker.join(float(CONFIG.get("det_solver_timeout_s", 15)))
+        if worker.is_alive():
+            return None
+        result = result_box.get("value") or {}
+    except Exception:  # noqa: BLE001 - 确定性工具失败交回 LLM
+        return None
+    answer = str((result or {}).get("answer") or "").strip()
+    if not answer:
+        return None
+    if _reject_bad_answer(answer) == "" or looks_incomplete_answer(answer):
+        return None
+    kind = str((result or {}).get("kind") or "det_solver")
+    evidence = str((result or {}).get("evidence") or f"{kind} 自验通过")
+    parsed = {
+        "analysis": f"由确定性求解管线 {kind} 直接计算得出。",
+        "steps": [{"step_num": 1,
+                   "description": f"{kind} 确定性计算：{answer}（{evidence}）"}],
+        "answer": answer,
+        "validation_points": [evidence],
+        "answer_source": "det_solver",
+    }
+    return {
+        "reasoning_result": parsed,
+        "reasoning_trace": [{"attempt": 0, "status": "det_solver_direct",
+                             "reason": f"{kind}_verified"}],
+        "reasoning_attempts": 0,
+        "reasoning_raw_response": answer,
+    }
+
 
 def _sympy_pre_solve(state, deps):
     """V2.5a 主线 1：sympy 事前直接解，解出完整目标且非 hard → 跳过 LLM。
@@ -411,6 +488,12 @@ def _reasoning_agent_impl(state, config):
     pre = _sympy_pre_solve(state, deps)
     if pre is not None:
         return pre
+    # V2.6 确定性求解器矩阵：sympy 未命中时用通用管线（含 hard）再试一次，
+    # 命中且自验通过（含问目标守卫）则同样跳过 LLM 求解。easy112 错题归因
+    # 显示 45% 错题为"模型心算错"——正是该管线的靶心。
+    det = _det_solve(state, deps)
+    if det is not None:
+        return det
     sl = deps.skills_loader
     client = deps.client
     budget = deps.token_budget
@@ -671,15 +754,17 @@ def _reasoning_agent_impl(state, config):
                 _diff, CONFIG["max_tokens"]["reasoning"])
             # V2.4 prefill 抑制 CoT：intern-s2 的私有思维链（reasoning_content）
             # 计入 max_tokens 且慢 API 下生成极慢（16384 token ≈ 811s，真机实测）。
-            # 用 prefill 让模型从"## 问题分析"直接作答、跳过 CoT——思考引导已由
-            # 提示词内化七点承担（结构/覆盖/逻辑/自洽验证），不再依赖 CoT 空想。
-            # V2.6 双保险：叠加 thinking_mode=False 官方原生关 CoT，prefill 若在
-            # 官方 backend 下失效（忽略 trailing assistant turn），thinking_mode
-            # 仍能确定性关 CoT，根治"CoT 吃光 max_tokens 答案没写完"的截断。
+            # 用 prefill 让模型跳过 CoT——思考引导已由提示词内化承担。
+            # V2.6 种子分级（与 REASONING_PROMPT 格式模板对齐）：
+            #   easy/medium → "## 结论速览" 种子，boxed 答案最前（抗截断，
+            #   官方 61.61% 轮 truncated 203 的靶心；随后仍写全四章节保住步骤）
+            #   hard → "## 问题分析" 种子（难题先分析再给结论，防锚定错答案）
+            _prefix = (_FIRST_TURN_PREFILL
+                       if _diff in ("easy", "medium") else "## 问题分析\n")
             resp = chat_prefilled(
                 client,
                 messages=[{"role": "user", "content": prompt}],
-                prefix="## 问题分析\n",
+                prefix=_prefix,
                 temperature=state.get("sample_temperature")
                 or CONFIG["temperatures"]["reasoning"],
                 max_tokens=_mt,
