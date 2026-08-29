@@ -34,6 +34,8 @@ except ImportError:  # pragma: no cover - 官方 Docker 必装 sympy
 #: 管线顺序：计算量小、命中率高、答案确定性强的在前（与设计文档一致）。
 _PIPELINES = [
     "modular_period",
+    "number_theory",
+    "finite_field",
     "linear_recurrence",
     "partitions_hook",
     "count_combinatorics",
@@ -1677,3 +1679,298 @@ def _bracket_solve(f, lo=-20.0, hi=20.0, step=1.0, max_iters=200) -> Optional[fl
 def _fmt_poly(expr) -> str:
     text = str(expr).replace("**", "^").replace("*", "·")
     return text
+
+
+# ----------------------------------------------------------------------
+# V2.6 数论增强（因数个数/因数分解/欧拉函数/CRT/gcd/二次剩余）
+# ----------------------------------------------------------------------
+def _tail_clean(problem: str, end: int) -> bool:
+    """问目标守卫：命中表达式之后（end 起）的尾部不得含后续运算词。
+    尾部出现"差/和/积/与/一半"等后续运算 → False（不劫持）；
+    其余问句收尾（的值/的解/求…个数 等）一律允许。"""
+    tail = problem[end:]
+    if not tail.strip():
+        return True
+    if re.search(r"的(?:差|和|积|商|一半|倍)|之差|之和|之积|减去|加上|乘以|除以|与\s*\d|再|求和|之和为", tail):
+        return False
+    return True
+
+
+def _number_theory(problem: str) -> Optional[dict]:
+    """数论增强：因数个数/因数和/质数判定/分解/欧拉函数/CRT/gcd/lcm/二次剩余。
+
+    只接"目标是该整数本身"的题（问目标守卫：命中后检查表达式尾部，
+    尾部含"差/和/积/与"等后续运算词一律拒绝）。全部自验。
+    """
+    # ── 因数个数 / 因数和 ──
+    m = re.search(r"([0-9]{1,12})\s*的(?:正)?(?:因|约)数(?:的)?(?:个数|数量|总数)", problem)
+    if m:
+        n = int(m.group(1))
+        if 1 < n <= 10 ** 12 and _tail_clean(problem, m.end()):
+            try:
+                fac = sympy.factorint(n)
+                cnt = 1
+                for e in fac.values():
+                    cnt *= e + 1
+                # 自验：divisors 长度一致（小 n），或分解乘积回代
+                if n <= 10 ** 6:
+                    if len(sympy.divisors(n)) != cnt:
+                        return None
+                check = 1
+                for p, e in fac.items():
+                    check *= p ** e
+                if check != n:
+                    return None
+                return {"answer": str(cnt),
+                        "kind": "number_theory",
+                        "evidence": f"{n} 的质因数分解为 {_fmt_factorint(fac)}，因数个数 = ∏(e_i+1) = {cnt}"}
+            except Exception:  # noqa: BLE001
+                return None
+    m = re.search(r"([0-9]{1,10})\s*的(?:正)?(?:因|约)数之和", problem)
+    if m:
+        n = int(m.group(1))
+        if 1 < n <= 10 ** 10 and _tail_clean(problem, m.end()):
+            try:
+                s = int(sympy.divisor_sigma(n, 1))
+                # 自验：枚举小 n 的因数和
+                if n <= 5000 and sum(d for d in sympy.divisors(n)) != s:
+                    return None
+                return {"answer": str(s),
+                        "kind": "number_theory",
+                        "evidence": f"σ({n}) = {s}（sympy divisor_sigma 直接计算）"}
+            except Exception:  # noqa: BLE001
+                return None
+    # ── 质数判定 ──
+    m = re.search(r"([0-9]{1,15})\s*(?:是|为)?\s*(?:质数|素数)(?:吗|\?|？)?", problem)
+    if m:
+        n = int(m.group(1))
+        if 1 < n <= 10 ** 18 and _tail_clean(problem, m.end()):
+            try:
+                isp = bool(sympy.isprime(n))
+                # 自验：小 n 试除
+                if n <= 10 ** 6 and isp:
+                    for d in range(2, int(n ** 0.5) + 1):
+                        if n % d == 0:
+                            return None
+                return {"answer": "是" if isp else "否",
+                        "kind": "number_theory",
+                        "evidence": f"isprime({n}) = {isp}（sympy 确定性判定）"}
+            except Exception:  # noqa: BLE001
+                return None
+    # ── 质因数分解 ──
+    m = re.search(r"([0-9]{1,12})\s*的(?:质|素)因数分解|分解([0-9]{1,12})\s*为(?:质|素)因数", problem)
+    if m:
+        n = int(m.group(1) or m.group(2))
+        if 1 < n <= 10 ** 12 and _tail_clean(problem, m.end()):
+            try:
+                fac = sympy.factorint(n)
+                check = 1
+                for p, e in fac.items():
+                    check *= p ** e
+                if check != n:
+                    return None
+                return {"answer": _fmt_factorint(fac),
+                        "kind": "number_theory",
+                        "evidence": f"{n} = {_fmt_factorint(fac)}（乘积回代自验）"}
+            except Exception:  # noqa: BLE001
+                return None
+    # ── 欧拉函数 φ(n) ──
+    m = (re.search(r"(?:欧拉函数\s*)?φ\s*[（(]\s*(\d{1,12})\s*[）)]", problem)
+         or re.search(r"与\s*(\d{1,12})\s*互素的(?:正整数|整数|数)\s*(?:的)?(?:个数|数量)", problem)
+         or re.search(r"(\d{1,12})\s*的欧拉函数", problem))
+    if m:
+        n = int(m.group(1))
+        if 1 < n <= 10 ** 12 and _tail_clean(problem, m.end()):
+            try:
+                phi = int(sympy.totient(n))
+                # 自验：小 n 枚举
+                if n <= 2000 and sum(1 for k in range(1, n + 1) if math.gcd(k, n) == 1) != phi:
+                    return None
+                return {"answer": str(phi),
+                        "kind": "number_theory",
+                        "evidence": f"φ({n}) = {phi}（sympy totient，小例枚举自验）"}
+            except Exception:  # noqa: BLE001
+                return None
+    # ── Z_n 单位群阶（= φ(n)，有限环语境） ──
+    m = re.search(r"Z\s*_?\{?\s*(\d{1,12})\s*\}?\s*(?:的)?(?:单位群|可逆元|乘法群)(?:的)?(?:阶|元素个数|个数)", problem)
+    if m:
+        n = int(m.group(1))
+        if 1 < n <= 10 ** 12 and _tail_clean(problem, m.end()):
+            try:
+                phi = int(sympy.totient(n))
+                if n <= 2000 and sum(1 for k in range(1, n + 1) if math.gcd(k, n) == 1) != phi:
+                    return None
+                return {"answer": str(phi),
+                        "kind": "number_theory",
+                        "evidence": f"|U(Z_{n})| = φ({n}) = {phi}（小例枚举自验）"}
+            except Exception:  # noqa: BLE001
+                return None
+    # ── 中国剩余定理（2~3 个同余组，模两两互素） ──
+    m = re.search(r"x\s*≡\s*(-?\d+)\s*[（(]?\s*(?:mod|模)\s*(\d+)\s*[）)]?\s*[,，;；]?\s*x\s*≡\s*(-?\d+)\s*[（(]?\s*(?:mod|模)\s*(\d+)\s*[）)]?"
+                  r"(?:\s*[,，;；]?\s*x\s*≡\s*(-?\d+)\s*[（(]?\s*(?:mod|模)\s*(\d+)\s*[）)]?)?", problem)
+    if m and _tail_clean(problem, m.end()):
+        mods = [int(m.group(2)), int(m.group(4))]
+        rems = [int(m.group(1)), int(m.group(3))]
+        if m.group(5):
+            mods.append(int(m.group(6)))
+            rems.append(int(m.group(5)))
+        if all(mm > 1 for mm in mods) and all(
+                math.gcd(a, b) == 1 for i, a in enumerate(mods) for b in mods[i + 1:]):
+            try:
+                from sympy.ntheory.modular import crt as _sympy_crt
+                sol, mod = _sympy_crt(mods, rems)
+                sol %= mod
+                # 自验：逐式代回
+                if any(sol % mm != r % mm for mm, r in zip(mods, rems)):
+                    return None
+                return {"answer": f"x = {sol} (mod {mod})",
+                        "kind": "number_theory",
+                        "evidence": "CRT 解逐式代回全部同余成立"}
+            except Exception:  # noqa: BLE001
+                return None
+    # ── gcd / lcm ──
+    m = re.search(r"(?:gcd|最大公约数)\s*[（(]?\s*(\d{1,12})\s*[,，]\s*(\d{1,12})", problem, re.IGNORECASE)
+    if m and _tail_clean(problem, m.end()):
+        a, b = int(m.group(1)), int(m.group(2))
+        if a > 0 and b > 0:
+            g = math.gcd(a, b)
+            if a % g or b % g:  # 自验：整除性
+                return None
+            return {"answer": str(g),
+                    "kind": "number_theory",
+                    "evidence": f"gcd({a}, {b}) = {g}（整除性自验）"}
+    m = re.search(r"(?:lcm|最小公倍数)\s*[（(]?\s*(\d{1,12})\s*[,，]\s*(\d{1,12})", problem, re.IGNORECASE)
+    if m and _tail_clean(problem, m.end()):
+        a, b = int(m.group(1)), int(m.group(2))
+        if a > 0 and b > 0:
+            g = math.gcd(a, b)
+            l = a // g * b
+            if l % a or l % b:  # 自验：整除性
+                return None
+            return {"answer": str(l),
+                    "kind": "number_theory",
+                    "evidence": f"lcm({a}, {b}) = {l}（整除性自验）"}
+    # ── 二次剩余（x² ≡ a (mod p) 是否有解，p 为奇素数） ──
+    m = re.search(r"(\d+)\s*(?:是否)?(?:为|是)\s*(\d+)\s*的二次剩余|判断\s*(\d+)\s*(?:mod|模)\s*(\d+)\s*的二次剩余", problem)
+    if m and _tail_clean(problem, m.end()):
+        a = int(m.group(1) or m.group(3))
+        p = int(m.group(2) or m.group(4))
+        if p > 2 and 1 < p <= 10 ** 9 and sympy.isprime(p):
+            try:
+                leg = int(sympy.legendre_symbol(a % p, p))
+                # 自验：小 p 枚举平方
+                if p <= 5000:
+                    sq = {k * k % p for k in range(p)}
+                    if (a % p in sq) != (leg >= 0):
+                        return None
+                verdict = "是" if leg == 1 else ("否" if leg == -1 else "是（a≡0）")
+                return {"answer": verdict,
+                        "kind": "number_theory",
+                        "evidence": f"Legendre({a}, {p}) = {leg}（小例平方枚举自验）"}
+            except Exception:  # noqa: BLE001
+                return None
+    return None
+
+
+def _fmt_factorint(fac) -> str:
+    """质因数分解 dict → '2^3 · 5' 形式。"""
+    return " · ".join(f"{p}^{e}" if e > 1 else str(p) for p, e in sorted(fac.items()))
+
+
+# ----------------------------------------------------------------------
+# V2.6 有限域计算（生成元计数/子域个数/单位群阶/F_2 子空间计数）
+# ----------------------------------------------------------------------
+def _finite_field(problem: str) -> Optional[dict]:
+    """有限域确定性计算。保守句式：题面明确出现有限域记号且目标是计数。"""
+    if not re.search(r"有限域|\\mathbb\{F\}|\\mathbb F|F_\{?\d|GF\s*[（(]\s*\d", problem, re.IGNORECASE):
+        return None
+    # 归一化 LaTeX：\mathbb{F} → F、\alpha → α（正则按归一化文本匹配）
+    text = (problem.replace(r"\mathbb{F}", "F").replace(r"\mathbb", "")
+            .replace(r"\alpha", "α").replace(r"\in", "∈"))
+    # ── a) F_{p^n} 中生成整个域的 α 个数（官方样例题型） ──
+    m = re.search(r"F\s*_?\{?\s*(\d{1,4})\s*\}?\s*=\s*F\s*_?\{?\s*(\d{1,3})\s*\}?\s*[（(]?\s*α", text)
+    if m:
+        q = int(m.group(1))
+        p = int(m.group(2))
+        if sympy.isprime(p) and q == p ** round(math.log(q, p)):
+            n = round(math.log(q, p))
+            if 2 <= n <= 60 and _tail_clean(text, m.end()):
+                ans = _field_generator_count(p, n)
+                if ans is None:
+                    return None
+                return {"answer": str(ans),
+                        "kind": "finite_field",
+                        "evidence": f"F_{p}^{n} 中生成域的元素数 = q − |∪真子域| = {ans}"}
+    # ── b) F_{p^n} 的子域个数 ──
+    m = re.search(r"F\s*_?\{?\s*(\d{1,4})\s*\}?\s*的(?:子域|中间域)(?:的)?(?:个数|数量)", text)
+    if m:
+        q = int(m.group(1))
+        if q >= 2 and _tail_clean(text, m.end()):
+            p = _q_to_prime_power(q)
+            if p is not None:
+                n = round(math.log(q, p))
+                cnt = len(sympy.divisors(n))
+                return {"answer": str(cnt),
+                        "kind": "finite_field",
+                        "evidence": f"F_{q} ≅ F_{p}^{n}，子域个数 = d({n}) = {cnt}"}
+    # ── c) F_2 上 n 维向量空间的 k 维子空间个数（Gaussian binomial） ──
+    m = re.search(r"F\s*_?\{?2\}?\s*(?:上|中)?\s*(\d{1,2})\s*维(?:向量)?空间(?:中|里)?(?:的)?\s*(\d{1,2})\s*维子空间(?:的)?(?:个数|数量)", text)
+    if m:
+        n, k = int(m.group(1)), int(m.group(2))
+        if 0 <= k <= n <= 20 and _tail_clean(text, m.end()):
+            ans = 1
+            for i in range(k):
+                num = (2 ** n - 2 ** i)
+                den = (2 ** k - 2 ** i)
+                if den == 0:
+                    return None
+                ans = ans * num // den
+            return {"answer": str(ans),
+                    "kind": "finite_field",
+                    "evidence": f"[{n} choose {k}]_2 = {ans}（Gaussian binomial 公式计算）"}
+    return None
+
+
+def _field_generator_count(p: int, n: int) -> Optional[int]:
+    """F_{p^n} 中生成整个域的元素个数 = p^n − |∪_{d|n, d<n} F_{p^d}|。
+
+    α 生成域 ⟺ α 不属于任何真子域。真子域链 F_{p^a} ⊆ F_{p^b} ⟺ a|b，
+    并集大小用容斥：交集 F_{p^{gcd(d_i)}}。
+    """
+    if p ** n > 10 ** 18:  # 容斥数值上限保护
+        return None
+    sub = [d for d in sympy.divisors(n) if d < n]
+    if not sub:
+        return None  # n=1 无真子域，非本题模式
+    # 容斥：|∪ F_{p^d}| = Σ_{∅≠S⊆sub} (−1)^{|S|+1} p^{gcd(S)}
+    union = 0
+    m = len(sub)
+    for mask in range(1, 1 << m):
+        g = 0
+        bits = 0
+        for i in range(m):
+            if mask & (1 << i):
+                g = sub[i] if g == 0 else math.gcd(g, sub[i])
+                bits += 1
+        union += (-1 if bits % 2 == 0 else 1) * (p ** g)
+    ans = p ** n - union
+    if ans <= 0:
+        return None
+    # 自验：n 为素数幂时与闭式 p^n − p^{n/q} 一致（q 为最小素因子）
+    q = min(sympy.primefactors(n))
+    if n % q == 0:
+        if ans != p ** n - p ** (n // q):
+            return None
+    return ans
+
+
+def _q_to_prime_power(q: int) -> Optional[int]:
+    """q 是否素数的幂 → 底素数；否则 None。"""
+    if q < 2:
+        return None
+    if sympy.isprime(q):
+        return q
+    fac = sympy.factorint(q)
+    if len(fac) != 1:
+        return None
+    return next(iter(fac))

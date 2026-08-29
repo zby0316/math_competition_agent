@@ -29,12 +29,98 @@ def _assert_solved(testcase, problem, kind=None):
 class TestKinds(unittest.TestCase):
     def test_all_kinds_listed(self):
         kinds = det_solve_kinds()
-        self.assertEqual(len(kinds), 15)
+        # V2.6 新增 number_theory / finite_field 两条管线
+        self.assertEqual(len(kinds), 17)
         self.assertIn("modular_period", kinds)
+        self.assertIn("number_theory", kinds)
+        self.assertIn("finite_field", kinds)
         self.assertIn("bvp_shoot", kinds)
         # 顺序：modular_period 在前，bvp_shoot 在最后
         self.assertEqual(kinds[0], "modular_period")
         self.assertEqual(kinds[-1], "bvp_shoot")
+
+
+class TestNumberTheoryV26(unittest.TestCase):
+    """V2.6 数论增强管线（factorint/φ/CRT/gcd/lcm/二次剩余/因数个数）。"""
+
+    def _solved(self, problem, answer, kind="number_theory"):
+        r = det_solve(problem)
+        self.assertTrue(r, "expected solved, got None for: %s" % problem)
+        self.assertEqual(r["kind"], kind)
+        self.assertEqual(r["answer"], answer)
+
+    def test_divisor_count(self):
+        self._solved("360 的正因数个数", "24")
+        self._solved("求 360 的因数个数", "24")
+
+    def test_divisor_sum(self):
+        self._solved("2024 的正因数之和", "4320")
+
+    def test_totient(self):
+        self._solved("φ(100) 的值", "40")
+        self._solved("与 36 互素的正整数个数", "12")
+
+    def test_isprime(self):
+        self._solved("1000003 是质数吗", "是")
+        self._solved("1000005 是质数吗", "否")
+
+    def test_factorint(self):
+        self._solved("360 的质因数分解", "2^3 · 3^2 · 5")
+
+    def test_gcd_lcm(self):
+        self._solved("gcd(84, 126)", "42")
+        self._solved("lcm(12, 18)", "36")
+
+    def test_crt(self):
+        self._solved("x ≡ 2 (mod 3), x ≡ 3 (mod 5) 的解", "x = 8 (mod 15)")
+
+    def test_legendre(self):
+        self._solved("5 是否为 23 的二次剩余", "否")
+        self._solved("2 是否为 23 的二次剩余", "是")
+
+    def test_unit_group(self):
+        self._solved("Z_20 的单位群元素个数", "8")
+
+    def test_guard_no_hijack(self):
+        # 问目标守卫负例：题面出现数论记号但问别的 / 证明题 / 后续运算
+        self.assertFalse(det_solve("证明 360 的因数个数是 24"))
+        self.assertFalse(det_solve("求 gcd(84,126) 与 360 的差"))
+        self.assertFalse(det_solve("求 360 的因数个数的一半"))
+        self.assertFalse(det_solve("求 x ≡ 2 (mod 3), x ≡ 3 (mod 5) 的解与 100 的差"))
+
+
+class TestFiniteFieldV26(unittest.TestCase):
+    """V2.6 有限域管线（生成元计数/子域个数/F_2 子空间计数）。"""
+
+    def test_field_generator_count_official_sample(self):
+        # 官方本地样例题：F_81 = F_3(α) 的 α 个数 = 81 − 9 = 72
+        prob_zh = ("设 $\\mathbb{F}_{81}$ 为 81 元的有限域。$T=\\{\\alpha\\in\\mathbb{F}_{81}"
+                   "|\\mathbb{F}_{81}=\\mathbb{F}_3(\\alpha)\\}$。求 $T$ 中元素的个数")
+        r = det_solve(prob_zh)
+        self.assertTrue(r, "expected solved")
+        self.assertEqual(r["kind"], "finite_field")
+        self.assertEqual(r["answer"], "72")
+        prob_en = ("Let $\\mathbb{F}_{81}$ be the finite field with 81 elements. Let T be "
+                   "the set of $\\alpha$ in $\\mathbb{F}_{81}$ such that "
+                   "$\\mathbb{F}_{81}=\\mathbb{F}_3(\\alpha)$. Find the number of elements of T.")
+        r = det_solve(prob_en)
+        self.assertTrue(r, "expected solved (en)")
+        self.assertEqual(r["answer"], "72")
+
+    def test_subfield_count(self):
+        r = det_solve("F_16 的子域个数")
+        self.assertTrue(r)
+        self.assertEqual(r["kind"], "finite_field")
+        self.assertEqual(r["answer"], "3")
+
+    def test_gaussian_binomial(self):
+        r = det_solve("F_2 上 4 维向量空间的 2 维子空间个数")
+        self.assertTrue(r)
+        self.assertEqual(r["kind"], "finite_field")
+        self.assertEqual(r["answer"], "35")
+
+    def test_guard_proof_no_hijack(self):
+        self.assertFalse(det_solve("设 F_81 为 81 元有限域，证明其乘法群是循环群"))
 
 
 class TestModularPeriod(unittest.TestCase):
