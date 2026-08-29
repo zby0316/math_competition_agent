@@ -88,6 +88,9 @@ def _partial_response(state: dict) -> tuple[str, str]:
     python_answer = str(python_output.get("answer") or "").strip()
     stdout = str(python_output.get("stdout") or "")
     for source, candidate in (
+        # V2.6 优化：结构化解出的最终答案（含结论速览 quick_conclusion 来源）
+        # 优先级最高——这是解析器明确解出的答案，不是 salvage 的猜测。
+        ("reasoning_answer", rr.get("answer")),
         ("reasoning_conclusion", salvage_conclusion(analysis)),
         ("reasoning_conclusion", salvage_conclusion(raw_resp)),
         # Python 侧答案（含 stdout 二次抽取的 answer_source=stdout_mined）：

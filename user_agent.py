@@ -112,10 +112,7 @@ if _BACKEND == "graph":
                         ReasoningAgent._contract_probe_cache)
                 self.client_probe["contract"] = ReasoningAgent._contract_probe_cache
                 initial = create_initial_state(str(problem or ""), meta)
-                # V2.6：顶层硬截止——平台 1200s 硬限绝不越过，超时强制出厂
-                # （V2.5 官方轮 8 题 invalid = 图内 socket 780s×重试吃满预算后
-                #  被平台杀进程、无输出。子线程跑图 + 主线程 deadline 兜底）。
-                final_state = self._run_with_deadline(initial)
+                final_state = self.graph.run(initial, token_budget=TokenBudget())
                 result = {
                     "final_response": final_state.get("final_response", "最终答案：未能求解"),
                     "trace": self._build_trace(final_state),
@@ -131,62 +128,6 @@ if _BACKEND == "graph":
 
         def __call__(self, problem, *args, **kwargs):  # 调用方式防御
             return self.solve(problem, *args, **kwargs)
-
-        def _run_with_deadline(self, initial: dict, deadline_s: float | None = None) -> dict:
-            """V2.6 超时零容忍：图在 daemon 子线程运行，主线程等到 deadline
-            即强制出厂（sympy 快解兜底），绝不越过平台 1200s 硬限被杀死。
-
-            平台硬限 = CONFIG problem_time_budget_s（1200s）；预留 30s 出厂余量。
-            超时后子线程继续跑完无害（其产出不再被采用，进程随平台回收）。
-            """
-            import queue
-            import threading
-            from config import CONFIG
-            deadline = float(deadline_s or (CONFIG.get("problem_time_budget_s", 1200) - 30))
-            q: "queue.Queue" = queue.Queue(maxsize=1)
-
-            def _worker():
-                try:
-                    q.put(("ok", self.graph.run(
-                        initial, token_budget=TokenBudget())))
-                except BaseException as exc:  # noqa: BLE001 - 兜底路径不逃逸
-                    q.put(("err", exc))
-
-            t = threading.Thread(target=_worker, daemon=True, name="v26-deadline")
-            t.start()
-            try:
-                status, payload = q.get(timeout=deadline)
-            except queue.Empty:
-                self.logger.warning(
-                    "V2.6 hard deadline exceeded (%ss); forced exit with fallback", deadline)
-                return self._deadline_fallback(initial)
-            if status == "err":
-                raise payload  # solve 的 except 兜底接手
-            return payload
-
-        def _deadline_fallback(self, initial: dict) -> dict:
-            """超时出厂答案：sympy 事前快解（≤3s），命中即出；否则明示未能求解。
-            至少保证平台拿到合法 final_response（success），不再 invalid 白丢分。
-            """
-            problem = str(initial.get("problem") or "")
-            try:
-                from utils.sympy_pre_solver import SympyPreSolver
-                result = SympyPreSolver().pre_solve(problem)
-                whole = str((result or {}).get("whole_answer") or "").strip()
-                if whole:
-                    return {
-                        "final_response": f"最终答案：{whole}（sympy 超时兜底）",
-                        "trace": [{"step": "deadline_fallback",
-                                   "content": "V2.6 顶层硬截止兜底：sympy 快解",
-                                   "answer": whole}],
-                    }
-            except Exception:  # noqa: BLE001 - 兜底自身失败就交白卷兜底
-                pass
-            return {
-                "final_response": "最终答案：未能求解",
-                "trace": [{"step": "deadline_fallback",
-                           "content": "V2.6 顶层硬截止兜底：无可用候选"}],
-            }
 
         def run(self, problem, *args, **kwargs):  # 调用方式防御
             return self.solve(problem, *args, **kwargs)

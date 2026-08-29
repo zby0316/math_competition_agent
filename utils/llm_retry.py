@@ -128,8 +128,12 @@ class LLMRetryWrapper:
                 if result and result.strip() and (
                         detect_truncation(raw)
                         or _looks_truncated(result, max_tokens)):
-                    result = self._continue_truncated(
-                        messages, result, temperature, label, thinking_mode)
+                    # V2.6 优化：答案章节已完整写出（其后还出现别的章节）时，
+                    # 截断只切到验证点/尾部——跳过续写，省 ~45-90s/次（官方
+                    # V2.5 轮 203 次截断中相当比例属于此类）。答案未完整才续写。
+                    if not _answer_section_complete(result):
+                        result = self._continue_truncated(
+                            messages, result, temperature, label, thinking_mode)
                 return result
             except Exception as exc:  # noqa: BLE001 - retry transient transport failures.
                 last_error = exc
@@ -213,6 +217,19 @@ class LLMRetryWrapper:
             if self.logger:
                 self.logger.warning("%s: truncation continue failed: %s", label, exc)
             return current
+
+
+def _answer_section_complete(text: str) -> bool:
+    """答案章节是否已完整写出（V2.6 截断续写决策用）。
+
+    判据："## 最终答案" 之后还出现了别的 "## " 章节——说明答案章节已闭合，
+    截断只发生在答案之后的验证点/尾部，续写收益≈0（省 45-90s/次）。
+    答案章节缺失、或它是最后一个章节（可能被切在答案内部）→ False，照常续写。
+    """
+    m = re.search(r"## 最终答案\s+(.+?)(?=##|$)", text or "", re.DOTALL)
+    if not m or not m.group(1).strip():
+        return False
+    return bool(re.search(r"## ", text[m.end():]))
 
 
 def _looks_truncated(text: str, max_tokens: int) -> bool:
