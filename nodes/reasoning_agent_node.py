@@ -40,6 +40,17 @@ def _parse_reasoning_output(response, question_mode="computation"):
     am = re.search(r"## 最终答案\s+(.*?)(?=##|$)", response, re.DOTALL)
     if am:
         r["answer"] = _distill_answer(am.group(1).strip())
+    # V2.6 结论速览兜底：模型截断/漏写 "## 最终答案" 章节时，用开头的
+    # "## 结论速览" boxed 结论兜底（答案前置，与 71 分代码同思路）。
+    if not r["answer"]:
+        qc = re.search(r"## 结论速览\s*(.*?)(?=##|$)", response, re.DOTALL)
+        if qc:
+            boxed = re.search(r"\\boxed\{((?:[^{}]|\{[^{}]*\})*)\}", qc.group(1))
+            cand = boxed.group(1).strip() if boxed else qc.group(1).strip()
+            cleaned = _reject_bad_answer(_distill_answer(cand))
+            if cleaned:
+                r["answer"] = cleaned
+                r["answer_source"] = "quick_conclusion"
     vm = re.search(r"## 关键验证点\s+(.*?)(?=##|$)", response, re.DOTALL)
     if vm:
         r["validation_points"] = re.findall(r"-\s*(.+)", vm.group(1))
