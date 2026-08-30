@@ -154,6 +154,11 @@ def judge_step(state, config):
         next_node = "arbiter"
 
     history_entry["status"] = status
+    # V2.5 合并：确定性求解器兜底——双路都未产出可用答案时，det 命中即用
+    # （确定性符号计算 > LLM 散文，且零额外调用成本）。
+    if not validated_answer and state.get("det_answer"):
+        validated_answer = str(state.get("det_answer")).strip()
+        match_result["routing_reason"] = "det_solver_fallback"
     return {
         "validation_status": status,
         "validation_details": match_result,

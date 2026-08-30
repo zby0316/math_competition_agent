@@ -48,6 +48,10 @@ class AgentState(TypedDict):
     arbiter_trace: NotRequired[List[Dict]]
     arbiter_attempts: NotRequired[int]
     answer_locked: NotRequired[bool]
+    # V2.5 合并：确定性求解器结果（det_solver 命中时）
+    det_answer: NotRequired[str]
+    det_kind: NotRequired[str]
+    det_pipeline: NotRequired[str]
     # 输出阶段
     final_response: NotRequired[str]
     coordination_detail: NotRequired[Optional[str]]  # coordinator 原始解题说明，记入 trace（计算题 final_response 已收敛为简洁答案）

@@ -393,6 +393,75 @@ def _raw_excerpt(text, head=600, tail=1400):
     return f"{s[:head]}\n……[中略 {omitted} 字符]……\n{s[-tail:]}"
 
 
+def _should_sample_vote(state):
+    """V2.5 合并：小 N 投票触发——分类低置信（<0.85）的非客观题首轮。
+
+    3 次多温度采样 + 多数票能捕获"单次采样碰巧错"的情况；对账轮、客观题
+    （已有两段式复核）不触发；时间护栏由 _sample_vote_reasoning 内部把关。
+    """
+    if state.get("reconciliation_round", 0) > 0:
+        return False
+    if is_objective_mode(state.get("question_mode", "computation")):
+        return False
+    conf = state.get("category_confidence", 1.0)
+    try:
+        return float(conf) < float(CONFIG.get("sample_vote_min_confidence", 0.85))
+    except (TypeError, ValueError):
+        return False
+
+
+def _sample_vote_reasoning(deps, base_prompt, question_mode, state, config):
+    """V2.5 合并：N=3 多温度 prefill 采样 + 多数票（≥2/3 一致才采用）。
+
+    克制设计：N=3（非 6~8）、prefill 抑制 CoT、token 用小上限（~150s/次）；
+    预算护栏：remaining_hard < 60s 停止采样；不自洽回退主路径（返回 None）。
+    """
+    clock = deps.time_budget
+    samples = []  # (temperature, answer, raw_response, parsed)
+    for t in CONFIG.get("sample_temperatures", [0.4, 0.8, 1.0]):
+        if clock and clock.remaining_hard() < 60:
+            break
+        try:
+            resp = chat_prefilled(
+                deps.client,
+                messages=[{"role": "user", "content": base_prompt}],
+                prefix="## 结论速览\n\\boxed{",
+                temperature=t,
+                max_tokens=CONFIG.get("vote_sample_max_tokens", 4096),
+                logger=deps.logger,
+                time_budget=clock,
+                expected_call_seconds=120,
+                label="vote_sample_t%s" % t,
+            )
+        except Exception as exc:  # noqa: BLE001 - 单次采样失败不中断投票
+            deps.logger.warning("Vote sample t=%s failed: %s", t, exc)
+            continue
+        parsed = _parse_reasoning_output(resp, question_mode=question_mode)
+        ans = str(parsed.get("answer") or "").strip()
+        if ans and not _reject_bad_answer(ans):
+            samples.append((t, ans, resp, parsed))
+    if len(samples) < 2:
+        return None
+    # 归一化后取众数（去空白/标点）
+    normed = {}
+    for t, ans, resp, parsed in samples:
+        key = re.sub(r"[\s。．.,，;；]+", "", ans)
+        normed.setdefault(key, []).append((t, ans, resp, parsed))
+    top_key, group = max(normed.items(), key=lambda kv: len(kv[1]))
+    if len(group) >= CONFIG.get("sample_vote_consensus", 2):
+        t, ans, resp, parsed = group[0]
+        parsed = dict(parsed)
+        parsed["answer_source"] = "sample_vote"
+        parsed["sample_vote"] = {k: len(v) for k, v in normed.items()}
+        trace = [{"attempt": i + 1, "status": "sample_vote",
+                  "temperature": s[0], "answer": str(s[1])[:60],
+                  "response_chars": len(s[2] or "")}
+                 for i, s in enumerate(samples)]
+        return {"reasoning_result": parsed, "reasoning_trace": trace,
+                "reasoning_attempts": len(samples), "reasoning_raw_response": resp}
+    return None
+
+
 def reason_step(state, config):
     deps = get_deps(config)
     sl = deps.skills_loader
@@ -595,6 +664,11 @@ def reason_step(state, config):
     # 复核重试也保留 skill 文档与字段契约（旧实现只发 hint+题面，丢失了学科口径）
     prompt = f"{base_prompt}\n\n[复核提示] {hint}" if hint else base_prompt
     hinted_base = prompt
+    # V2.5 合并：小 N 自洽投票（分类低置信计算题，N=3 多温度 prefill 采样 + 多数票）
+    if _should_sample_vote(state):
+        voted = _sample_vote_reasoning(deps, hinted_base, question_mode, state, config)
+        if voted is not None:
+            return voted
     trace = []
     attempts = 0
     resp = ""

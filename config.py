@@ -78,5 +78,18 @@ CONFIG = {
     # 压到 550s，保证首轮 + 压缩重试(350s 估时) + 余量(250s) 仍能放进 1200s
     # 硬时限（1200-550=650 ≥ 350+250=600），让压缩重试真正可达。
     "first_attempt_timeout_s": 550,
+    # ===== V2.5 合并机制（90 分路线）=====
+    # 小 N 自洽投票：分类低置信（<0.85）计算题，N=3 多温度 prefill 采样 + 多数票。
+    "sample_vote_min_confidence": 0.85,
+    "sample_temperatures": [0.4, 0.8, 1.0],
+    "sample_vote_consensus": 2,
+    "vote_sample_max_tokens": 4096,
+    # det_solver 确定性矩阵（V2.5 移植）：规则识别→符号计算直接算，结果进仲裁候选池。
+    "enable_det_solver": True,
+    # 异构方法第二独立解法（V2.5 移植）：双路候选不足时，用不同方法论重推一次。
+    "enable_alt_path": True,
+    "alt_path_max_tokens": 8192,
+    "alt_path_budget_s": 210,
+
     "log_level": "INFO", "log_dir": "logs",
 }

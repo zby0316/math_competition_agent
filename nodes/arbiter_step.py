@@ -123,6 +123,14 @@ def _candidate_pool(state: dict) -> list[_Candidate]:
         candidates.append(_Candidate("reasoning", reasoning_answer, reasoning_evidence))
     if python_answer:
         candidates.append(_Candidate("python", python_answer, python_evidence))
+    # V2.5 合并：确定性求解器命中时作为第三候选（符号计算 > LLM 散文）。
+    det_answer = state.get("det_answer") or ""
+    if det_answer and _usable_answer(det_answer):
+        candidates.append(_Candidate(
+            "det", det_answer,
+            "确定性符号计算管线（%s）独立求解结果，计算可复现、无模型幻觉。"
+            % state.get("det_kind", "?")
+        ))
 
     unique = []
     seen = set()
@@ -246,6 +254,49 @@ def _fallback_result(state: dict, config: dict, status: str, trace: list[dict]) 
     }
 
 
+def _alt_path_reasoning(state, config, deps):
+    """V2.5 合并：异构方法第二独立解法（构造/枚举/不变量/反向/生成函数）。
+
+    双路候选不足时用不同方法论重新独立求解一次，结果作为第三候选参与仲裁。
+    预算护栏：剩余硬时限不足直接放弃，失败不影响原流程。
+    """
+    try:
+        from utils.prompt_bank import REASONING_PROMPT, DIVERSE_METHOD_HINT
+        from utils.domain_excerpt import select_skill_excerpt
+        from utils.llm_retry_guard import chat_with_retry
+        from nodes.reason_step import _parse_reasoning_output
+        sl = deps.skills_loader
+        category = state.get("category", "") or ""
+        skill_doc = sl.get_skill_document(category) if sl else ""
+        problem = state.get("problem", "") or ""
+        prompt = REASONING_PROMPT.format(
+            category=category,
+            skill_document=select_skill_excerpt(skill_doc, problem, 2000) if skill_doc else "",
+            problem=problem)
+        prompt = DIVERSE_METHOD_HINT + "\n\n" + prompt
+        resp = chat_with_retry(
+            deps.client,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.8,
+            max_tokens=CONFIG.get("alt_path_max_tokens", 8192),
+            logger=deps.logger,
+            time_budget=deps.time_budget,
+            expected_call_seconds=120,
+            label="alt_path_reasoning",
+        )
+        rr = _parse_reasoning_output(resp, question_mode=state.get("question_mode", "computation"))
+        ans = str(rr.get("answer") or "").strip()
+        if ans and _usable_answer(ans):
+            evidence = ("异构方法（构造/枚举/不变量/反向/生成函数）独立求解：\n"
+                        + _bounded(rr.get("analysis", "") or "", 4000))
+            return _Candidate("alt", ans, evidence)
+    except Exception as exc:  # noqa: BLE001 - 失败不影响原流程
+        logger = getattr(deps, "logger", None)
+        if logger:
+            logger.warning("Alt path reasoning failed: %s", exc)
+    return None
+
+
 def arbiter_step(state, config):
     """Select one complete candidate verbatim, or abstain without damaging state."""
     trace = list(state.get("arbiter_trace") or [])
@@ -255,6 +306,17 @@ def arbiter_step(state, config):
         return _fallback_result(state, config, "skipped", trace)
 
     candidates = _candidate_pool(state)
+    # V2.5 合并：候选不足时用异构方法补一次独立推理，让仲裁有机会选而非直接跳过。
+    if CONFIG.get("enable_alt_path", True) and len(candidates) < 2:
+        _deps = get_deps(config)
+        _tb = _deps.time_budget
+        if (_tb is None
+                or (_tb.remaining_hard() >= CONFIG.get("alt_path_budget_s", 210)
+                    and not _tb.fast_path())):
+            _alt = _alt_path_reasoning(state, config, _deps)
+            if _alt is not None:
+                candidates.append(_alt)
+                trace.append({"status": "alt_path_added", "candidate_count": len(candidates)})
     if len(candidates) < 2:
         trace.append({"status": "skipped", "reason": "fewer_than_two_usable_candidates"})
         return _fallback_result(state, config, "skipped", trace)
