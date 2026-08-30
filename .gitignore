@@ -45,6 +45,7 @@ _smoke.py
 
 # 本地评测结果
 eval_results.json
+omni_112_results.json
 
 # 原作者文档/交接材料（不随本仓库提交）
 ATOMGIT_SUBMIT.md
