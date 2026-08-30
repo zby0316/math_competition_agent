@@ -438,7 +438,7 @@ def _sample_vote_reasoning(deps, base_prompt, question_mode, state, config):
             continue
         parsed = _parse_reasoning_output(resp, question_mode=question_mode)
         ans = str(parsed.get("answer") or "").strip()
-        if ans and not _reject_bad_answer(ans):
+        if ans and _reject_bad_answer(ans):
             samples.append((t, ans, resp, parsed))
     if len(samples) < 2:
         return None
