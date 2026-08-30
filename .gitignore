@@ -10,6 +10,7 @@ sample_outputs/
 *.log
 
 # 本地调试/评测工件，不随系统仓库发布
+local_test/
 test/
 competition/
 .codegraph/
