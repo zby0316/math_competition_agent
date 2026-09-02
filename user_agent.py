@@ -1,6 +1,7 @@
 from typing import Any, Dict
 
 from agent_pipeline import AgentPipeline
+from config import AGENT_VERSION as CONFIG_AGENT_VERSION
 from utils.client_fixups import cap_internal_retries, raise_socket_timeout
 from utils.domain_loader import DomainLoader
 from utils.exec_client import ExecClient
@@ -29,6 +30,7 @@ class ReasoningAgent:
         self.graph = AgentPipeline(
             client=client, skills_loader=self.skills_loader, mcp_client=self.mcp_client)
         self.logger.info("ReasoningAgent initialized")
+        self.logger.info("Agent version: %s", CONFIG_AGENT_VERSION)
 
     def solve(self, problem: str, metadata: dict) -> dict:
         # 在边界处归一化，且不放进任何可能抛错的地方。这是平台唯一入口，异常
@@ -44,6 +46,12 @@ class ReasoningAgent:
                 "final_response": final_state.get("final_response", "无法生成答案"),
                 "trace": self._build_trace(final_state),
             }
+            # 版本溯源：trace 头部固定携带 AGENT_VERSION，评测日志的 Commit ID
+            # + 该标记双保险，任何一次出分都能对到具体代码改动。
+            result["trace"].insert(0, {
+                "step": "agent_version",
+                "version": CONFIG_AGENT_VERSION,
+            })
             self._validate_output(result)
             return result
         except Exception as e:
