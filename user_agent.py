@@ -1,3 +1,4 @@
+import time
 from typing import Any, Dict
 
 from agent_pipeline import AgentPipeline
@@ -38,10 +39,16 @@ class ReasoningAgent:
         # 可能是任意对象，先归一成 dict 再做 .get，防止非 dict 直接抛错。
         meta = metadata if isinstance(metadata, dict) else {}
         idx = meta.get("idx", -1)
+        t0 = time.monotonic()
         try:
             self.logger.info(f"Solving problem {idx}")
             initial = create_initial_state(str(problem or ""), meta)
             final_state = self.graph.run(initial, token_budget=ScoreBudget())
+            # 诊断探针：每题一行紧凑诊断打向 stdout。平台若在评测日志/结果
+            # 文件中收集选手输出，112 行诊断即可离线聚类失败模式（解析丢分/
+            # 超时/异常/来源分布）指导下一轮迭代；不收集时零影响（不改变
+            # solve 返回值与判分）。
+            self._emit_diag(idx, time.monotonic() - t0, final_state)
             result = {
                 "final_response": final_state.get("final_response", "无法生成答案"),
                 "trace": self._build_trace(final_state),
@@ -60,6 +67,27 @@ class ReasoningAgent:
                 "final_response": "解题过程中出现错误，无法给出完整答案。",
                 "trace": [{"step": "error", "content": str(e), "idx": idx}],
             }
+
+    @staticmethod
+    def _emit_diag(idx, elapsed_s: float, state: dict) -> None:
+        """向 stdout 输出一行紧凑诊断（评测日志溯源用；异常静默）。"""
+        try:
+            rr = state.get("reasoning_result") or {}
+            po = state.get("python_output") or {}
+            print(
+                f"[AGENT-DIAG] idx={idx} t={elapsed_s:.0f}s "
+                f"mode={state.get('question_mode', '?')} "
+                f"cat={state.get('category', '?')} "
+                f"src={rr.get('answer_source', '?')} "
+                f"fb={state.get('fallback_source', '?')} "
+                f"valid={state.get('validation_status', '?')} "
+                f"att={state.get('reasoning_attempts', '?')} "
+                f"py={po.get('success', '?')} "
+                f"final_len={len(str(state.get('final_response', '') or ''))}",
+                flush=True,
+            )
+        except Exception:  # noqa: BLE001 - 探针永不干扰主流程
+            pass
 
     def _build_trace(self, state: dict) -> list:
         trace = []
