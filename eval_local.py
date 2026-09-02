@@ -149,7 +149,8 @@ def run_one(idx: int, problem: str, expected: str, agent) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dataset", default=r"E:/math/测试/测试集08_模拟50.jsonl")
+    parser.add_argument("--dataset", default="local_test/data/regression_medium.jsonl",
+                        help="输入题集（默认相对路径；不存在时须显式 --dataset 指定）")
     parser.add_argument("--limit", type=int, default=0, help="只跑前 N 题")
     parser.add_argument("--idx", default="", help="逗号分隔的题号，覆盖 --limit")
     parser.add_argument("--concurrency", type=int, default=1)
