@@ -643,12 +643,10 @@ def post_process_final_response(raw: str, validated_answer: str, problem_type: s
             candidate = _extract_fallback_answer(cleaned, problem_type)
             if candidate and not looks_incomplete_answer(candidate):
                 fa = candidate
-    elif problem and is_multi_part_problem(problem):
-        # 多问项题（曾出现：漏答密度函数、漏覆盖空间）：
-        # 单一 validated 答案覆盖不了所有问项，coordinator 章节逐项列出 → 更完整时优先采用
-        if section_ok and len(section) > len(fa):
-            fa = section
     else:
+        # 多问项替换分支已下线：中文"求A并讨论B"类表述广泛误触发
+        # is_multi_part_problem，用更长的 coordinator 章节顶替已验证的
+        # 正确简答（官方每题单问，无此场景）；统一走结构化优先。
         fa = _prefer_structured_final_section(problem, section, fa)
     # 洁净度修复（曾出现：coordinator 自产答案行 "3/4. Do we have 5/6 or 3/4?
     # Not yet" 出厂）：噪声答案行先截取句首的干净结论头，无头可用时

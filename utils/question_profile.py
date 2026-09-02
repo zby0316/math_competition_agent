@@ -25,6 +25,38 @@ _TYPE_TO_MODE = {
 # 选项标记既出现在行首，也可能内嵌在题干中间（官方题集原文即如此）。
 _OPTION_RE = re.compile(r"(?<![A-Za-z0-9])[A-EＡ-Ｅ]\s*[.．、:：)）]")
 _OPTION_PAREN_RE = re.compile(r"(?<![A-Za-z0-9])[（(]\s*[A-EＡ-Ｅ]\s*[）)]")
+
+# ---- 选择题二次裁决（防误判）----
+# 曾出现："设 (A)(B) 是两矩阵求 det(AB) 最大值" 因 (A)(B) 标签命中选项判据被
+# 判成选择题，模型只答一个选项字母、整题丢分——(A)(B) 是矩阵名不是选项。
+_CHOICE_STEM_RE = re.compile(r"下列|正确的是|错误的是|不正确|选项|选出|符合题意|单选|多选")
+_DOT_LABEL_RE = re.compile(r"(?<![A-Za-z0-9])[A-EＡ-Ｅ]\s*[.．、]")
+_PAREN_LABEL_RE = re.compile(r"[（(]\s*[A-EＡ-Ｅ]\s*[）)]")
+_RIGHTPAREN_LABEL_RE = re.compile(r"(?<![A-Za-z0-9（(])[A-EＡ-Ｅ]\s*[)）]")
+_SOLVING_VERB_RE = re.compile(r"求|计算|证明|化简|求解|判断|最大值|最小值|最大|最小")
+
+
+def _looks_like_real_choice(text: str) -> bool:
+    """对已命中选项判据的题面做二次裁决：是否真的构成选择题。
+
+    三类强信号直接判选择题：
+      1. 选择题主干标记（下列/正确的是/选项/单选…）；
+      2. 点号族选项（``A.`` ``A、``）≥ 2 个——官方题面内嵌选项的标准形态；
+      3. 括号族选项 ≥ 3 个——选项列表通常至少三项。
+    仅 2 个括号族标签且含求解动词、无主干标记时判不是选择题（假设条件贴
+    标签的典型形态）。
+    """
+    if _CHOICE_STEM_RE.search(text):
+        return True
+    if len(_DOT_LABEL_RE.findall(text)) >= 2:
+        return True
+    paren_hits = (len(_PAREN_LABEL_RE.findall(text))
+                  + len(_RIGHTPAREN_LABEL_RE.findall(text)))
+    if paren_hits >= 3:
+        return True
+    if _SOLVING_VERB_RE.search(text):
+        return False
+    return True
 _TRUE_FALSE_RE = re.compile(
     r"(?:^|[\n。；;])\s*(?:判断|正误|对错)\s*(?:题)?\s*[:：]?|"
     r"(?:判断题|正误题|对错题|正确与否|命题是否正确|说法是否正确|"
@@ -91,7 +123,9 @@ def classify_question_mode(problem: str) -> str:
     # 选项检测必须先于通用空位标记，否则几乎每道客观题都会被判成填空。
     option_count = len(_OPTION_RE.findall(text)) + len(_OPTION_PAREN_RE.findall(text))
     if option_count >= 2 or re.search(r"(?:选择题|单选|多选|下列.*(?:正确|错误|是|为).*选)", text, re.I):
-        return "choice"
+        if _looks_like_real_choice(text):
+            return "choice"
+        # 二次裁决否决（(A)(B) 是矩阵/对象名而非选项）：继续走常规判型。
     if _FILL_RE.search(text) or re.search(
         r"(?:填空题|fill\s*in|blank|指标是|分别为\s*$)", text, re.I
     ):
