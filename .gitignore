@@ -1,0 +1,73 @@
+__pycache__/
+*.py[cod]
+*.tmp
+.DS_Store
+.env
+.env.*
+logs/
+outputs/
+sample_outputs/
+*.log
+
+# 本地调试/评测工件，不随系统仓库发布
+test/
+competition/
+.codegraph/
+.worktrees/
+sample_data/
+*_output*/
+*_outputs*/
+outputs_*/
+llm_grade_cache.json
+regression.pid
+startup.bat
+sim_platform/
+venv_check/
+
+# 本地调试脚本与临时文件（不入库）
+# 注意：不能用 _*.py，否则会误伤 __init__.py（以 __ 开头，匹配 _*.py）
+# 改用更精确的临时文件名模式
+_tmp_*.py
+_test_*.py
+_diag*.py
+_check_*.py
+_recheck_*.py
+*.tmp
+_*.txt
+_*.sh
+
+# 旧项目备份目录（仅本地留存，不提交）
+dyf/
+
+# 本地冒烟测试脚本（FakeClient，不入库）
+_smoke.py
+
+# 本地评测结果
+eval_results.json
+
+# 原作者文档/交接材料（不随本仓库提交）
+ATOMGIT_SUBMIT.md
+WORKFLOW.md
+8.22改进说明.md
+classifier分析.md
+classifier分析.docx
+竞赛评测FAQ-要点速览(1).docx
+docs/
+交接文档/
+
+# 本地评测集与评分脚本
+mydata/
+quiz_outputs/
+smoke_outputs/
+grade_quiz.py
+scripts_grade_quiz.py
+overview.md
+
+# 本地工作区数据/归档/参考资料（不入库）
+_archive/
+.workbuddy/
+.playwright-mcp/
+参赛资料/
+overview.md
+bench_hard12_results.json
+smoke_2.json
