@@ -1,3 +1,4 @@
+import atexit
 import time
 from typing import Any, Dict
 
@@ -74,20 +75,32 @@ class ReasoningAgent:
         try:
             rr = state.get("reasoning_result") or {}
             po = state.get("python_output") or {}
-            print(
+            details = state.get("validation_details") or {}
+            finish = ""
+            raw_resp = state.get("reasoning_raw_response") or ""
+            finish = getattr(raw_resp, "finish_reason", None) or ""
+            row = (
                 f"[AGENT-DIAG] idx={idx} t={elapsed_s:.0f}s "
                 f"mode={state.get('question_mode', '?')} "
                 f"cat={state.get('category', '?')} "
+                f"conf={state.get('category_confidence', 0.0):.2f} "
                 f"src={rr.get('answer_source', '?')} "
                 f"fb={state.get('fallback_source', '?')} "
                 f"valid={state.get('validation_status', '?')} "
+                f"arb={state.get('arbiter_decision', '-')} "
+                f"round={state.get('reconciliation_round', 0)} "
                 f"att={state.get('reasoning_attempts', '?')} "
-                f"py={po.get('success', '?')} "
-                f"final_len={len(str(state.get('final_response', '') or ''))}",
-                flush=True,
+                f"py={po.get('success', '?')}/{po.get('evidence_status', '-')} "
+                f"fin={finish} "
+                f"len={len(str(state.get('final_response', '') or ''))}"
             )
+            print(row, flush=True)
+            # 进程级汇总：评测进程结束时打印分布统计，便于直接读日志尾部分析
+            _DIAG_ROWS.append((idx, elapsed_s, state))
         except Exception:  # noqa: BLE001 - 探针永不干扰主流程
             pass
+
+
 
     def _build_trace(self, state: dict) -> list:
         trace = []
@@ -317,3 +330,47 @@ class ReasoningAgent:
 
 
 # ===================== 平台入口：solve 契约 结束 =====================
+
+# ---- 诊断探针汇总（评测进程退出时打印，需 stdout 被平台收集才可见） ----
+_DIAG_ROWS: list = []
+
+
+def _dump_diag_summary() -> None:
+    try:
+        if not _DIAG_ROWS:
+            return
+        n = len(_DIAG_ROWS)
+        from collections import Counter
+        src_c = Counter()
+        fb_c = Counter()
+        valid_c = Counter()
+        time_buckets = Counter()
+        py_fail = 0
+        for _idx, elapsed, st in _DIAG_ROWS:
+            rr = st.get("reasoning_result") or {}
+            po = st.get("python_output") or {}
+            src_c[rr.get("answer_source", "?")] += 1
+            fb_c[st.get("fallback_source", "?")] += 1
+            valid_c[st.get("validation_status", "?")] += 1
+            if elapsed < 100:
+                time_buckets["<100s"] += 1
+            elif elapsed < 300:
+                time_buckets["100-300s"] += 1
+            elif elapsed < 600:
+                time_buckets["300-600s"] += 1
+            elif elapsed < 900:
+                time_buckets["600-900s"] += 1
+            else:
+                time_buckets[">900s"] += 1
+            if not po.get("success"):
+                py_fail += 1
+        print(f"[AGENT-DIAG-SUM] total={n} py_fail={py_fail}", flush=True)
+        print(f"[AGENT-DIAG-SUM] src={dict(src_c)}", flush=True)
+        print(f"[AGENT-DIAG-SUM] fb={dict(fb_c)}", flush=True)
+        print(f"[AGENT-DIAG-SUM] valid={dict(valid_c)}", flush=True)
+        print(f"[AGENT-DIAG-SUM] time={dict(time_buckets)}", flush=True)
+    except Exception:  # noqa: BLE001 - 汇总失败不影响评测
+        pass
+
+
+atexit.register(_dump_diag_summary)
