@@ -101,3 +101,19 @@ def is_placeholder_answer(text: str) -> bool:
         if not re.search(r"[0-9=]|\\[a-zA-Z]{2,}|[一-鿿]{2,}", residue):
             return True
     return False
+
+
+#: sympify/parse_expr 会对字符串做隐式 eval（实测 `sympify("open('/etc/hosts')")`
+#: 会真实打开文件）。进入这两者的答案文本必须不含：字符串字面量（引号/反引号）、
+#: 双下划线（dunder 访问）、可触达内建/文件/调试器的函数名。数学答案不需要其中
+#: 任何一样，误拒只会退化为字符串相似度比较。
+_EXPR_EVAL_DANGER_RE = re.compile(
+    r"['\"`]|__|"
+    r"(?<![A-Za-z0-9_])(?:import|eval|exec|compile|getattr|setattr|vars|"
+    r"globals|locals|open|input|breakpoint|chr|ord|lambda)(?![A-Za-z0-9_])"
+)
+
+
+def contains_unsafe_expr_text(text) -> bool:
+    """答案文本能否安全交给 sympify/parse_expr（False=可安全解析）。"""
+    return bool(_EXPR_EVAL_DANGER_RE.search(text or ""))

@@ -13,7 +13,7 @@ from utils.answer_pull import (
     looks_like_latex_fragment,
 )
 from utils.answer_sanitize import is_junk
-from utils.cot_trim import is_placeholder_answer, strip_cot_prefix
+from utils.cot_trim import contains_unsafe_expr_text, is_placeholder_answer, strip_cot_prefix
 
 _SENSITIVE = ["推理Agent", "Python Agent", "验证节点", "LangGraph", "重试", "MCP", "子图", "solving"]
 _KEY_LABELS = {
@@ -139,6 +139,10 @@ def format_answer_for_output(validated_answer: str, problem_type: str) -> str:
     if _is_numeric(normalized):
         return normalized
     if _looks_like_human_text(normalized):
+        return normalized
+    if contains_unsafe_expr_text(normalized):
+        # 隐式 eval 守卫（与 answer_compare._try_parse_expr 同一规则）：
+        # 含引号/dunder/危险内建名的文本不交给 sympify，原样返回。
         return normalized
     try:
         import sympy as sp
@@ -460,7 +464,9 @@ def _condense_step(step: dict) -> str:
     theorem = ""
     match = _THEOREM_MARKER_RE.search(description)
     if match:
-        candidate = match.group(1).strip().rstrip("。;；ary ")
+        # rstrip 的参数字符集合会把结尾的 a/r/y 字母也剥掉（"Minkowski
+        # inequality"→"...inequalit"）；只剥中文句号/分号与空白。
+        candidate = re.sub(r"[。;；\s]+$", "", match.group(1).strip())
         # 截断的 LaTeX 残片渲染出来是坏标记——宁可只保留标题，也不输出畸形内容。
         if candidate and len(candidate) <= 220 and not looks_like_latex_fragment(candidate):
             theorem = candidate

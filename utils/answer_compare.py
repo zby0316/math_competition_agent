@@ -6,7 +6,7 @@ unicode 常量归一化（π√×÷²）→ LaTeX 转 sympy 文本（\\frac \\sq
 """
 import re
 
-from utils.cot_trim import is_placeholder_answer
+from utils.cot_trim import contains_unsafe_expr_text, is_placeholder_answer
 from utils.structured_reply import (
     LABEL_ASSIGNMENT_PREFIX_RE, compare_structured_answers, is_self_conflicting,
 )
@@ -178,6 +178,11 @@ def _try_parse_expr(text: str):
         convert_xor)
     raw = (text or "").strip()
     if not raw or len(raw) > 400:
+        return None
+    # 隐式 eval 守卫：sympify/parse_expr 会执行字符串里的内建调用（曾复现
+    # `open('/etc/hosts')` 被真实执行）。含引号/dunder/危险内建名的文本
+    # 一律退回字符串相似度比较，不做符号解析。
+    if contains_unsafe_expr_text(raw):
         return None
     # 剥离"J = "、"K = "这类命名标签，比较值本身（曾出现：标签后接矩阵）。
     # 复用 structured_answer 的标签定义，使 `\bar y = …`、`\lambda = …` 与纯 ASCII

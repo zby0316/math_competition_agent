@@ -22,9 +22,11 @@ from utils.answer_sanitize import is_committed_result
 _MAX_ANSWER_CHARS = 240
 
 #: "match/符合 <公式>" 型断言：程序把枚举结果与某公式对上了。
+#: 值字符类必须含 '.'：小数公式（"both match 0.7071"）没有 '.' 会在首位截断
+#: 成整数（实测挖出 "0" 而非 "0.7071"，正确答案被丢弃）。
 _MATCH_FORMULA_RE = re.compile(
     r"(?i)(?:both\s+match|matches?|符合|吻合|等于公式|match(?:ed)?\s+formula)\s*[:：]?\s*"
-    r"([A-Za-z0-9_^*/+\-(),{}\\ ]{2,120}?)(?:\s*(?:formula|公式)|[;；.。]|$)"
+    r"([A-Za-z0-9_.^*/+\-(),{}\\ ]{2,120}?)(?:\s*(?:formula|公式)|[;；.。]|$)"
 )
 
 #: 命名结果行："f(2015) = 3024"、"answer = 506"、"最小值: 2600"、"阈值 = 0.7071"。
