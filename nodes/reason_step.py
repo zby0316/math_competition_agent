@@ -311,6 +311,17 @@ _FIRST_ATTEMPT_TIMEOUT_S = CONFIG.get("first_attempt_timeout_s", 550)
 #: 把结论写出来（答案前置），再展开后续章节，截断也不丢答案（gbq 提分核心）。
 _COMPRESSED_PREFILL = "## 结论速览\n\\boxed{"
 
+#: 模型未真正解题、以"题面不完整"类语言敷衍的跑偏信号（对齐 awa 同类防护：
+#: 修正轮输出"假设题目/缺少具体题目"→ 丢弃该轮保留原解）。这类响应再做格式
+#: 重试只会再烧一次同等耗时且同样跑偏；prefill 压缩重试的强约束（种子 +
+#: "必须给出最可信具体结论"指令）才能把它拉回。
+_DRIFT_KEYWORDS = ("假设题目", "缺少具体的", "没有提供", "如果您有具体",
+                   "题目不完整", "请提供", "缺少条件", "题面缺失")
+
+
+def _looks_drifted(text) -> bool:
+    return any(kw in str(text or "")[:2000] for kw in _DRIFT_KEYWORDS)
+
 _COMPRESSED_INSTRUCTION = (
     "\n\n注意：上一次输出{failure}。现在禁止展开探索性思考："
     "沿最可行的一条路线直接写出四个章节，每章从简（'## 详细解题步骤' 最多 4 步、每步 3 行以内）。"
@@ -698,7 +709,14 @@ def reason_step(state, config):
         # 同样方式截断——普通重试只是再烧 550s 而一无所获。这类"耗尽后普通重试"
         # 还常因预算不足被跳过，大量题四章节全空。现改为 prefill 压缩重试：助手
         # 种子抑制私有推理，~150s 即产出可解析章节（阶段性熔断）。
-        if exhausted:
+        # [防跑偏] 模型以"题面不完整"敷衍（未解题）同样不做格式重试：跑偏与耗尽
+        # 一样会以同样方式复发，压缩重试的强约束才能把它拉回。
+        drifted = not parsed.get("answer") and _looks_drifted(resp)
+        if drifted:
+            trace.append({"attempt": attempts, "status": "drifted",
+                          "response_chars": len(resp or ""),
+                          "raw_excerpt": _raw_excerpt(resp)})
+        if exhausted or drifted:
             attempts += 1
             compressed_resp, fail_reason = _compressed_reasoning_retry(
                 deps, hinted_base, coverage=coverage_clause, first_resp=resp)
@@ -721,7 +739,8 @@ def reason_step(state, config):
                 parsed["answer_source"] = parsed.get("answer_source") or "compressed_prefill"
             trace.append({"attempt": attempts,
                           "status": "success" if _is_complete(compressed_parsed) else "failed",
-                          "reason": "compressed_prefill_after_exhaustion",
+                          "reason": ("compressed_prefill_after_exhaustion" if exhausted
+                                     else "compressed_prefill_after_drift"),
                           "response_chars": len(resp or "")})
             if _is_complete(compressed_parsed):
                 return {"reasoning_result": parsed, "reasoning_trace": trace,
