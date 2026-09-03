@@ -5,6 +5,12 @@ from nodes import reason_step, verify_step, judge_step
 from utils.node_guard import node_wrapper
 from utils.question_profile import is_objective_mode
 
+#: 证明题跳过 Python 分支（False = 回退 71 分原版行为）。
+#: match_proof_answer 在 Python 失败时置信 0.70 < 门槛 0.8 → 必为 uncertain →
+#: python_answer 不进候选 → 证明题无论 Python 成败对最终答案几乎无影响，却消耗
+#: 16384 token + 550s。省下的时间回流推理续写与仲裁。
+PROOF_SKIP_PYTHON = True
+
 def build_solve_branch():
     sub = StateGraph(AgentState)
     sub.add_node("reasoning_agent", node_wrapper(reason_step, "reasoning_agent"))
@@ -18,6 +24,8 @@ def build_solve_branch():
         if is_objective_mode(state.get("question_mode", "computation")):
             # 客观题由推理节点自行完成简洁校验，不再扇出第二条昂贵的
             # LLM/代码分支做交叉验证。
+            return [reasoning_send]
+        if (state.get("question_mode") == "proof" and PROOF_SKIP_PYTHON):
             return [reasoning_send]
         return [
             reasoning_send,
