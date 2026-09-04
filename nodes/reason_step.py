@@ -395,21 +395,27 @@ def _compressed_reasoning_retry(deps, base_prompt,
     return resp, ""
 
 
-# ============ 双路独立推理（第二路一致性；env 开关默认关） ============
+# ============ 双路独立推理（第二路一致性；默认开，SECOND_ROUTE=0 可关） ============
 #
 # 机制来源：高分仓共同工程特征（qian-fu 复杂题两路并行一致才发 / awa 多候选
 # 投票验证 / MathPilot 聚类共识投票）——单路推理想错一次没有任何机制能发现。
 # 本实现的安全边界：
 #   * 只在**首轮完整产出之后**追加第二路；重试/压缩路径不触发；
-#   * 两路结论等价 → 原样保留首轮，输出与单路完全一致（零行为变化）；
-#   * 分歧 → 一次 prefill 仲裁在两条完整推导之间选择；弃权/失败 → 保持首轮；
-#   * 触发面=非客观题（计算/证明——Python 兜底最弱的两类）；时间不足自动跳过。
-# 探针/批次对比用环境变量 SECOND_ROUTE=1 开启，默认关闭保证零回归风险。
+#   * 一致性判定保守：verdict=None 的不可解析长答案按一致处理 → 原样保留首轮，
+#     输出与单路完全一致（探针实测 4/4 假分歧后收敛的设计）；只有两侧都机械
+#     解析出**确定不同**的具体值才触发仲裁；
+#   * 分歧 → 一次 prefill 仲裁在两条推导之间选择；弃权/失败/超时 → 保持首轮；
+#   * 触发面=非客观题（计算/证明——Python 兜底最弱的两类）；
+#   * 第二路自带 420s 单次墙钟上限：首轮 ≤550s + 第二路 ≤420s = 970s < 节点
+#     1100s 上限，reason_step 节点永远不会因第二路被 node_wrapper 掐断而丢掉
+#     首轮好结果（这是开启前补的最后一道防回退闸）。
+# 2026-09-04 用户拍板开启（受控实验：一批次验证，回退即设默认关）。
 
 
 def _second_route_enabled() -> bool:
+    """默认开启；SECOND_ROUTE=0 显式关闭（本地 A/B 探针基线用）。"""
     import os
-    return os.environ.get("SECOND_ROUTE", "") == "1"
+    return os.environ.get("SECOND_ROUTE", "") != "0"
 
 
 #: 第二路的差异角度指令：同题不同切入点，制造真实独立性（同提示同温度的两份
@@ -429,11 +435,17 @@ _SECOND_ROUTE_ANGLE = (
 #: 追加第二路后 ~840s，仍在单题 1200s 预算内，总墙钟增幅约 1h，可承受。
 _SECOND_ROUTE_MAX_BASELINE_ELAPSED_S = 420
 
+#: 第二路调用的单次墙钟上限。节点上限 1100s：首轮(≤550s) + 第二路(≤420s) =
+#: 970s < 1100s，保证节点永不因第二路超时被 node_wrapper 掐断（那样会连首轮
+#: 已完成的答案一起丢掉——开启前的最后一道防回退闸）。
+_SECOND_ROUTE_CALL_TIMEOUT_S = 420
+
 
 def _run_second_route(deps, prompt: str) -> str:
     """第二路完整推理（比首轮略低的温度换取更稳的独立样本）。
 
-    受硬时限余量约束（与压缩重试同一定价）；任何失败返回空串，调用方保持首轮。
+    受硬时限余量约束（与压缩重试同一定价）；任何失败/超时返回空串，调用方
+    保持首轮——第二路在任何意义上都不得损害已有的首轮结果。
     """
     clock = deps.time_budget
     if clock and clock.elapsed() > _SECOND_ROUTE_MAX_BASELINE_ELAPSED_S:
@@ -442,14 +454,17 @@ def _run_second_route(deps, prompt: str) -> str:
             < _COMPRESSED_CALL_ESTIMATE_S:
         return ""
     try:
-        resp = chat_with_retry(
-            deps.client,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=CONFIG["temperatures"]["reasoning"] * 0.5,
-            max_tokens=CONFIG["max_tokens"]["reasoning"],
-            logger=deps.logger,
-            time_budget=clock,
-            label="reasoning_second_route",
+        resp = run_with_timeout(
+            lambda: chat_with_retry(
+                deps.client,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=CONFIG["temperatures"]["reasoning"] * 0.5,
+                max_tokens=CONFIG["max_tokens"]["reasoning"],
+                logger=deps.logger,
+                time_budget=clock,
+                label="reasoning_second_route",
+            ),
+            _SECOND_ROUTE_CALL_TIMEOUT_S,
         )
         if deps.token_budget:
             deps.token_budget.consume(estimate_tokens(prompt), estimate_tokens(resp))
