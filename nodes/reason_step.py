@@ -395,6 +395,166 @@ def _compressed_reasoning_retry(deps, base_prompt,
     return resp, ""
 
 
+# ============ 双路独立推理（第二路一致性；env 开关默认关） ============
+#
+# 机制来源：高分仓共同工程特征（qian-fu 复杂题两路并行一致才发 / awa 多候选
+# 投票验证 / MathPilot 聚类共识投票）——单路推理想错一次没有任何机制能发现。
+# 本实现的安全边界：
+#   * 只在**首轮完整产出之后**追加第二路；重试/压缩路径不触发；
+#   * 两路结论等价 → 原样保留首轮，输出与单路完全一致（零行为变化）；
+#   * 分歧 → 一次 prefill 仲裁在两条完整推导之间选择；弃权/失败 → 保持首轮；
+#   * 触发面=非客观题（计算/证明——Python 兜底最弱的两类）；时间不足自动跳过。
+# 探针/批次对比用环境变量 SECOND_ROUTE=1 开启，默认关闭保证零回归风险。
+
+
+def _second_route_enabled() -> bool:
+    import os
+    return os.environ.get("SECOND_ROUTE", "") == "1"
+
+
+#: 第二路的差异角度指令：同题不同切入点，制造真实独立性（同提示同温度的两份
+#: 输出高度相关，投票价值低）。
+_SECOND_ROUTE_ANGLE = (
+    "\n\n[第二路独立推理]\n"
+    "这是同一道题的**另一次独立求解**，结论可能与第一路不同。"
+    "请刻意换一种切入点：换一种方法（如代数/几何/分析互译）、先考虑特殊情形再推广、"
+    "或先估计/构造再严格化。不要参考或默认存在任何标准答案，只依据题面数学本身。"
+    "仍然输出完整四章节：'## 问题分析'、'## 详细解题步骤'、'## 最终答案'、'## 关键验证点'。"
+)
+
+
+#: 生产时间闸门：基线完成已耗时超过该值时不再追加第二路。官方批次并发 3、
+#: 总墙钟 6h——若对每道非客观题都追加一路顺序推理，平均单题耗时从 ~400s
+#: 涨到 ~800s，112 题总墙钟会突破 6h（超限降级的历史教训）。基线 ≤420s 的题
+#: 追加第二路后 ~840s，仍在单题 1200s 预算内，总墙钟增幅约 1h，可承受。
+_SECOND_ROUTE_MAX_BASELINE_ELAPSED_S = 420
+
+
+def _run_second_route(deps, prompt: str) -> str:
+    """第二路完整推理（比首轮略低的温度换取更稳的独立样本）。
+
+    受硬时限余量约束（与压缩重试同一定价）；任何失败返回空串，调用方保持首轮。
+    """
+    clock = deps.time_budget
+    if clock and clock.elapsed() > _SECOND_ROUTE_MAX_BASELINE_ELAPSED_S:
+        return ""
+    if clock and clock.remaining_hard() - _COMPRESSED_RESERVE_MARGIN_S \
+            < _COMPRESSED_CALL_ESTIMATE_S:
+        return ""
+    try:
+        resp = chat_with_retry(
+            deps.client,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=CONFIG["temperatures"]["reasoning"] * 0.5,
+            max_tokens=CONFIG["max_tokens"]["reasoning"],
+            logger=deps.logger,
+            time_budget=clock,
+            label="reasoning_second_route",
+        )
+        if deps.token_budget:
+            deps.token_budget.consume(estimate_tokens(prompt), estimate_tokens(resp))
+        return resp
+    except Exception as exc:  # noqa: BLE001 - 第二路失败绝不影响首轮结果。
+        deps.logger.warning("Second route failed; keeping first route: %s", exc)
+        return ""
+
+
+def _route_evidence(parsed: dict, limit: int = 2600) -> str:
+    """仲裁用的紧凑证据：分析开头 + 前 4 步 + 结论。"""
+    parts = []
+    analysis = (parsed.get("analysis") or "").strip()
+    if analysis:
+        parts.append(f"分析：{analysis[:900]}")
+    steps = [
+        f"步骤{s.get('step_num', i)}: {s.get('description', '')}"
+        for i, s in enumerate((parsed.get("steps") or [])[:4], start=1)
+    ]
+    if steps:
+        parts.append("\n".join(steps))
+    answer = (parsed.get("answer") or "").strip()
+    if answer:
+        parts.append(f"最终答案：{answer[:600]}")
+    text = "\n".join(parts)
+    return text if len(text) <= limit else text[:limit].rstrip() + "...[截断]"
+
+
+def _adjudicate_route(deps, problem: str, first: dict, second: dict) -> int:
+    """分歧仲裁：返回 0=保持首轮（含弃权/失败/超时），2=改选第二路。"""
+    clock = deps.time_budget
+    if clock and clock.remaining_hard() < 60:
+        return 0
+    prompt = (
+        "同一道数学题有两份**相互独立**的完整推导，且结论不一致。"
+        "请逐份检查其关键步骤的数学正确性（定义与定理的适用条件、计算、"
+        "结论是否完整对应题面每个问项），判断哪一份的结论正确。\n"
+        "只输出一行：ROUTE_1 或 ROUTE_2；两路都有实质性错误或无法判定时输出 ABSTAIN。\n\n"
+        f"题目：\n{str(problem or '')[:6000]}\n\n"
+        "--- 推导 1 ---\n" + _route_evidence(first) +
+        "\n\n--- 推导 2 ---\n" + _route_evidence(second)
+    )
+    try:
+        raw = chat_prefilled(
+            deps.client,
+            messages=[{"role": "user", "content": prompt}],
+            prefix="ROUTE_",
+            temperature=0.1,
+            max_tokens=16,
+            logger=deps.logger,
+            time_budget=clock,
+            expected_call_seconds=10,
+            label="second_route_adjudicate",
+            safeguard_margin_s=45,
+        )
+    except Exception as exc:  # noqa: BLE001 - 仲裁失败保持首轮。
+        deps.logger.warning("Route adjudication failed; keeping first: %s", exc)
+        return 0
+    text = str(raw or "").upper()
+    import re as _re
+    match = _re.search(r"ROUTE_?(\d)|ABSTAIN", text)
+    if not match:
+        return 0
+    if match.group(0).startswith("ABSTAIN"):
+        return 0
+    return 2 if match.group(1) == "2" else 0
+
+
+def _maybe_second_route(deps, problem, base_prompt, parsed, resp, question_mode):
+    """首轮完整产出后追加第二路；返回 (parsed, resp, note|None)。"""
+    resp2 = _run_second_route(deps, base_prompt + _SECOND_ROUTE_ANGLE)
+    if not resp2:
+        return parsed, resp, None
+    parsed2 = _parse_reasoning_output(resp2, question_mode=question_mode)
+    note = {"response_chars": len(resp2)}
+    if not parsed2.get("answer"):
+        note["outcome"] = "second_route_unparsed"
+        return parsed, resp, note
+    # 一致性判定刻意保守：只有两侧都能机械解析且**确定不同**（verdict=False）
+    # 才值得仲裁。长答案/证明结论的解析几乎总是无法判定（None）——若把 None
+    # 当分歧，每次都会触发仲裁、输出频繁被改（探针实测 4/4 假分歧），违背
+    # "一致即原样、零行为变化"的安全设计。None 按一致处理=保持首轮=与单路
+    # 完全相同；False 意味着两侧是确定不同的具体值，其中至少一侧可机械判定
+    # 错误，此时仲裁在两条具体结论间选择才有净价值。
+    from utils.answer_compare import AnswerCompare
+    try:
+        detail = AnswerCompare._match_computation_detailed(
+            parsed.get("answer", ""), parsed2.get("answer", ""),
+            tolerance=CONFIG.get("computation_tolerance", 1e-6))
+        agree = detail.get("verdict") is not False
+    except Exception:  # noqa: BLE001 - 解析失败一律按一致处理（保首轮）。
+        agree = True
+    if agree:
+        note.update({"outcome": "second_route_agree", "decision": "keep_first"})
+        return parsed, resp, note
+    choice = _adjudicate_route(deps, problem, parsed, parsed2)
+    if choice == 2:
+        parsed2["answer_source"] = "two_route_adjudicated"
+        note.update({"outcome": "second_route_disagree",
+                     "decision": "adjudicated_second"})
+        return parsed2, resp2, note
+    note.update({"outcome": "second_route_disagree", "decision": "keep_first"})
+    return parsed, resp, note
+
+
 def _raw_excerpt(text, head=600, tail=1400):
     """截断响应的可审计节选：头部保留题解开场，尾部保留结论区。"""
     s = str(text or "")
@@ -717,6 +877,15 @@ def reason_step(state, config):
                       "response_chars": len(resp or ""),
                       **({"reason": "token_budget_exhausted",
                           "raw_excerpt": _raw_excerpt(resp)} if exhausted else {})})
+        # 双路一致性（env 开关默认关）：只在首轮一次完整产出后、且非复核重试时
+        # 追加独立第二路。一致→行为与单路完全相同；分歧→仲裁，弃权保持首轮。
+        if (_second_route_enabled() and attempts == 1 and not hint
+                and _is_complete(parsed) and not is_objective_mode(question_mode)):
+            parsed, resp, route2_note = _maybe_second_route(
+                deps, problem, base_prompt, parsed, resp, question_mode)
+            if route2_note:
+                trace.append({"attempt": attempts, "status": "second_route",
+                              **route2_note})
         if _is_complete(parsed):
             return {"reasoning_result": parsed, "reasoning_trace": trace,
                     "reasoning_attempts": attempts, "reasoning_raw_response": resp}
