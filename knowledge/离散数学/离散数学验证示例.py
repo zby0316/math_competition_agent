@@ -23,6 +23,7 @@
 ## 知识点 4：数论
 - 扩展 Euclid 给出 $ax+by=\gcd(a,b)$；同余除法先核对逆元或互素条件。
 - 中国剩余定理先检查模数互素性或兼容条件；整除、素数、取整和 Diophantine 方程逐项保留整数条件。
+- 核验可用 sympy 数论工具箱（factorint/divisor_count/totient/isprime/legendre_symbol/n_order）与小规模枚举互相印证。
 
 ## 知识点 5：图论、关系与博弈
 - 图论先规定简单图/多重图、有向性和顶点集；握手、Euler/Hamilton、树和着色结论要核对前提。
@@ -78,6 +79,29 @@ def extended_gcd(a, b):
 g, u, v = extended_gcd(a, b)
 bezout_check = a * u + b * v == g
 # 同余求解前先检查 gcd(modulus_1, modulus_2) 与余数兼容性。
+```
+
+## Python 代码片段：数论工具箱
+```python
+import sympy as sp
+from sympy.ntheory import (factorint, isprime, divisor_count, divisors,
+                           totient, primefactors, nextprime)
+
+# 数值与参数必须来自题面；工具箱仅用于核验题面实例、构造与小规模枚举，不是答案来源。
+n_value = sp.Integer(problem_integer)
+
+factorization = factorint(n_value)      # {素因子: 指数}
+divisor_total = divisor_count(n_value)  # 正因子个数（含 1 与自身）
+divisor_list = divisors(n_value)        # 升序正因子列表
+euler_phi = totient(n_value)            # 欧拉 φ
+prime_set = primefactors(n_value)       # 不同素因子
+next_prime = nextprime(n_value)         # 严格大于 n 的下一个素数
+primality_flag = isprime(n_value)       # 确定性素性判定
+
+# 平方剩余符号（p 为奇素数）：legendre_symbol(a, p) ∈ {-1, 0, 1}
+quadratic_residue_symbol = sp.ntheory.residue_ntheory.legendre_symbol(base_a, odd_prime_p)
+# 乘法阶：n_order(a, m) 返回 a 模 m 的阶（需 gcd(a,m)=1）
+multiplicative_order = sp.ntheory.residue_ntheory.n_order(unit_a, modulus_m)
 ```
 
 ## Python 代码片段：图的邻接矩阵与度数核验
