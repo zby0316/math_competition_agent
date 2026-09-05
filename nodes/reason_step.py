@@ -395,7 +395,7 @@ def _compressed_reasoning_retry(deps, base_prompt,
     return resp, ""
 
 
-# ============ 双路独立推理（第二路一致性；默认开，SECOND_ROUTE=0 可关） ============
+# ============ 双路独立推理（第二路一致性；默认关，SECOND_ROUTE=1 可开） ============
 #
 # 机制来源：高分仓共同工程特征（qian-fu 复杂题两路并行一致才发 / awa 多候选
 # 投票验证 / MathPilot 聚类共识投票）——单路推理想错一次没有任何机制能发现。
@@ -408,14 +408,16 @@ def _compressed_reasoning_retry(deps, base_prompt,
 #   * 触发面=非客观题（计算/证明——Python 兜底最弱的两类）；
 #   * 第二路自带 420s 单次墙钟上限：首轮 ≤550s + 第二路 ≤420s = 970s < 节点
 #     1100s 上限，reason_step 节点永远不会因第二路被 node_wrapper 掐断而丢掉
-#     首轮好结果（这是开启前补的最后一道防回退闸）。
-# 2026-09-04 用户拍板开启（受控实验：一批次验证，回退即设默认关）。
+#     首轮好结果。
+# 2026-09-04 用户拍板开启作受控实验 → 09-04 24:00 批次 65.18（73/112，较
+# 69.64 基线 -5，题集 sha 相同=真回退）→ 按"退分即关"约定**回退默认关**
+# （SECOND_ROUTE=1 仅本地 A/B 探针用）；tf/kb10 与双路的归因待隔离批次判定。
 
 
 def _second_route_enabled() -> bool:
-    """默认开启；SECOND_ROUTE=0 显式关闭（本地 A/B 探针基线用）。"""
+    """默认关闭；SECOND_ROUTE=1 显式开启（本地 A/B 探针用）。"""
     import os
-    return os.environ.get("SECOND_ROUTE", "") != "0"
+    return os.environ.get("SECOND_ROUTE", "") == "1"
 
 
 #: 第二路的差异角度指令：同题不同切入点，制造真实独立性（同提示同温度的两份
