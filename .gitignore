@@ -77,6 +77,5 @@ smoke_2.json
 .numina_meta.json
 .numina_tree.json
 
-# 带官方答案的本地验证集（合规红线：绝不入库/提交）
-test_sets/eval_112.json
-test_sets/eval_36_hard.json
+# 本地验证基准（含答案标签，合规红线：整个目录不入库/提交）
+test_sets/
