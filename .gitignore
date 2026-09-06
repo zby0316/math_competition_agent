@@ -71,3 +71,12 @@ _archive/
 overview.md
 bench_hard12_results.json
 smoke_2.json
+
+# 公开题库构建中间数据与元数据（从 HF 镜像下载，不入库）
+.numina_dl/
+.numina_meta.json
+.numina_tree.json
+
+# 带官方答案的本地验证集（合规红线：绝不入库/提交）
+test_sets/eval_112.json
+test_sets/eval_36_hard.json

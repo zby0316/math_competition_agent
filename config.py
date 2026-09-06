@@ -78,10 +78,17 @@ CONFIG = {
     # 压到 550s，保证首轮 + 压缩重试(350s 估时) + 余量(250s) 仍能放进 1200s
     # 硬时限（1200-550=650 ≥ 350+250=600），让压缩重试真正可达。
     "first_attempt_timeout_s": 550,
+    # ============ 公开题库检索（受控实验开关，默认关 = 69.64 行为） ============
+    # qbank/ 是 NuminaMath-CoT（公开数据集）olympiads 子集的相似题参考库。
+    # 开启后，解题/验证提示注入 top-k 相似题与解答作为参考（带反锚定说明：
+    # 只借方法、禁止搬结论；见 utils/qbank.py）。关闭时 qbank 模块完全不被触碰。
+    "qbank_enabled": False,
+    "qbank_top_k": 2,
+    "qbank_max_ref_chars": 1400,
     "log_level": "INFO", "log_dir": "logs",
 }
 
 # ============ 版本标记（评测日志/trace 溯源用） ============
 # 每轮代码改动后更新此值；solve() 的 trace 会携带它，配合评测日志的
 # Commit ID 即可确定某次出分对应哪一版代码。
-AGENT_VERSION = "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9 2026-09-03"
+AGENT_VERSION = "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+qbank-off 2026-09-06"

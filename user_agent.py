@@ -3,7 +3,7 @@ import time
 from typing import Any, Dict
 
 from agent_pipeline import AgentPipeline
-from config import AGENT_VERSION as CONFIG_AGENT_VERSION
+from config import AGENT_VERSION as CONFIG_AGENT_VERSION, CONFIG
 from utils.client_fixups import cap_internal_retries, raise_socket_timeout
 from utils.domain_loader import DomainLoader
 from utils.exec_client import ExecClient
@@ -121,6 +121,26 @@ class ReasoningAgent:
             })
         if state.get("reasoning_result"):
             rr = state["reasoning_result"]
+            reasoning_tools = [
+                {
+                    "name": "skill_document",
+                    "category": state.get("category", ""),
+                    "purpose": "加载对应数学领域 skill 文档作为解题参考。",
+                },
+                {
+                    "name": "reasoning_llm",
+                    "attempts": state.get("reasoning_trace", []),
+                    "max_attempts_used": state.get("reasoning_attempts", 0),
+                    "output_schema": ["analysis", "steps", "answer", "validation_points"],
+                },
+            ]
+            # 公开题库参考命中（默认关时不出现，trace 与基线逐字节一致）
+            if state.get("qbank_refs"):
+                reasoning_tools.append({
+                    "name": "qbank_references",
+                    "enabled": bool(CONFIG.get("qbank_enabled")),
+                    "hits": state.get("qbank_refs", []),
+                })
             trace.append({
                 "step": "reasoning",
                 "attempts": state.get("reasoning_attempts", 0),
@@ -138,19 +158,7 @@ class ReasoningAgent:
                     "raw_response_excerpt": self._excerpt(
                         state.get("reasoning_raw_response", "")),
                 },
-                "tools": [
-                    {
-                        "name": "skill_document",
-                        "category": state.get("category", ""),
-                        "purpose": "加载对应数学领域 skill 文档作为解题参考。",
-                    },
-                    {
-                        "name": "reasoning_llm",
-                        "attempts": state.get("reasoning_trace", []),
-                        "max_attempts_used": state.get("reasoning_attempts", 0),
-                        "output_schema": ["analysis", "steps", "answer", "validation_points"],
-                    },
-                ],
+                "tools": reasoning_tools,
             })
         if state.get("python_output"):
             po = state["python_output"]

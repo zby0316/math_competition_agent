@@ -229,6 +229,18 @@ def verify_step(state, config):
     knowledge_ref = select_skill_excerpt(skill_doc, problem, 1600)
     if knowledge_ref:
         base_prompt += "\n\n[技能知识点参考]\n" + knowledge_ref
+    # 公开题库检索（开关默认关）：只注入相似题题面（不给解答结论），防止验证
+    # 代码照抄参考解。失败/未开启时零影响。
+    if CONFIG.get("qbank_enabled"):
+        try:
+            from utils.qbank import build_reference_block
+            py_ref, _ = build_reference_block(
+                problem, CONFIG.get("qbank_top_k", 2),
+                CONFIG.get("qbank_max_ref_chars", 1400), mode="python")
+            if py_ref:
+                base_prompt += "\n\n" + py_ref
+        except Exception as exc:  # noqa: BLE001 - 检索失败不影响主流程
+            deps.logger.warning("QBank python reference unavailable: %s", exc)
     if candidate_answer:
         base_prompt += (
             "\n\n待核验候选（不可信，仅用于独立核对）：\n"
