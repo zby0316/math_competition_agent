@@ -90,7 +90,7 @@ CONFIG = {
     #     只是噪声+token，不买任何方法迁移）；
     #   * 参数差异行（qbank.py 内确定性生成）：把本题与示例的关键数值差异
     #     摆给模型，对冲"相似但参数不同"的过度锚定。
-    "qbank_enabled": False,
+    "qbank_enabled": True,
     "qbank_top_k": 2,
     "qbank_problem_cap": 400,
     "qbank_solution_cap": 600,
@@ -101,4 +101,4 @@ CONFIG = {
 # ============ 版本标记（评测日志/trace 溯源用） ============
 # 每轮代码改动后更新此值；solve() 的 trace 会携带它，配合评测日志的
 # Commit ID 即可确定某次出分对应哪一版代码。
-AGENT_VERSION = "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+qbank-off 2026-09-06"
+AGENT_VERSION = "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+qbank-on 2026-09-06"
