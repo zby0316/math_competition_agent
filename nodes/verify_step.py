@@ -235,8 +235,7 @@ def verify_step(state, config):
         try:
             from utils.qbank import build_reference_block
             py_ref, _ = build_reference_block(
-                problem, CONFIG.get("qbank_top_k", 2),
-                CONFIG.get("qbank_max_ref_chars", 1400), mode="python")
+                problem, CONFIG.get("qbank_top_k", 2), mode="python")
             if py_ref:
                 base_prompt += "\n\n" + py_ref
         except Exception as exc:  # noqa: BLE001 - 检索失败不影响主流程

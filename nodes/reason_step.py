@@ -429,8 +429,7 @@ def reason_step(state, config):
         try:
             from utils.qbank import build_reference_block
             qbank_block, qbank_meta = build_reference_block(
-                problem, CONFIG.get("qbank_top_k", 2),
-                CONFIG.get("qbank_max_ref_chars", 1400), mode="reasoning")
+                problem, CONFIG.get("qbank_top_k", 2), mode="reasoning")
         except Exception as exc:  # noqa: BLE001 - 检索失败不影响主流程
             deps.logger.warning("QBank reference unavailable: %s", exc)
     if qbank_block:

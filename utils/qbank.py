@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import gzip
 import json
+import re
 import threading
 from pathlib import Path
 
@@ -118,36 +119,68 @@ _PYTHON_ANTI_ANCHOR = (
     "不可直接搬用；验证代码必须完全按本题题面编写。"
 )
 
+#: 题面里有判别力的整数字面量：跳过 0/1 这类到处都是的数，也跳过 LaTeX 命令
+#: 里的上下标数字（\\sqrt[3]、x^{2}），只留下真正描述规模的参数。
+_INT_RE = re.compile(r"(?<![\\^_{\w])(\d{2,})(?![}\w])")
 
-def build_reference_block(problem: str, top_k: int, max_chars: int,
-                          mode: str = "reasoning") -> tuple[str, list[dict]]:
+
+def _scale_numbers(text: str) -> list[int]:
+    """去重保序提取 2 位以上的整数参数（最多 8 个）。"""
+    seen: set[int] = set()
+    out: list[int] = []
+    for m in _INT_RE.finditer(str(text or "")):
+        v = int(m.group(1))
+        if v not in seen:
+            seen.add(v)
+            out.append(v)
+    return out[:8]
+
+
+def _diff_line(problem: str, example_problem: str) -> str:
+    """把两边题面的关键参数差异摆出来；无从比较或参数一致时返回空串。"""
+    ours = _scale_numbers(problem)
+    theirs = _scale_numbers(example_problem)
+    if not ours or not theirs or ours == theirs:
+        return ""
+    return f"⚠ 关键参数差异：本题 {ours}，示例 {theirs}——结论不可直接搬用。"
+
+
+def build_reference_block(problem: str, top_k: int, mode: str = "reasoning") -> tuple[str, list[dict]]:
     """构造参考示例块；返回 (文本, 命中元数据)。空文本表示无命中/未开启。
 
     mode="reasoning" 注入推理提示（题+解答）；mode="python" 注入验证代码
     生成提示（只给题面，不给解答结论，防止验证代码照抄参考答案）。
+
+    风险对冲：示例截断上限（problem_cap/solution_cap）压到 ~300 token/个；
+    top-1 相似度低于 min_similarity 时完全不注入；每题附参数差异行。
     """
     qb = get_qbank()
     if qb is None:
         return "", []
+    problem_cap = max(150, int(CONFIG.get("qbank_problem_cap", 400)))
+    solution_cap = max(200, int(CONFIG.get("qbank_solution_cap", 600)))
+    min_sim = float(CONFIG.get("qbank_min_similarity", 0.30))
     try:
         hits = qb.search(problem, top_k)
     except Exception:
         return "", []
+    hits = [(s, e) for s, e in hits if s >= min_sim]
     if not hits:
         return "", []
     parts = [_PYTHON_ANTI_ANCHOR if mode == "python" else _ANTI_ANCHOR]
     meta = []
-    budget = max(200, int(max_chars))
     for i, (score, entry) in enumerate(hits, 1):
-        p = str(entry.get("p") or "").strip()
-        s = str(entry.get("s") or "").strip()
+        p = str(entry.get("p") or "").strip()[:problem_cap]
+        s = str(entry.get("s") or "").strip()[:solution_cap]
         if mode == "python":
             body = (f"【示例{i}｜公开题库｜相似度 {score:.2f}】\n"
-                    f"题目：{p[:budget]}")
+                    f"题目：{p}")
         else:
+            diff = _diff_line(problem, entry.get("p") or "")
             body = (f"【示例{i}｜公开题库｜相似度 {score:.2f}】\n"
-                    f"题目：{p[:max(200, budget // 2)]}\n"
-                    f"解答：{s[:budget]}")
+                    f"题目：{p}\n"
+                    + (diff + "\n" if diff else "")
+                    + f"解答：{s}")
         meta.append({"score": round(score, 4), "src": entry.get("src", ""),
                      "problem_chars": len(entry.get("p") or ""),
                      "solution_chars": len(entry.get("s") or "")})

@@ -82,9 +82,19 @@ CONFIG = {
     # qbank/ 是 NuminaMath-CoT（公开数据集）olympiads 子集的相似题参考库。
     # 开启后，解题/验证提示注入 top-k 相似题与解答作为参考（带反锚定说明：
     # 只借方法、禁止搬结论；见 utils/qbank.py）。关闭时 qbank 模块完全不被触碰。
+    #
+    # 风险对冲参数（对应"提示膨胀/过度锚定/预算消耗"三项风险）：
+    #   * problem_cap/solution_cap：示例截断上限——压小后每个示例 ~300 token，
+    #     缓解提示变长导致的私有 CoT 膨胀与截断；
+    #   * min_similarity：top-1 相似度低于地板的题完全不注入（弱相关的参考
+    #     只是噪声+token，不买任何方法迁移）；
+    #   * 参数差异行（qbank.py 内确定性生成）：把本题与示例的关键数值差异
+    #     摆给模型，对冲"相似但参数不同"的过度锚定。
     "qbank_enabled": False,
     "qbank_top_k": 2,
-    "qbank_max_ref_chars": 1400,
+    "qbank_problem_cap": 400,
+    "qbank_solution_cap": 600,
+    "qbank_min_similarity": 0.30,
     "log_level": "INFO", "log_dir": "logs",
 }
 
