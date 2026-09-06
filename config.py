@@ -49,7 +49,7 @@ CONFIG = {
                    "reconciliation": 32768,
                    "arbiter": 96, "arbiter_fallback": 4096,
                    "coordinator": 24576, "emergency_answer": 1280},
-    "reconciliation_max_rounds": 3,
+    "reconciliation_max_rounds": 2,
     "token_budget_max": 256000, "token_budget_warn_ratio": 0.9,
     # 每题的墙钟预算。平台硬限 20 分钟；safeguard 保证在硬杀前仍能交出真实
     # 答案，fast_path_threshold 是可选阶段被跳前再走一次完整 LLM 往返所需的空间。
@@ -84,4 +84,4 @@ CONFIG = {
 # ============ 版本标记（评测日志/trace 溯源用） ============
 # 每轮代码改动后更新此值；solve() 的 trace 会携带它，配合评测日志的
 # Commit ID 即可确定某次出分对应哪一版代码。
-AGENT_VERSION = "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+rec3+ntbox 2026-09-05"
+AGENT_VERSION = "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9 2026-09-03"
