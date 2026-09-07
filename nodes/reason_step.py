@@ -422,19 +422,6 @@ def reason_step(state, config):
         problem=problem)
     base_prompt += mode_instruction(question_mode)
     base_prompt += structure_instruction(problem)
-    # 公开题库检索（开关默认关）：相似题+解答作为参考注入提示，带反锚定说明。
-    # 失败/未开启时零影响，qbank_block 为空则完全不改提示词。
-    qbank_block, qbank_meta = "", []
-    if CONFIG.get("qbank_enabled"):
-        try:
-            from utils.qbank import build_reference_block
-            qbank_block, qbank_meta = build_reference_block(
-                problem, CONFIG.get("qbank_top_k", 2), mode="reasoning")
-        except Exception as exc:  # noqa: BLE001 - 检索失败不影响主流程
-            deps.logger.warning("QBank reference unavailable: %s", exc)
-    if qbank_block:
-        base_prompt += "\n\n" + qbank_block
-    qbank_payload = {"qbank_refs": qbank_meta} if qbank_meta else {}
     # 压缩重试要压的是推导篇幅，不是答案该覆盖的分支（曾出现漏值事故）。
     coverage_clause = answer_coverage_clause(problem)
 
@@ -488,24 +475,7 @@ def reason_step(state, config):
             r"分裂域|扩张次数|\[E\s*[:：]\s*(?:Q|\\mathbb\{Q\})\]|Galois|伽罗瓦|"
             r"维数|秩|阶数|特征值|收敛半径|次数是|degree\b|dimension\b",
             problem, flags=re.I))
-        # 判断题专属契约：负面结论必须携带反例/定义矛盾推导，正面结论必须携带
-        # 定理依据。Intern 系模型在"是否/判断"题上存在系统性"否"偏向（曾实测
-        # 大批判断题错答同源于此），而"错误"的裁定本应是最强的一类断言——需要
-        # 一个具体反例或与定义/定理直接矛盾的论证才配成立。这里不是模板堆砌：
-        # 契约只约束*证据结构*，答案仍完全由模型对题面的判断决定，并明确要求
-        # 给不出反例时就判"正确"，避免把证据要求误当成"必须找出反例"。
-        if question_mode == "true_false":
-            contract = (
-                "判断题必须证据作答：先自行完成必要的核对计算，再严格按此顺序输出两行，"
-                "不要输出 Thinking Process：\n"
-                f"答案：<{answer_shape}>\n"
-                "核对：<一行证据。判'错误'必须给出一个具体反例（写出反例对象/取值并代入"
-                "说明其违背题面哪一条），或指出与某定义/定理直接矛盾的推导；"
-                "给不出具体反例与矛盾推导时就应判'正确'。判'正确'写一句所依据的定义/定理"
-                "并说明其如何适用于本题。核对行只写证据，不要再次出现'正确/错误'等判断词，"
-                "不要用'不充分/不够严谨'之类含糊说法充当'错误'的证据>"
-            )
-        elif needs_derivation:
+        if needs_derivation:
             contract = (
                 "先算后答：必须严格按此顺序输出三行，不要输出 Thinking Process：\n"
                 "核对：<逐层写出关键计算（列全部根/逐层次数/定义核对），不超过五行>\n"
@@ -525,8 +495,7 @@ def reason_step(state, config):
             f"{domain_guard}"
             f"{contract}\n\n"
             f"题型：{question_mode}\n学科：{category}\n技能参考：\n"
-            f"{select_skill_excerpt(skill_doc, problem, 2200)}"
-            f"{chr(10) + chr(10) + qbank_block if qbank_block else ''}\n\n题目：\n{problem}"
+            f"{select_skill_excerpt(skill_doc, problem, 2200)}\n\n题目：\n{problem}"
         )
         trace = []
         response = ""
@@ -556,8 +525,7 @@ def reason_step(state, config):
             trace.append({"attempt": attempts, "status": "objective_plain",
                           "response_chars": len(response or "")})
             return {"reasoning_result": parsed, "reasoning_trace": trace,
-                    "reasoning_attempts": attempts, "reasoning_raw_response": response,
-                    **qbank_payload}
+                    "reasoning_attempts": attempts, "reasoning_raw_response": response}
         if not parsed.get("answer"):
             # 解析失败的原始响应必须留证（75-212 字符的失败响应如果只记字符数，
             # 事后无法区分"模型答错"与"解析器漏掉"）。
@@ -632,8 +600,7 @@ def reason_step(state, config):
             final_entry["raw_excerpt"] = _raw_excerpt(response, head=300, tail=500)
         trace.append(final_entry)
         return {"reasoning_result": parsed, "reasoning_trace": trace,
-                "reasoning_attempts": attempts, "reasoning_raw_response": response,
-                **qbank_payload}
+                "reasoning_attempts": attempts, "reasoning_raw_response": response}
 
     hint = state.get("branch_hint")
     # 复核重试也保留 skill 文档与字段契约（旧实现只发 hint+题面，丢失了学科口径）
@@ -735,8 +702,7 @@ def reason_step(state, config):
                           "raw_excerpt": _raw_excerpt(resp)} if exhausted else {})})
         if _is_complete(parsed):
             return {"reasoning_result": parsed, "reasoning_trace": trace,
-                    "reasoning_attempts": attempts, "reasoning_raw_response": resp,
-                    **qbank_payload}
+                    "reasoning_attempts": attempts, "reasoning_raw_response": resp}
         # 两种失败需要两种重试。格式失误值得带格式提醒重问一次；Token 耗尽则不然：
         # 难题上模型可能把整个额度花在 reasoning_content 上、一个章节都不输出
         # （曾实测：550s、~30k tokens、analysis_len=0、steps=0），同样的提示会以
@@ -778,12 +744,10 @@ def reason_step(state, config):
                           "response_chars": len(resp or "")})
             if _is_complete(compressed_parsed):
                 return {"reasoning_result": parsed, "reasoning_trace": trace,
-                        "reasoning_attempts": attempts, "reasoning_raw_response": resp,
-                        **qbank_payload}
+                        "reasoning_attempts": attempts, "reasoning_raw_response": resp}
             break
         prompt = (base_prompt + "\n\n注意：上一次输出缺少必需章节（必须含 '## 问题分析'、'## 详细解题步骤'、"
                   "'## 最终答案'）。'## 最终答案' 下必须按题面要求完整列出各字段/各问项的结果"
                   "（含检验结论、区间上下限、全部枚举对象等），不得只给单个数值。请重新严格按格式输出。")
     return {"reasoning_result": parsed, "reasoning_trace": trace,
-            "reasoning_attempts": attempts, "reasoning_raw_response": resp,
-            **qbank_payload}
+            "reasoning_attempts": attempts, "reasoning_raw_response": resp}

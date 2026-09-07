@@ -446,15 +446,13 @@ def normalize_objective_answer(answer: str, mode: str) -> str:
                 ordered.append(upper)
         return "、".join(ordered)
     if mode == "true_false":
-        # 判定词必须锚定在答案内容的行首：剥掉标签后，payload 应是干净的判定词
-        # （可带语气词与标点）。曾发现"我不确定这个命题是否正确"这类拒绝句因
-        # 句中含"正确"二字被全串扫描强判为"正确"出厂——行首锚定后这类内容返回
-        # 空、走重试路径，而不是被巧合的判定词冒领。
-        head = text.lstrip("。．.,，,;；:：\"'“” \t")
-        m = re.match(r"(不正确|错误|不对|正确|对|错|×|√)", head)
-        if not m:
+        # 优先识别"不正确/错误"这类双字否定短语，再落到单独的 ``正确``。
+        matches = list(re.finditer(r"不正确|错误|正确|不对|对|错|×|√", text, flags=re.I))
+        if not matches:
             return ""
-        value = m.group(1)
+        # 第一个判断词才是答案；后面的出现通常属于解释句
+        # （例如 ``错误，因为...正确``）。
+        value = matches[0].group(0)
         return "正确" if value in {"正确", "对", "√"} else "错误"
     return text
 

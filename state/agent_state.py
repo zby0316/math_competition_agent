@@ -26,8 +26,6 @@ class AgentState(TypedDict):
     reasoning_trace: NotRequired[List[Dict]]
     reasoning_retry_hint: NotRequired[Optional[str]]
     reasoning_raw_response: NotRequired[str]
-    # 公开题库参考命中元数据（开关默认关时不写入；见 utils/qbank.py）
-    qbank_refs: NotRequired[List[Dict]]
     # Python 验证阶段
     python_code: NotRequired[str]
     python_output: NotRequired[Optional[Dict[str, Any]]]
