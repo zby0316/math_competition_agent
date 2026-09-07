@@ -165,11 +165,20 @@ def _resolve_category(raw, valid_categories, fallback):
     return fallback
 
 
-def _merge_candidate_rankings(*rankings, limit):
+def _merge_candidate_rankings(*rankings, limit, weights=None):
+    """按位置加权合并多个候选排序（Borda 变体）。
+
+    ``weights`` 与 ``rankings`` 一一对应。关键词排序携带**精确命中**信号
+    （同义词表里的判别词），默认给 2 倍权重压过 TF-IDF 的字符模糊相似——
+    否则一道 Pell 方程题会被 TF-IDF 排到"偏微分方程/抽象代数"（"方程"
+    高频稀释），而关键词侧明明命中了"Pell"。
+    """
+    if weights is None:
+        weights = [1.0] * len(rankings)
     scores = {}
-    for ranking in rankings:
+    for ranking, weight in zip(rankings, weights):
         for position, (category, _) in enumerate(ranking):
-            scores[category] = scores.get(category, 0.0) + 1.0 / (position + 1)
+            scores[category] = scores.get(category, 0.0) + weight / (position + 1)
     ordered = sorted(scores, key=lambda c: (-scores[c], c))
     return ordered[:limit]
 
@@ -306,7 +315,8 @@ def _deterministic_fallback(sl, problem, all_categories, logger):
         logger.warning("TF-IDF category ranking unavailable: %s", exc)
 
     merged = _merge_candidate_rankings(keyword_candidates, tfidf_candidates,
-                                       limit=CONFIG["classifier_top_k"])
+                                       limit=CONFIG["classifier_top_k"],
+                                       weights=(2.0, 1.0))
     merged = [category for category in merged if category in all_categories]
     if merged:
         return merged[0]
