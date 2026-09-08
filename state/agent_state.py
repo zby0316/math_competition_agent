@@ -26,6 +26,11 @@ class AgentState(TypedDict):
     reasoning_trace: NotRequired[List[Dict]]
     reasoning_retry_hint: NotRequired[Optional[str]]
     reasoning_raw_response: NotRequired[str]
+    # 多路径采样投票（2026-09-08）：reasoning_paths 由推理节点在节点内部
+    # 线程池采样后一次性写入（节点对图仍是单写入者，不需要 reducer）；
+    # vote_result 由 cross_validator 写入。
+    reasoning_paths: NotRequired[List[Dict]]
+    vote_result: NotRequired[Optional[Dict[str, Any]]]
     # Python 验证阶段
     python_code: NotRequired[str]
     python_output: NotRequired[Optional[Dict[str, Any]]]

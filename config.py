@@ -78,10 +78,24 @@ CONFIG = {
     # 压到 550s，保证首轮 + 压缩重试(350s 估时) + 余量(250s) 仍能放进 1200s
     # 硬时限（1200-550=650 ≥ 350+250=600），让压缩重试真正可达。
     "first_attempt_timeout_s": 550,
+    # ============ 多路径采样投票（移植 83.93 分队机制，2026-09-08） ============
+    # 对同一题用不同温度并行采样 N 条推理路径，等价分组加权投票。强共识
+    # （≥ strong_consensus_ratio）直接锁定答案跳过仲裁；弱共识/冲突回退原有
+    # 选择管线（行为与关闭时完全一致）。enabled=False 即 69.64 原版行为。
+    # 客观题路径单次仅 ~45s/4096 token，2 路径成本可接受；计算题 3 路径与
+    # 原 python 分支并行，单题并发上限 4 与旧版"四路并行"实测一致。
+    "multi_path": {
+        "enabled": True,
+        "temps_computation": [0.2, 0.7, 1.0],
+        "temps_objective": [0.2, 0.7],
+        "strong_consensus_ratio": 0.67,
+        "moderate_consensus_ratio": 0.5,
+        "max_vote_answer_chars": 2000,
+    },
     "log_level": "INFO", "log_dir": "logs",
 }
 
 # ============ 版本标记（评测日志/trace 溯源用） ============
 # 每轮代码改动后更新此值；solve() 的 trace 会携带它，配合评测日志的
 # Commit ID 即可确定某次出分对应哪一版代码。
-AGENT_VERSION = "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9 2026-09-03"
+AGENT_VERSION = "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+mpvote1 2026-09-08"

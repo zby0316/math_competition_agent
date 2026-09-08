@@ -21,6 +21,20 @@ from utils.answer_selection import preferred_answer as _preferred_answer
 
 def judge_step(state, config):
     reasoning_result = state.get("reasoning_result") or {}
+    # 多路径确定性重建：reasoning_paths 由推理节点内部采样后一次性写入
+    # （按 path_index 排序），从中重建主结果，保证回退逻辑看到的是确定性的
+    # 路径 0 而非不可控的写入顺序。
+    paths = list(state.get("reasoning_paths") or [])
+    if len(paths) >= 1:
+        ordered = sorted(paths, key=lambda p: p.get("path_index", 0))
+        primary = next(
+            (p for p in ordered if (p.get("parsed") or {}).get("answer")),
+            ordered[0],
+        )
+        if primary.get("parsed"):
+            # 注意：LangGraph 节点内对 state 的就地修改不持久化，确定性重建的
+            # 主结果必须随返回值写回（各 return 均带 reasoning_result 字段）。
+            reasoning_result = primary["parsed"]
     raw_python_output = state.get("python_output") or {}
     python_output = parse_verification_evidence(
         raw_python_output,
@@ -28,6 +42,61 @@ def judge_step(state, config):
         code=state.get("python_code", ""),
     )
     question_mode = state.get("question_mode") or classify_question_mode(state.get("problem", ""))
+    # 多路径采样投票（2026-09-08）：≥2 条推理路径且达成强/中共识时直接锁定
+    # 答案跳过仲裁；未达成共识返回 None，下方原逻辑行为与旧版完全一致。
+    vote_result = None
+    if len(paths) >= 2:
+        from utils.multi_vote import vote as _multi_vote
+        fabricated = bool((python_output.get("authenticity") or {}).get("fabricated"))
+        python_ok = bool(python_output.get("success")) \
+            and bool(python_output.get("answer", "")) and not fabricated
+        vote_result = _multi_vote(
+            [{"answer": (p.get("parsed") or {}).get("answer", "")} for p in ordered],
+            python_answer=python_output.get("answer", ""),
+            python_ok=python_ok,
+            question_mode=question_mode,
+        )
+    if vote_result:
+        winner = vote_result["winner_answer"]
+        match_result = {
+            "status": "match",
+            "verdict": True,
+            "comparison_verdict": True,
+            "confidence": min(0.98, 0.6 + float(vote_result["winner_ratio"]) * 0.4),
+            "reason": (
+                f"多路径采样 {len(ordered)} 路与 Python 证据达成"
+                f"{'强' if vote_result['consensus'] == 'strong' else '中'}共识"
+                f"（胜出占比 {vote_result['winner_ratio']}）"
+            ),
+            "method": "multi_path_vote",
+            "problem_type": question_mode,
+            "text_similarity": 1.0,
+            "matched_fields": [],
+            "mismatched_fields": [],
+            "field_coverage": 1.0,
+            "routing_reason": "vote_consensus",
+            "vote_details": vote_result,
+        }
+        return {
+            "validation_status": "match",
+            "validation_details": match_result,
+            "validated_answer": winner,
+            "next_node": "coordinator",
+            "vote_result": vote_result,
+            "reasoning_result": reasoning_result,
+            "python_output": python_output,
+            "python_evidence_status": python_output.get("evidence_status", "inconclusive"),
+            "python_evidence_summary": python_output.get("evidence_summary", ""),
+            "python_contradictions": list(python_output.get("contradictions") or []),
+            "validation_history": [{
+                "round": state.get("reconciliation_round", 0),
+                "status": "match",
+                "evidence_status": python_output.get("evidence_status", "inconclusive"),
+                "evidence_summary": (python_output.get("evidence_summary") or "")[:1000],
+                "contradictions": list(python_output.get("contradictions") or [])[:10],
+                "vote": vote_result,
+            }],
+        }
     if is_objective_mode(question_mode):
         # 客观题刻意没有 Python 候选。来自精简推理路径的、规范化的有效答案才是
         # 唯一值得输出的候选；把它送进计算匹配器，会仅因 Python 被跳过而标成
@@ -117,6 +186,7 @@ def judge_step(state, config):
             "python_evidence_summary": evidence_summary,
             "python_contradictions": contradictions,
             "validation_history": [history_entry],
+            "reasoning_result": reasoning_result,
         }
 
     if status == "match":
@@ -164,4 +234,5 @@ def judge_step(state, config):
         "python_evidence_summary": evidence_summary,
         "python_contradictions": contradictions,
         "validation_history": [history_entry],
+        "reasoning_result": reasoning_result,
     }

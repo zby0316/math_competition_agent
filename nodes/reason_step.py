@@ -1,4 +1,5 @@
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from utils.deps import get_deps
 from utils.guard_ceiling import NodeTimeoutError, run_with_timeout
 from utils.llm_retry_guard import chat_prefilled, chat_with_retry
@@ -404,6 +405,115 @@ def _raw_excerpt(text, head=600, tail=1400):
     return f"{s[:head]}\n……[中略 {omitted} 字符]……\n{s[-tail:]}"
 
 
+def _path_entry(state, parsed, attempts, response):
+    """多路径扇出分支的结果条目（reasoning_paths 的追加单元）。
+
+    携带完整 parsed 结果而非只带 answer：cross_validator 需要从路径条目里
+    确定性重建主推理结果。
+    """
+    return {
+        "path_index": state.get("path_index", 0),
+        "temperature": state.get("path_temperature"),
+        "parsed": parsed,
+        "attempts": attempts,
+        "response_chars": len(response or ""),
+    }
+
+
+def _should_multi_path(state, deps) -> bool:
+    """多路径采样只发生在首轮、开关开启、时间不紧张的解题调用里。
+
+    对账重跑（branch_hint 已带重试提示）与 fast_path（剩余时间容不下完整
+    往返）一律单路径；证明题本来就单路径。
+    """
+    mp = CONFIG.get("multi_path", {}) or {}
+    if not mp.get("enabled"):
+        return False
+    if state.get("branch_hint"):
+        return False
+    if deps.time_budget and deps.time_budget.fast_path():
+        return False
+    mode = state.get("question_mode", "computation")
+    if is_objective_mode(mode):
+        return len(mp.get("temps_objective", [0.2, 0.7])) > 1
+    if mode == "proof":
+        return False
+    return len(mp.get("temps_computation", [0.2, 0.7, 1.0])) > 1
+
+
+def _run_multi_path_sampling(state, config):
+    """多路径温度采样（移植 83.93 分队机制，2026-09-08）。
+
+    线程池内并行跑 N 条独立推理路径（每条都是完整 reason_step：含格式重试、
+    压缩重试与各自的时间/Token 定价），仅 temperature 不同。合并后由
+    cross_validator 做等价分组加权投票。主结果取第一条有答案的路径
+    （从路径 0 起找，保证确定性），其余路径作为投票候选。
+
+    LangGraph 节点对 state 的就地修改不持久化，且同一节点并行分支不能写
+    同一非归约字段——采样因此放在节点内部，节点对图仍是单写入者。
+    """
+    deps = get_deps(config)
+    mp = CONFIG.get("multi_path", {}) or {}
+    mode = state.get("question_mode", "computation")
+    if is_objective_mode(mode):
+        temps = list(mp.get("temps_objective", [0.2, 0.7]))
+    else:
+        temps = list(mp.get("temps_computation", [0.2, 0.7, 1.0]))
+
+    results = [None] * len(temps)
+
+    def run_one(index, temperature):
+        try:
+            thread_state = dict(state)
+            thread_state["path_temperature"] = temperature
+            thread_state["path_index"] = index
+            return reason_step(thread_state, config)
+        except Exception as exc:  # noqa: BLE001 - 单路径失败不拖垮其余路径
+            deps.logger.warning("multi-path branch %s (temp=%.1f) failed: %s",
+                                index, temperature, exc)
+            return None
+
+    with ThreadPoolExecutor(max_workers=len(temps)) as executor:
+        futures = {executor.submit(run_one, i, t): i for i, t in enumerate(temps)}
+        for future in as_completed(futures):
+            index = futures[future]
+            try:
+                results[index] = future.result()
+            except Exception as exc:  # noqa: BLE001
+                deps.logger.warning("multi-path future %s failed: %s", index, exc)
+                results[index] = None
+
+    paths = []
+    merged_trace = []
+    attempts_total = 0
+    raw_response = ""
+    for index, result in enumerate(results):
+        if not result:
+            continue
+        paths.extend(result.get("reasoning_paths") or [])
+        for entry in result.get("reasoning_trace") or []:
+            entry = dict(entry)
+            entry.setdefault("path_index", index)
+            merged_trace.append(entry)
+        attempts_total += result.get("reasoning_attempts", 0)
+        if index == 0:
+            raw_response = result.get("reasoning_raw_response", "")
+
+    primary = {"analysis": "", "steps": [], "answer": "", "validation_points": []}
+    for result in results:
+        if result and (result.get("reasoning_result") or {}).get("answer"):
+            primary = result["reasoning_result"]
+            break
+
+    return {
+        "reasoning_result": primary,
+        "reasoning_trace": merged_trace,
+        "reasoning_attempts": attempts_total,
+        "reasoning_raw_response": raw_response,
+        "reasoning_paths": paths,
+    }
+
+
 def reason_step(state, config):
     deps = get_deps(config)
     sl = deps.skills_loader
@@ -412,6 +522,16 @@ def reason_step(state, config):
     max_attempts = 1 if budget and budget.is_tight() else CONFIG["max_retries_per_node"]
     problem, category = state["problem"], state["category"]
     question_mode = state.get("question_mode", "computation")
+    # 多路径采样：扇出分支携带的 path_temperature 覆盖默认推理温度；None
+    # （单路径/开关关闭）时退回 CONFIG 默认值，行为与旧版一致。
+    path_temp = state.get("path_temperature")
+    base_temperature = path_temp if path_temp is not None \
+        else CONFIG["temperatures"]["reasoning"]
+    objective_temperature = path_temp if path_temp is not None \
+        else CONFIG["temperatures"].get("objective_reasoning", CONFIG["temperatures"]["reasoning"])
+    # 多路径采样入口：仅最外层调用触发（内层调用带 path_temperature，直接解题）。
+    if path_temp is None and _should_multi_path(state, deps):
+        return _run_multi_path_sampling(state, config)
     skill_doc = sl.get_skill_document(category)
     # 按主题选摘，而不是按位置截断。裸 [:3000] 切片只取到文档开头模块，当
     # 非基础及进阶课程长到 8949 字符后，其数论（offset 3404）与博弈论（offset 5369）
@@ -505,8 +625,7 @@ def reason_step(state, config):
             response = chat_with_retry(
                 client,
                 messages=[{"role": "user", "content": objective_prompt}],
-                temperature=CONFIG["temperatures"].get(
-                    "objective_reasoning", CONFIG["temperatures"]["reasoning"]),
+                temperature=objective_temperature,
                 max_tokens=CONFIG["max_tokens"]["objective_reasoning"],
                 logger=deps.logger,
                 time_budget=deps.time_budget,
@@ -525,7 +644,8 @@ def reason_step(state, config):
             trace.append({"attempt": attempts, "status": "objective_plain",
                           "response_chars": len(response or "")})
             return {"reasoning_result": parsed, "reasoning_trace": trace,
-                    "reasoning_attempts": attempts, "reasoning_raw_response": response}
+                    "reasoning_attempts": attempts, "reasoning_raw_response": response,
+                    "reasoning_paths": [_path_entry(state, parsed, attempts, response)]}
         if not parsed.get("answer"):
             # 解析失败的原始响应必须留证（75-212 字符的失败响应如果只记字符数，
             # 事后无法区分"模型答错"与"解析器漏掉"）。
@@ -548,8 +668,7 @@ def reason_step(state, config):
                     client,
                     messages=[{"role": "user", "content": objective_prompt}],
                     prefix="答案：",
-                    temperature=CONFIG["temperatures"].get(
-                        "objective_reasoning", CONFIG["temperatures"]["reasoning"]),
+                    temperature=objective_temperature,
                     max_tokens=CONFIG["max_tokens"]["objective_reasoning"],
                     logger=deps.logger,
                     time_budget=deps.time_budget,
@@ -600,7 +719,8 @@ def reason_step(state, config):
             final_entry["raw_excerpt"] = _raw_excerpt(response, head=300, tail=500)
         trace.append(final_entry)
         return {"reasoning_result": parsed, "reasoning_trace": trace,
-                "reasoning_attempts": attempts, "reasoning_raw_response": response}
+                "reasoning_attempts": attempts, "reasoning_raw_response": response,
+                "reasoning_paths": [_path_entry(state, parsed, attempts, response)]}
 
     hint = state.get("branch_hint")
     # 复核重试也保留 skill 文档与字段契约（旧实现只发 hint+题面，丢失了学科口径）
@@ -638,7 +758,7 @@ def reason_step(state, config):
                     lambda: chat_with_retry(
                         client,
                         messages=[{"role": "user", "content": prompt}],
-                        temperature=CONFIG["temperatures"]["reasoning"],
+                        temperature=base_temperature,
                         max_tokens=CONFIG["max_tokens"]["reasoning"],
                         logger=deps.logger,
                         time_budget=deps.time_budget,
@@ -702,7 +822,8 @@ def reason_step(state, config):
                           "raw_excerpt": _raw_excerpt(resp)} if exhausted else {})})
         if _is_complete(parsed):
             return {"reasoning_result": parsed, "reasoning_trace": trace,
-                    "reasoning_attempts": attempts, "reasoning_raw_response": resp}
+                    "reasoning_attempts": attempts, "reasoning_raw_response": resp,
+                    "reasoning_paths": [_path_entry(state, parsed, attempts, resp)]}
         # 两种失败需要两种重试。格式失误值得带格式提醒重问一次；Token 耗尽则不然：
         # 难题上模型可能把整个额度花在 reasoning_content 上、一个章节都不输出
         # （曾实测：550s、~30k tokens、analysis_len=0、steps=0），同样的提示会以
@@ -744,10 +865,12 @@ def reason_step(state, config):
                           "response_chars": len(resp or "")})
             if _is_complete(compressed_parsed):
                 return {"reasoning_result": parsed, "reasoning_trace": trace,
-                        "reasoning_attempts": attempts, "reasoning_raw_response": resp}
+                        "reasoning_attempts": attempts, "reasoning_raw_response": resp,
+                        "reasoning_paths": [_path_entry(state, parsed, attempts, resp)]}
             break
         prompt = (base_prompt + "\n\n注意：上一次输出缺少必需章节（必须含 '## 问题分析'、'## 详细解题步骤'、"
                   "'## 最终答案'）。'## 最终答案' 下必须按题面要求完整列出各字段/各问项的结果"
                   "（含检验结论、区间上下限、全部枚举对象等），不得只给单个数值。请重新严格按格式输出。")
     return {"reasoning_result": parsed, "reasoning_trace": trace,
-            "reasoning_attempts": attempts, "reasoning_raw_response": resp}
+            "reasoning_attempts": attempts, "reasoning_raw_response": resp,
+            "reasoning_paths": [_path_entry(state, parsed, attempts, resp)]}
