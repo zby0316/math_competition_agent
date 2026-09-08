@@ -3,8 +3,6 @@
 默认（降级）实现：TF-IDF 字符 n-gram 余弦相似度（本地，不调 API）。
 以后若接入 embedding API，只需替换 encode()/_build()——接口保持不变。
 """
-import re
-
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -19,14 +17,7 @@ class DomainRetrievalIndex:
 
     @staticmethod
     def _extract_summary(skill_doc: str, max_chars: int = 1500) -> str:
-        """标题 + 各级小标题 + 短行（核心概念），总长不超过 max_chars。
-
-        摘要窗口只覆盖文档头部；文末追加的"模块速查"块超出窗口，其检索词行
-        若不入索引，域分类回退的 TF-IDF 排序（classify_domain 确定性回退）
-        永远看不到它们。这里把全文档的检索词行按**反序**（尾部优先）追加
-        预算内的一批——头部术语已由摘要窗口覆盖，反序保证新块（文件尾部）
-        优先进入索引文本。
-        """
+        """标题 + 各级小标题 + 短行（核心概念），总长不超过 max_chars。"""
         lines = skill_doc.splitlines()
         summary = []
         chars = 0
@@ -42,18 +33,7 @@ class DomainRetrievalIndex:
                 chars += len(s)
                 if chars >= max_chars:
                     break
-        text = "\n".join(summary) if summary else skill_doc[:max_chars]
-        extras = []
-        extra_chars = 0
-        for match in reversed(list(re.finditer(r"^-\s*检索词[：:](.+)$", skill_doc, re.MULTILINE))):
-            term_line = match.group(1).strip()
-            extras.append(term_line)
-            extra_chars += len(term_line)
-            if extra_chars >= 800:
-                break
-        if extras:
-            text += "\n" + "\n".join(extras)
-        return text
+        return "\n".join(summary) if summary else skill_doc[:max_chars]
 
     def _build(self):
         cats = self.skills_loader.categories
