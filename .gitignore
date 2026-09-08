@@ -86,3 +86,8 @@ _tmp_*.json
 
 # 本地弱题扫描结果（含标签，合规红线）
 _tmp_sweep/
+
+# 本地 A/B 对照结果（含答案标签，合规红线：不入库）
+ab_new_*.json
+ab_old_*.json
+ab_baseline.py
