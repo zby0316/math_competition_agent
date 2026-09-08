@@ -25,3 +25,6 @@ typing-extensions>=4.9.0
 
 # 结构化 stderr 日志；logging_setup.py 在不可用时回退到标准 logging。
 python-json-logger>=2.0.0
+
+# 图算法（langgraph 传递依赖，显式声明以符合"依赖完整写入"规范）。
+networkx>=3.0

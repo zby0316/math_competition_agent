@@ -58,6 +58,19 @@ def judge_step(state, config):
         )
     if vote_result:
         winner = vote_result["winner_answer"]
+        # 客观题共识答案仍需过归一化与完整性检查（填空空位数），与
+        # objective_direct 快速路径同一道质量闸：两路径一致但答案残缺
+        # （如三空只答一空）不允许锁定。
+        if is_objective_mode(question_mode):
+            norm_winner = normalize_objective_answer(winner, question_mode)
+            if not objective_answer_is_usable(norm_winner, question_mode):
+                vote_result = None
+            elif question_mode == "fill" and not fill_answer_matches_blanks(
+                    norm_winner, state.get("problem", "")):
+                vote_result = None
+            else:
+                winner = norm_winner
+    if vote_result:
         match_result = {
             "status": "match",
             "verdict": True,
