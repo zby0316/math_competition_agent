@@ -123,6 +123,14 @@ def _candidate_pool(state: dict) -> list[_Candidate]:
         candidates.append(_Candidate("reasoning", reasoning_answer, reasoning_evidence))
     if python_answer:
         candidates.append(_Candidate("python", python_answer, python_evidence))
+    # 客观题独立盲复核候选（第二位阅卷教师的独立判断，2026-09-08）。
+    # 无附带证据文本：它的独立性本身就是证据形态，仲裁器按答案本体权衡。
+    review = state.get("objective_review_result") or {}
+    review_answer = _usable_answer(review.get("answer", ""))
+    if review_answer:
+        candidates.append(_Candidate(
+            "review", review_answer,
+            "独立阅卷教师仅凭原题与学科口径重新判断的答案（不含推导文本）。"))
 
     unique = []
     seen = set()

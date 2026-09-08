@@ -10,6 +10,7 @@ CONFIG = {
     # prefill 结果。
     "node_timeouts": {"input": 5, "classifier": 200, "solving": 1150,
                       "reasoning_agent": 1100, "python_agent": 1100,
+                      "objective_review": 120,
                       "python_mcp_execute": 60, "cross_validator": 15,
                       "reconciliation": 10, "arbiter": 150, "coordinator": 420},
     "classifier_confidence_threshold": 0.85,
@@ -78,10 +79,23 @@ CONFIG = {
     # 压到 550s，保证首轮 + 压缩重试(350s 估时) + 余量(250s) 仍能放进 1200s
     # 硬时限（1200-550=650 ≥ 350+250=600），让压缩重试真正可达。
     "first_attempt_timeout_s": 550,
+    # ============ 客观题独立盲复核（移植 ICMA objective_review，2026-09-08） ============
+    # 客观题（choice/true_false/fill）由"第二位独立阅卷教师"不看第一答案、
+    # 只凭原题与学科口径重新判断。两候选一致→0.92 置信直接出厂；不一致→
+    # 交语义仲裁器二选一；复核失败/预算不足→原单候选路径（行为与旧版一致）。
+    # 单题增量：1 次 prefill 调用 ~35s/4096 token，仅客观题。
+    "objective_review": {
+        "enabled": True,
+        "max_tokens": 4096,
+        "expected_call_seconds": 35,
+        "temperature": 0.2,
+        "agree_confidence": 0.92,
+        "disagree_confidence": 0.35,
+    },
     "log_level": "INFO", "log_dir": "logs",
 }
 
 # ============ 版本标记（评测日志/trace 溯源用） ============
 # 每轮代码改动后更新此值；solve() 的 trace 会携带它，配合评测日志的
 # Commit ID 即可确定某次出分对应哪一版代码。
-AGENT_VERSION = "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9 2026-09-03"
+AGENT_VERSION = "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+objrev1 2026-09-08"

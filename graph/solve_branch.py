@@ -1,7 +1,7 @@
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import Send
 from state.agent_state import AgentState
-from nodes import reason_step, verify_step, judge_step
+from nodes import reason_step, verify_step, judge_step, objective_review_step
 from utils.node_guard import node_wrapper
 from utils.question_profile import is_objective_mode
 
@@ -14,6 +14,7 @@ PROOF_SKIP_PYTHON = True
 def build_solve_branch():
     sub = StateGraph(AgentState)
     sub.add_node("reasoning_agent", node_wrapper(reason_step, "reasoning_agent"))
+    sub.add_node("objective_review", node_wrapper(objective_review_step, "objective_review"))
     sub.add_node("python_agent", node_wrapper(verify_step, "python_agent"))
     sub.add_node("cross_validator", node_wrapper(judge_step, "cross_validator"))
 
@@ -32,7 +33,16 @@ def build_solve_branch():
             Send("python_agent", {**state, "branch_hint": state.get("python_retry_hint")}),
         ]
     sub.add_conditional_edges(START, fan_out, ["reasoning_agent", "python_agent"])
-    sub.add_edge("reasoning_agent", "cross_validator")
+    # 客观题：推理 → 独立盲复核 → 交叉验证（复核是第二样本，与推理答案
+    # 在 cross_validator 汇合比对）；其余题型：推理/Python 直入交叉验证。
+    def route_after_reasoning(state, config):
+        if is_objective_mode(state.get("question_mode", "computation")):
+            return "objective_review"
+        return "cross_validator"
+    sub.add_conditional_edges("reasoning_agent", route_after_reasoning,
+                              {"objective_review": "objective_review",
+                               "cross_validator": "cross_validator"})
+    sub.add_edge("objective_review", "cross_validator")
     sub.add_edge("python_agent", "cross_validator")
     sub.add_edge("cross_validator", END)
     return sub.compile()

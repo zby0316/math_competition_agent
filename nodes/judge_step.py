@@ -35,6 +35,86 @@ def judge_step(state, config):
         candidate = normalize_objective_answer(reasoning_result.get("answer", ""), question_mode)
         if not objective_answer_is_usable(candidate, question_mode):
             candidate = normalize_objective_answer(python_output.get("answer", ""), question_mode)
+        # 独立盲复核候选（第二位阅卷教师，2026-09-08）：双样本一致→高置信
+        # 出厂；不一致→语义仲裁二选一（仲裁器候选池可见 review 候选）；
+        # 复核不可用→原单候选路径，行为与旧版完全一致。
+        review = state.get("objective_review_result") or {}
+        review_candidate = normalize_objective_answer(
+            review.get("answer", ""), question_mode) if review.get("answer") else ""
+        review_usable = bool(review_candidate) \
+            and objective_answer_is_usable(review_candidate, question_mode)
+        if review_usable and question_mode == "fill" \
+                and not fill_answer_matches_blanks(review_candidate, state.get("problem", "")):
+            review_usable = False
+        if review_usable and objective_answer_is_usable(candidate, question_mode):
+            if review_candidate == candidate:
+                blank_gap = question_mode == "fill" and not fill_answer_matches_blanks(
+                    candidate, state.get("problem", ""))
+                match_result = {
+                    "status": "match",
+                    "verdict": True,
+                    "comparison_verdict": True,
+                    "confidence": 0.92,
+                    "reason": f"客观题双样本一致（推理与独立复核均为同一{question_mode}答案）",
+                    "method": "objective_review_agreement",
+                    "problem_type": question_mode,
+                    "text_similarity": 1.0,
+                    "matched_fields": [],
+                    "mismatched_fields": [],
+                    "field_coverage": 0.5 if blank_gap else 1.0,
+                    "routing_reason": "objective_review_agreement",
+                }
+                return {
+                    "validation_status": "match",
+                    "validation_details": match_result,
+                    "validated_answer": candidate,
+                    "next_node": "coordinator",
+                    "objective_review_result": review,
+                    "python_output": python_output,
+                    "python_evidence_status": python_output.get("evidence_status", "inconclusive"),
+                    "python_evidence_summary": python_output.get("evidence_summary", ""),
+                    "python_contradictions": list(python_output.get("contradictions") or []),
+                    "validation_history": [{
+                        "round": state.get("reconciliation_round", 0),
+                        "status": "match",
+                        "reason": "objective_review_agreement",
+                    }],
+                }
+            # 双样本不一致：语义仲裁二选一。仲裁器只能选既有候选、可弃权——
+            # 不会比直接采信任一单样本更糟。
+            match_result = {
+                "status": "uncertain",
+                "verdict": None,
+                "comparison_verdict": None,
+                "confidence": 0.35,
+                "reason": "客观题双样本不一致，交语义仲裁二选一",
+                "method": "objective_review_disagreement",
+                "problem_type": question_mode,
+                "text_similarity": 0.0,
+                "matched_fields": [],
+                "mismatched_fields": [],
+                "field_coverage": 0.0,
+                "routing_reason": "objective_review_disagreement",
+            }
+            return {
+                "validation_status": "uncertain_arbitrating",
+                "validation_details": match_result,
+                "validated_answer": "",
+                "next_node": "arbiter",
+                "objective_review_result": review,
+                "python_output": python_output,
+                "python_evidence_status": python_output.get("evidence_status", "inconclusive"),
+                "python_evidence_summary": python_output.get("evidence_summary", ""),
+                "python_contradictions": list(python_output.get("contradictions") or []),
+                "validation_history": [{
+                    "round": state.get("reconciliation_round", 0),
+                    "status": "uncertain_arbitrating",
+                    "reason": "objective_review_disagreement",
+                }],
+            }
+        if review_usable:
+            # 主候选不可用而复核可用：复核答案顶上，走原 objective_direct 语义
+            candidate = review_candidate
         if objective_answer_is_usable(candidate, question_mode):
             blank_gap = question_mode == "fill" and not fill_answer_matches_blanks(
                 candidate, state.get("problem", ""))

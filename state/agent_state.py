@@ -34,6 +34,9 @@ class AgentState(TypedDict):
     python_evidence_status: NotRequired[str]
     python_evidence_summary: NotRequired[str]
     python_contradictions: NotRequired[List[str]]
+    # 客观题独立盲复核（第二位阅卷教师，2026-09-08）
+    objective_review_result: NotRequired[Optional[Dict[str, Any]]]
+    objective_review_trace: NotRequired[List[Dict]]
     # 验证阶段
     validation_status: NotRequired[str]
     validation_details: NotRequired[Dict[str, Any]]
