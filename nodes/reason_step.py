@@ -615,6 +615,19 @@ def reason_step(state, config):
     clock = deps.time_budget
     if clock and clock.fast_path():
         max_attempts = 1
+    # 学习圈（study_circle，移植 multiface 同族管道 72.32 分仓）：计算题首轮用
+    # "独立学生 + 隔离参考学生 + 证据裁判（禁止多数票）"替换单次推理。config
+    # 默认关（enabled=False = 69.64 原版行为）；hint 复核重试仍走下方原路径；
+    # 无可答候选或课堂异常时回落单智能体，行为与未开启时完全一致。
+    if CONFIG.get("study_circle", {}).get("enabled") and not (clock and clock.fast_path()):
+        from nodes.study_circle import run_study_circle
+        try:
+            classroom = run_study_circle(state, config)
+        except Exception as exc:  # noqa: BLE001
+            deps.logger.warning("Study circle failed, fallback to single agent: %s", exc)
+            classroom = None
+        if classroom and _is_complete(classroom.get("reasoning_result", {})):
+            return classroom
     for _ in range(max_attempts):
         # 重试额度按上一轮实际成本核拨，而不是按"时间还没用完"核拨。否则会出现在
         # 只剩 349s 时又批准一次 545s 的尝试，超 deadline 198s 且最终无答案

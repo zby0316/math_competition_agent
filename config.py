@@ -78,6 +78,21 @@ CONFIG = {
     # 压到 550s，保证首轮 + 压缩重试(350s 估时) + 余量(250s) 仍能放进 1200s
     # 硬时限（1200-550=650 ≥ 350+250=600），让压缩重试真正可达。
     "first_attempt_timeout_s": 550,
+    # ============ 学习圈 study_circle（移植 multiface 同族管道 2026-09-09） ============
+    # 计算题首轮用"独立学生 + 隔离参考学生 + 证据裁判（禁止多数票）"替换单次
+    # 推理调用。enabled=False 即 69.64 原版行为（零行为变化）；学生并行 ~230s
+    # + 裁判 ~160s ≈ 原单次推理墙钟，不额外拉长官方 6h 总预算。hint 复核重试、
+    # 时间紧张（fast_path）、无可答候选时自动回落原单智能体路径。
+    "study_circle": {
+        "enabled": False,
+        "max_students": 3,
+        "student_temperature": 0.75,
+        "student_max_tokens": 16384,
+        "student_expected_s": 230,
+        "debate_temperature": 0.2,
+        "debate_max_tokens": 8192,
+        "debate_expected_s": 160,
+    },
     "log_level": "INFO", "log_dir": "logs",
 }
 
