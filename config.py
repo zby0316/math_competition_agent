@@ -84,7 +84,7 @@ CONFIG = {
     # + 裁判 ~160s ≈ 原单次推理墙钟，不额外拉长官方 6h 总预算。hint 复核重试、
     # 时间紧张（fast_path）、无可答候选时自动回落原单智能体路径。
     "study_circle": {
-        "enabled": False,
+        "enabled": True,
         "max_students": 3,
         "student_temperature": 0.75,
         "student_max_tokens": 16384,
@@ -99,4 +99,4 @@ CONFIG = {
 # ============ 版本标记（评测日志/trace 溯源用） ============
 # 每轮代码改动后更新此值；solve() 的 trace 会携带它，配合评测日志的
 # Commit ID 即可确定某次出分对应哪一版代码。
-AGENT_VERSION = "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+study-circle(off) 2026-09-09"
+AGENT_VERSION = "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+study-circle(on) 2026-09-10"
