@@ -8,6 +8,7 @@ logs/
 outputs/
 sample_outputs/
 *.log
+.zcode/
 
 # 本地调试/评测工件，不随系统仓库发布
 test/
@@ -71,3 +72,16 @@ _archive/
 overview.md
 bench_hard12_results.json
 smoke_2.json
+
+# 本地离线评测集与 A/B 工件（含标准答案标签，严禁入库——官方规则：禁止
+# 读取/打包测试集标准答案；`git add -A` 会把它们一并加入，故在此显式忽略）
+test_sets/
+_tmp_ab/
+_tmp_sweep/
+_tmp_*.json
+ab_*.py
+ab_*.json
+bank112.jsonl
+eval_112.json
+eval_112.jsonl
+本地评测资产_*/

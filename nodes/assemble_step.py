@@ -1,3 +1,5 @@
+import re
+
 from utils.deps import get_deps
 from utils.answer_sanitize import extract_partial_findings, is_junk
 from utils.response_builder import (
@@ -157,7 +159,116 @@ def _emergency_direct_answer(state: dict, deps) -> str:
     return answer
 
 
+_ANSWER_LINE_RE = re.compile(r"^(最终答案|结论)[：:]\s*(.*)$", re.DOTALL)
+_STEPS_SEP = "\n\n关键步骤："
+
+
+def _answer_block_value(final: str) -> str:
+    """final_response 中答案块的取值（'最终答案：' 之后、'关键步骤：' 之前）。"""
+    head = final.split(_STEPS_SEP, 1)[0].strip()
+    match = _ANSWER_LINE_RE.search(head)
+    return (match.group(2) if match else head).strip()
+
+
+def _replace_answer_value(final: str, value: str) -> str:
+    """只重写答案行的取值，其余文本（关键步骤/部分结论）原样保留。"""
+    head, sep, tail = final.partition(_STEPS_SEP)
+    stripped = head.strip()
+    match = _ANSWER_LINE_RE.search(stripped)
+    if match:
+        return f"{match.group(1)}：{value}" + (sep + tail if sep else "")
+    # 无答案前缀的部分结论体裁：可判分的答案前置，原文降为次要信息。
+    return f"最终答案：{value}\n\n{stripped}" + (sep + tail if sep else "")
+
+
+_PROSE_MARKERS_RE = re.compile(
+    r"(?:\b(?:the|we|let|note|since|assume|case|now|then|hence|therefore|observe|"
+    r"consider|first|second|third|because|thus|so|if|is|are|be|will|would|should)\b"
+    r"|的|是|为|与|和|即|则|故|且|在|把|被|使|得|从|向|由|而)", re.IGNORECASE)
+
+
+def _looks_truncated_prose(s: str) -> bool:
+    """截断的推理散文/残段：没有具体数值答案，却是句子体裁。
+
+    实测残片（"First, note that if X i"、"n (all ones). The game"、"满足条件的
+    $(m,n)$ 中 $m+n$ 的"）都逃过了既有噪声门：它们不是垃圾，只是没写完、也没
+    交出任何可抽取的值。判分侧从这类文本里取不到答案。反过来，"恒为 0"、
+    "最小总费用为 4202432 硬币" 这类含具体数值的结论必须放行（它们是合法交付）。
+    """
+    if not s:
+        return True
+    if re.search(r"\d", s):
+        return False                      # 含具体数值 → 判分侧可抽取
+    if len(s) <= 24 and not re.search(r"[，。；：,.!?！？]", s):
+        return False                      # 短符号答案（"Y = M"、"Z"）
+    return bool(_PROSE_MARKERS_RE.search(s))
+
+
+def _answer_line_usable(value: str) -> bool:
+    """答案行是否可判分：非空、非占位、非噪声碎片、非截断残片/散文残段。"""
+    s = (value or "").strip()
+    if not s:
+        return False
+    if is_placeholder_answer(s) or is_junk(s) or looks_incomplete_answer(s):
+        return False
+    return not _looks_truncated_prose(s)
+
+
+def _best_held_answer(state: dict) -> str:
+    """已持有的确定性产物中最可判分的一个（不花 LLM 时间）。"""
+    from utils.output_miner import mine_stdout_answer
+
+    rr = state.get("reasoning_result") or {}
+    po = state.get("python_output") or {}
+    for candidate in (
+        str(po.get("answer") or "").strip(),
+        mine_stdout_answer(str(po.get("stdout") or "")),
+        recover_verdict_sentence(rr.get("analysis", "")),
+        recover_verdict_sentence(state.get("reasoning_raw_response") or ""),
+    ):
+        text = (candidate or "").strip()
+        if text and _answer_line_usable(text):
+            return text
+    return ""
+
+
+def _deliver_guard(result, state: dict, deps, ptype: str):
+    """答案行不可判分时的最后补救（计算/客观题）。
+
+    截断残片（"First, note that if X i"、"满足条件的 $(m,n)$ 中 $m+n$ 的"）与
+    噪声碎片曾整题出厂——判分侧取不到答案，等于把已经算出的结论扔掉。这里只在
+    "答案行本身不可判分"时介入：先用已持有的确定性产物（Python 答案/stdout
+    挖掘/结论回捞）替换答案行，仍不可用才花一次 ~30s 种子直答；其余文本
+    （arbiter 选中的原文、关键步骤、部分结论）原样保留为次要信息。证明题的
+    结论体裁不同，不经此门。
+    """
+    if ptype == "proof" or not isinstance(result, dict):
+        return result
+    final = result.get("final_response")
+    if not isinstance(final, str) or not final.strip():
+        return result
+    value = _answer_block_value(final)
+    if _answer_line_usable(value):
+        return result
+    recovered = _best_held_answer(state) or _emergency_direct_answer(state, deps)
+    if not recovered:
+        return result
+    deps.logger.warning(
+        "Answer line unusable (%.60s); recovered as: %.60s", value or "<empty>", recovered)
+    guarded = dict(result)
+    guarded["final_response"] = _replace_answer_value(final, recovered)
+    source = guarded.get("fallback_source") or "coordinator_llm"
+    guarded["fallback_source"] = f"{source}+answer_line_recovery"
+    return guarded
+
+
 def assemble_step(state, config):
+    deps = get_deps(config)
+    ptype = (state.get("validation_details") or {}).get("problem_type", "computation")
+    return _deliver_guard(_assemble_step(state, config), state, deps, ptype)
+
+
+def _assemble_step(state, config):
     deps = get_deps(config)
     client = deps.client
     budget = deps.token_budget
