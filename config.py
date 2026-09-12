@@ -78,10 +78,17 @@ CONFIG = {
     # 压到 550s，保证首轮 + 压缩重试(350s 估时) + 余量(250s) 仍能放进 1200s
     # 硬时限（1200-550=650 ≥ 350+250=600），让压缩重试真正可达。
     "first_attempt_timeout_s": 550,
+    # ============ 候选健康度体检（移植 ICMA 99.11 保守版，2026-09-12） ============
+    # 仲裁池准入过滤：只排除确定性硬伤候选（NaN/inf、非负语义题负数答案、
+    # 填空空位数不足），不参与答案改写；体检异常一律放行。enabled=False 即
+    # 原版行为。
+    "candidate_health": {
+        "enabled": True,
+    },
     "log_level": "INFO", "log_dir": "logs",
 }
 
 # ============ 版本标记（评测日志/trace 溯源用） ============
 # 每轮代码改动后更新此值；solve() 的 trace 会携带它，配合评测日志的
 # Commit ID 即可确定某次出分对应哪一版代码。
-AGENT_VERSION = "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9 2026-09-03"
+AGENT_VERSION = "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+candidate-health 2026-09-12"

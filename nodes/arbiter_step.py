@@ -126,12 +126,32 @@ def _candidate_pool(state: dict) -> list[_Candidate]:
 
     unique = []
     seen = set()
+    problem_text = state.get("problem", "")
+    question_mode = state.get("question_mode", "computation")
+    health_enabled = True
+    try:
+        from config import CONFIG as _CFG
+        health_enabled = bool(_CFG.get("candidate_health", {}).get("enabled", True))
+    except Exception:  # noqa: BLE001 - 配置缺失时保持启用（确定性过滤无副作用）。
+        pass
     for candidate in candidates:
         # 裸"无解"断言且证据中没有任何排除性论证（矛盾推导）时，若池中还有
         # 实质内容候选，则该断言无证伪能力，不得参与仲裁。
         if _is_bare_no_solution(candidate.answer) \
                 and not _CONTRADICTION_EVIDENCE_RE.search(candidate.evidence or ""):
             continue
+        # 候选健康度体检（移植 ICMA 99.11 保守版）：只排除"确定性硬伤"候选
+        # （NaN/inf、非负语义题的负数答案、填空空位数不足），不参与答案改写。
+        if health_enabled:
+            from utils.candidate_health import assess_candidate_health
+            try:
+                health = assess_candidate_health(
+                    candidate.answer, question_mode=question_mode,
+                    problem=problem_text, evidence=candidate.evidence or "")
+            except Exception:  # noqa: BLE001 - 体检异常时放行，绝不因体检阻塞仲裁。
+                health = {"status": "ok"}
+            if health.get("status") == "fail":
+                continue
         key = re.sub(r"\s+", " ", candidate.answer).strip().rstrip("。.")
         if key and key not in seen:
             seen.add(key)
