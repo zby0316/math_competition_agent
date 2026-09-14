@@ -128,7 +128,7 @@ def grade(problem: str, final_response: str, expected: str) -> tuple:
         return False, f"grader_error: {exc}"
 
 
-def run_one(idx: int, problem: str, expected: str, agent) -> dict:
+def run_one(idx: int, problem: str, expected: str, agent, trace_dir: str = "") -> dict:
     """求解单题并判分。单题超时由 pipeline 自带的 TimeBudget(1200s) 约束。"""
     started = time.time()
     try:
@@ -139,6 +139,17 @@ def run_one(idx: int, problem: str, expected: str, agent) -> dict:
                 "predicted": "", "expected": expected}
     predicted = result.get("final_response", "")
     ok, reason = grade(problem, predicted, expected)
+    # 可选：完整 trace 落盘（本地诊断用，默认关）。失败聚类需要知道"交付答案
+    # 来自哪条候选/哪层搜救"，单行探针不够支撑定点修复。
+    if trace_dir:
+        try:
+            trace_path = Path(trace_dir)
+            trace_path.mkdir(parents=True, exist_ok=True)
+            (trace_path / f"{idx}.json").write_text(
+                json.dumps(result.get("trace", []), ensure_ascii=False, indent=1),
+                encoding="utf-8")
+        except Exception:  # noqa: BLE001 - 诊断落盘失败不影响评测
+            pass
     return {
         "idx": idx, "ok": ok, "reason": reason,
         "elapsed_s": round(time.time() - started, 1),
@@ -155,6 +166,8 @@ def main():
     parser.add_argument("--idx", default="", help="逗号分隔的题号，覆盖 --limit")
     parser.add_argument("--concurrency", type=int, default=1)
     parser.add_argument("--out", default="eval_results.json")
+    parser.add_argument("--dump-traces", default="",
+                        help="给定目录时把每题完整 trace 落盘（本地诊断用，默认关）")
     args = parser.parse_args()
 
     env = load_env()
@@ -183,7 +196,7 @@ def main():
         idx = row.get("idx", -1)
         problem = row.get("problem", "")
         expected = row.get("answer", "")
-        rec = run_one(idx, problem, expected, agent)
+        rec = run_one(idx, problem, expected, agent, trace_dir=args.dump_traces)
         print(f"[{'OK' if rec['ok'] else 'X '}] idx={idx} "
               f"{rec['elapsed_s']}s  {rec['reason']}", flush=True)
         done[str(idx)] = rec
