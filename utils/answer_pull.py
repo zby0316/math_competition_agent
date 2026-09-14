@@ -104,6 +104,29 @@ _UNUSABLE_ANSWER_RE = re.compile(
     r"(?:示例数据|模拟数据|假设数据|替换.*真实数据|未提供.*数据|缺少.*数据)",
     re.IGNORECASE,
 )
+#: 过程状态词（英/中）。只收"状态报告"语义，不收普通数学词，降低误杀。
+_NARRATION_RE = re.compile(
+    r"(?i)\b(worked|works|perfectly|consistency\s+check|checks?\s+out|verified|"
+    r"validation|all\s+checks)\b|"
+    r"(验证通过|核对一致|完全吻合|完全一致|检查通过|复核通过|通过验证|校验通过)"
+)
+
+
+def looks_like_process_narration(text: str) -> bool:
+    """句子是否在描述"验证/检查过程的结果"，而不是答案本身。
+
+    行级搜救（payload_line）把"带数学载荷的行"当候选答案，于是复核叙述会被当
+    答案交付——实测 idx 7 交付了英文复核自述
+    "The consistency check $f(1/3)=0$ (L=2), … worked perfectly"（期望 1）。
+    这类句子对判分无价值，还会挤掉本可采用的其他候选。
+
+    只在搜救层使用（四章节/结论速览等结构化来源不经过此门）；阈值保守：
+    短文本（真正的短答案）一律放行，只拦带过程状态词的长叙述。
+    """
+    body = str(text or "").strip()
+    if len(body) < 40:
+        return False
+    return bool(_NARRATION_RE.search(body))
 
 
 def looks_incomplete_answer(answer: str) -> bool:

@@ -3,9 +3,11 @@
 从 nodes/judge_step.py 抽出，消除 utils -> nodes 的反向导入（层级倒挂）。
 node_guard（utils 层）与 judge_step（nodes 层）共用同一套选择逻辑。
 """
+from config import CONFIG
 from utils.answer_pull import is_multi_part_problem, looks_incomplete_answer
 from utils.answer_schema import answer_part_count, missing_components
 from utils.cot_trim import is_placeholder_answer
+from utils.evidence_scorer import collect_flags
 from utils.question_profile import is_objective_mode, normalize_objective_answer, objective_answer_is_usable
 
 
@@ -38,6 +40,19 @@ def preferred_answer(state, match_result):
         return ""
     evidence_status = po.get("evidence_status", "")
     fabricated = bool((po.get("authenticity") or {}).get("fabricated"))
+    # 证据评分（确定性，零新增调用）：只在交叉验证"判不出来"的场景生效——
+    # uncertain/mismatch 正是历史上最集中的失败簇（逐题诊断 46/83 卡在此处、
+    # 最终交给 LLM 仲裁）。评分持平或证据缺失时一律回落下面的原有逻辑，
+    # 保证行为变化只发生在证据不对称的少数题上、可归因可回退。
+    if (CONFIG.get("evidence_select", False)
+            and match_result.get("status") in ("uncertain", "mismatch")
+            and reasoning_ok and python_ok
+            and not looks_incomplete_answer(python_answer)):
+        flags = collect_flags(state, match_result)
+        score_reasoning = flags["reasoning"]["evidence_score"]
+        score_python = flags["python"]["evidence_score"]
+        if score_reasoning != score_python:
+            return reasoning_answer if score_reasoning > score_python else python_answer
     if evidence_status == "contradict" and python_answer and not fabricated:
         if not looks_incomplete_answer(python_answer):
             if not _same_scalar_or_text(python_answer, reasoning_answer):

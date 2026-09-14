@@ -76,6 +76,25 @@ class ReasoningAgent:
             rr = state.get("reasoning_result") or {}
             po = state.get("python_output") or {}
             details = state.get("validation_details") or {}
+            # 纠错引擎诊断：证据评分（开 evidence_select 时才有值）与盲目复核状态
+            # （是否触发、是否被采纳）。缺失一律打 "-"，保持单行格式稳定。
+            ev = ""
+            try:
+                from config import CONFIG as _C
+                from utils.evidence_scorer import collect_flags as _cf
+
+                if _C.get("evidence_select"):
+                    _f = _cf(state, details)
+                    ev = (f"{_f['reasoning']['evidence_score']:+.1f}/"
+                          f"{_f['python']['evidence_score']:+.1f}")
+            except Exception:  # noqa: BLE001 - 探针永不干扰主流程
+                ev = ""
+            recheck_state = "-"
+            if state.get("recheck_result"):
+                recheck_state = "ran"
+            elif state.get("recheck_trace"):
+                first = (state.get("recheck_trace") or [{}])[0]
+                recheck_state = f"skip:{first.get('reason', '?')}"
             finish = ""
             raw_resp = state.get("reasoning_raw_response") or ""
             finish = getattr(raw_resp, "finish_reason", None) or ""
@@ -91,6 +110,8 @@ class ReasoningAgent:
                 f"round={state.get('reconciliation_round', 0)} "
                 f"att={state.get('reasoning_attempts', '?')} "
                 f"py={po.get('success', '?')}/{po.get('evidence_status', '-')} "
+                + (f"ev={ev} " if ev else "")
+                + f"rck={recheck_state} "
                 f"fin={finish} "
                 f"len={len(str(state.get('final_response', '') or ''))}"
             )

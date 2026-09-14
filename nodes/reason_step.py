@@ -2,12 +2,13 @@ import re
 from utils.deps import get_deps
 from utils.guard_ceiling import NodeTimeoutError, run_with_timeout
 from utils.llm_retry_guard import chat_prefilled, chat_with_retry
-from utils.prompt_bank import REASONING_PROMPT
+from utils.prompt_bank import DOUBLE_CHECK_CLAUSE, REASONING_PROMPT
 from utils.score_budget import estimate_tokens
 from utils.answer_pull import (
     extract_answer_fallback_with_source,
     looks_incomplete_answer,
     looks_like_latex_fragment,
+    looks_like_process_narration,
 )
 from utils.verdict_salvage import recover_verdict_sentence
 from utils.answer_sanitize import extract_partial_findings
@@ -88,7 +89,8 @@ def _parse_reasoning_output(response, question_mode="computation"):
                 break
     if not r["answer"]:
         salvaged = recover_verdict_sentence(raw if isinstance(raw, str) else response)
-        if salvaged:
+        if salvaged and not (CONFIG.get("narration_gate", False)
+                             and looks_like_process_narration(salvaged)):
             r["answer"] = salvaged
             r["answer_source"] = "salvaged_prose"
     if is_objective_mode(question_mode) and r["answer"]:
@@ -113,6 +115,10 @@ def _reject_bad_answer(answer):
     answer = (answer or "").strip()
     if is_placeholder_answer(answer) or looks_like_latex_fragment(answer) \
             or looks_incomplete_answer(answer) or is_junk(answer):
+        return ""
+    if CONFIG.get("narration_gate", False) and looks_like_process_narration(answer):
+        # 搜救层把"复核过程自述"当答案交付（实测 idx 7：英文复核叙述被当最终
+        # 答案）。交付非答案对判分无价值，还会挤掉本可采用的其他候选。
         return ""
     return answer
 
@@ -422,6 +428,9 @@ def reason_step(state, config):
         problem=problem)
     base_prompt += mode_instruction(question_mode)
     base_prompt += structure_instruction(problem)
+    if CONFIG.get("double_count_check", False):
+        # 双法互证协议（开关门控；关闭时提示词与旧版逐字一致）。
+        base_prompt += DOUBLE_CHECK_CLAUSE
     # 压缩重试要压的是推导篇幅，不是答案该覆盖的分支（曾出现漏值事故）。
     coverage_clause = answer_coverage_clause(problem)
 

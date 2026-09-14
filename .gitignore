@@ -63,6 +63,15 @@ grade_quiz.py
 scripts_grade_quiz.py
 overview.md
 
+# 本地评测题集与 A/B 工件（含答案标签，严禁入库/入包）
+test_sets/
+_tmp_ab/
+_tmp_sweep/
+_tmp_*.json
+_ab_*.json
+ab_*.json
+ab_*.py
+
 # 本地工作区数据/归档/参考资料（不入库）
 _archive/
 .workbuddy/
@@ -71,3 +80,7 @@ _archive/
 overview.md
 bench_hard12_results.json
 smoke_2.json
+
+# 本地分析笔记（可能含答案值，严禁入库）
+_tmp_*.md
+_ab_*.md

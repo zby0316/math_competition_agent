@@ -4,5 +4,6 @@ from .reason_step import reason_step
 from .verify_step import verify_step
 from .judge_step import judge_step
 from .refine_loop import refine_loop
+from .recheck_step import recheck_step
 from .assemble_step import assemble_step
 from .arbiter_step import arbiter_step

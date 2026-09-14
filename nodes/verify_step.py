@@ -8,7 +8,7 @@ import re
 from utils.deps import get_deps
 from utils.guard_ceiling import NodeTimeoutError, run_with_timeout
 from utils.llm_retry_guard import chat_prefilled, chat_with_retry
-from utils.prompt_bank import PYTHON_PROMPT
+from utils.prompt_bank import PYTHON_PROMPT, PY_DOUBLE_CHECK_CLAUSE
 from utils.score_budget import estimate_tokens
 from utils.cot_trim import strip_cot_prefix
 from utils.retry_pricing import can_afford_retry, last_attempt_cost
@@ -220,6 +220,9 @@ def verify_step(state, config):
         validation_script=select_script_excerpt(validation_script, problem, 2000),
         problem=problem, category=category)
     base_prompt += structure_instruction(problem)
+    if CONFIG.get("double_count_check", False):
+        # 与推理分支的双法互证协议配套：验证代码也要两法互证（开关门控）。
+        base_prompt += PY_DOUBLE_CHECK_CLAUSE
     # 技能手册的速查条目（题型方法论）与验证示例互补：前者决定"算什么/怎么建模"，
     # 后者给"怎么写验证代码"。同一素材源推理分支已在读，这里用小额度共享。
     try:

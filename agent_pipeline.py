@@ -3,9 +3,17 @@ from state.agent_state import AgentState
 from graph.solve_branch import build_solve_branch
 from nodes import (
     parse_input, classify_domain, refine_loop, arbiter_step,
-    assemble_step,
+    assemble_step, recheck_step,
 )
 from utils.node_guard import node_wrapper
+
+
+def _recheck_enabled() -> bool:
+    """复核开关。关闭时路由直接走 arbiter，与旧版图结构逐边一致。"""
+    from config import CONFIG
+
+    return bool((CONFIG.get("recheck") or {}).get("enabled", False))
+
 
 def build_agent_pipeline():
     g = StateGraph(AgentState)
@@ -13,6 +21,7 @@ def build_agent_pipeline():
     g.add_node("classifier", node_wrapper(classify_domain, "classifier"))
     g.add_node("solving", build_solve_branch())
     g.add_node("reconciliation", node_wrapper(refine_loop, "reconciliation"))
+    g.add_node("recheck", node_wrapper(recheck_step, "recheck"))
     g.add_node("arbiter", node_wrapper(arbiter_step, "arbiter"))
     g.add_node("coordinator", node_wrapper(assemble_step, "coordinator"))
 
@@ -24,21 +33,30 @@ def build_agent_pipeline():
         if state.get("should_terminate", False):
             return "coordinator"
         requested = state.get("next_node")
+        if requested == "arbiter" and _recheck_enabled():
+            # 盲复核只插在"要去仲裁"这条路上：先取第三方证据，再仲裁。
+            return "recheck"
         if requested in {"reconciliation", "arbiter"}:
             return requested
         return "coordinator"
     g.add_conditional_edges("solving", route_after_solving,
                             {"coordinator": "coordinator", "reconciliation": "reconciliation",
-                             "arbiter": "arbiter"})
+                             "recheck": "recheck", "arbiter": "arbiter"})
 
     def route_after_reconciliation(state, config):
         requested = state.get("next_node")
+        if requested == "arbiter" and _recheck_enabled():
+            return "recheck"
         if requested in {"solving", "arbiter"}:
             return requested
         return "coordinator"
     g.add_conditional_edges("reconciliation", route_after_reconciliation,
-                            {"solving": "solving", "arbiter": "arbiter",
-                             "coordinator": "coordinator"})
+                            {"solving": "solving", "recheck": "recheck",
+                             "arbiter": "arbiter", "coordinator": "coordinator"})
+
+    def route_after_recheck(state, config):
+        return "arbiter"
+    g.add_conditional_edges("recheck", route_after_recheck, {"arbiter": "arbiter"})
 
     def route_after_arbiter(state, config):
         return "reconciliation" if state.get("next_node") == "reconciliation" else "coordinator"
