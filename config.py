@@ -91,6 +91,10 @@ CONFIG = {
     # 不直接覆盖候选（"只增不改"）。关闭时路由不经过该节点、与旧版图结构一致。
     "recheck": {"enabled": False, "min_budget_s": 600, "timeout_s": 420,
                 "max_tokens": 8192, "temperature": 0.7},
+    # 搜救层叙述门：行级搜救/散文捞回把"复核过程自述"当答案时不予交付
+    # （实测交付过 "The consistency check … worked perfectly" 这类句子，期望答案
+    # 是 1）。只作用于搜救来源，四章节/结论速览等结构化来源不受影响。
+    "narration_gate": False,
     "log_level": "INFO", "log_dir": "logs",
 }
 

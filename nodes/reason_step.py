@@ -8,6 +8,7 @@ from utils.answer_pull import (
     extract_answer_fallback_with_source,
     looks_incomplete_answer,
     looks_like_latex_fragment,
+    looks_like_process_narration,
 )
 from utils.verdict_salvage import recover_verdict_sentence
 from utils.answer_sanitize import extract_partial_findings
@@ -88,7 +89,8 @@ def _parse_reasoning_output(response, question_mode="computation"):
                 break
     if not r["answer"]:
         salvaged = recover_verdict_sentence(raw if isinstance(raw, str) else response)
-        if salvaged:
+        if salvaged and not (CONFIG.get("narration_gate", False)
+                             and looks_like_process_narration(salvaged)):
             r["answer"] = salvaged
             r["answer_source"] = "salvaged_prose"
     if is_objective_mode(question_mode) and r["answer"]:
@@ -113,6 +115,10 @@ def _reject_bad_answer(answer):
     answer = (answer or "").strip()
     if is_placeholder_answer(answer) or looks_like_latex_fragment(answer) \
             or looks_incomplete_answer(answer) or is_junk(answer):
+        return ""
+    if CONFIG.get("narration_gate", False) and looks_like_process_narration(answer):
+        # 搜救层把"复核过程自述"当答案交付（实测 idx 7：英文复核叙述被当最终
+        # 答案）。交付非答案对判分无价值，还会挤掉本可采用的其他候选。
         return ""
     return answer
 
