@@ -80,3 +80,7 @@ _archive/
 overview.md
 bench_hard12_results.json
 smoke_2.json
+
+# 本地分析笔记（可能含答案值，严禁入库）
+_tmp_*.md
+_ab_*.md
