@@ -123,6 +123,25 @@ def _candidate_pool(state: dict) -> list[_Candidate]:
         candidates.append(_Candidate("reasoning", reasoning_answer, reasoning_evidence))
     if python_answer:
         candidates.append(_Candidate("python", python_answer, python_evidence))
+    # 盲目独立复核的产出作为第三候选参加仲裁（只看答案文本能否独立提交）：
+    # 它不看任何既有答案、走另一条方法路径，是与前两路去相关的独立证据。
+    recheck = state.get("recheck_result") or {}
+    recheck_answer = _usable_answer(recheck.get("answer", ""))
+    if recheck_answer:
+        recheck_steps = "\n".join(
+            f"步骤{s.get('step_num', '')}: {s.get('description', '')}"
+            for s in (recheck.get("steps") or [])
+        )
+        recheck_evidence = (
+            "本题为「盲目独立复核」产出：复核过程不参考任何既有答案、"
+            "被要求换一条方法路径重新推导，因此与前两路相关性低。\n"
+            + "\n".join(part for part in (
+                _bounded(recheck.get("analysis", ""), 4000),
+                _bounded(recheck_steps, 3000),
+                _bounded(recheck.get("raw_excerpt", ""), 2000),
+            ) if part.strip())
+        )
+        candidates.append(_Candidate("recheck", recheck_answer, recheck_evidence))
 
     unique = []
     seen = set()

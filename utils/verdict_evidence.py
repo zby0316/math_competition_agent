@@ -14,11 +14,15 @@ import re
 
 from utils.output_miner import mine_stdout_answer
 from utils.verdict_authenticity import assess_verification_authenticity
+from utils.evidence_scorer import parse_python_flags
 
 
 _STATUS_RE = re.compile(
     r"验证状态\s*[:：]\s*(PASS|FAIL|INCONCLUSIVE)", re.IGNORECASE
 )
+#: 结构化旗标行本身含 "counterexample=0/1" 之类的字样，绝不能被下面的反例扫描
+#: 当成矛盾证据（否则每一次遵守旗标契约的验证都会被误判成 contradict）。
+_FLAG_LINE_RE = re.compile(r"验证旗标\s*[:：]")
 _EVIDENCE_RE = re.compile(r"验证证据\s*[:：]\s*(.+)", re.IGNORECASE)
 _MAX_RATIO_RE = re.compile(
     r"(?i)(?:maximum|max(?:imum)?|最大(?:值|比值)?|ratio|f\s*\(\s*n\s*\)\s*/\s*n)"
@@ -71,7 +75,7 @@ def parse_verification_evidence(
 
     contradictions = []
     for line in stdout.splitlines():
-        if _STATUS_RE.search(line):
+        if _STATUS_RE.search(line) or _FLAG_LINE_RE.search(line):
             continue
         if _CONTRADICTION_RE.search(line):
             text = line.strip()
@@ -122,5 +126,8 @@ def parse_verification_evidence(
         "contradictions": contradictions,
         "evidence_marker": bool(marker),
         "authenticity": authenticity,
+        # 结构化验证旗标（substitution/all_cases/counterexample/passed）；旧版
+        # 代码或模型未遵守契约时为空 dict，消费方按"无旗标"处理。
+        "flags": parse_python_flags(stdout),
     })
     return result

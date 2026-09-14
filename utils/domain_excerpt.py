@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import re
 
+from config import CONFIG
+
 #: 这类文档的模块边界：要么是传统的 ``## 模块...`` 标题，
 #: 要么是竞赛技能手册使用的编号式 ``## 1. ...``。
 _MODULE_RE = re.compile(r"^##\s*(?:模块|\d+\s*[.)、:：-])", re.MULTILINE)
@@ -23,6 +25,97 @@ _MODULE_RE = re.compile(r"^##\s*(?:模块|\d+\s*[.)、:：-])", re.MULTILINE)
 _UNIVERSAL_HEADING_RE = re.compile(r"^##\s*(?:跨学科|通用|附录)", re.MULTILINE)
 #: 中文连续段与拉丁单词；单个汉字太常见，不足以用来区分。
 _TERM_RE = re.compile(r"[一-鿿]{2,}|[A-Za-z][A-Za-z\-]{2,}")
+
+#: 案例结论行：知识库的"答案是 X / 标准答案 / 作答模板 / 判分口径"类条目把某个
+#: 具体案例的结论（有时就是评测题的解值）写进了提示词素材。它有两重危害：
+#: 一是官方明文禁止标准答案类内容入包（合规红线）；二是案例参数与当前题面未必
+#: 一致，模型照抄案例结论就是错答。注入前必须遮蔽。
+#:
+#: 判定分两档，避免误伤格式要求：
+#:   * 硬锚点（作答模板/判分口径/答案是…）按构造就是案例结论，一律遮蔽；
+#:   * 软词（最终答案/标准答案）也大量出现在纯格式要求里，只有"软词后紧跟
+#:     结论标记"（：=/数字/$/boxed/写）时才按结论行处理。这样
+#:     "最终答案必须先给总数、再逐一列出每个群" 这类覆盖度指引会被保留，
+#:     而 "标准答案 $\lambda_c=6/\sqrt3$"、"最终答案写『仅 n=4』" 会被遮蔽。
+_ANSWER_ANCHOR_RE = re.compile(
+    r"(?i)(答案为|答案是|正确选项|作答模板|判分口径|the\s+answer\s+is|correct\s+option)"
+)
+_FINAL_WORD_RE = re.compile(r"(?i)(最终答案|标准答案|final\s+answer)")
+_CONCLUSION_AFTER_WORD_RE = re.compile(
+    r"(?i)(?:最终答案|标准答案|final\s+answer)\s*"
+    r"(?:[:：=]|\\boxed|\$|\d|(?:必须)?(?:写成?|为|是|填))"
+)
+_BOXED_RE = re.compile(r"\\boxed\s*\{([^{}]{1,160})\}")
+#: 行内结论尾（"最终答案：5"）。分隔符是必需的：纯格式要求写法是"最终答案必须写成
+#: $[L,U]$"（无冒号/等号），不能被当成结论尾吃掉。
+_ANSWER_TAIL_RE = re.compile(
+    r"(?i)(?:最终答案|标准答案|答案为|答案是|correct\s+answer|final\s+answer)"
+    r"\s*[:：=]\s*[^\n。；;]{0,180}"
+)
+
+
+def _is_answer_anchor(line: str) -> bool:
+    if _ANSWER_ANCHOR_RE.search(line):
+        return True
+    return bool(_FINAL_WORD_RE.search(line)
+                and _CONCLUSION_AFTER_WORD_RE.search(line))
+
+
+def _mask_line(line: str, *, comment: bool) -> str:
+    """把一行锚点行换成中性指引，保留缩进与列表符号（结构不塌）。"""
+    stripped = line.lstrip()
+    indent = line[:len(line) - len(stripped)]
+    if comment:
+        return indent + "# （具体案例结论已隐藏；请按本题条件独立推导。）"
+    if stripped.startswith("#"):
+        # 标题行保留中性方法标签，选题分段仍然可用。
+        return indent + "### 方法提示（具体案例结论已隐藏）"
+    bullet = re.match(r"[-*+]\s+", stripped)
+    marker = bullet.group(0) if bullet else ""
+    return indent + marker + "（具体案例结论已隐藏；请按本题条件独立推导。）"
+
+
+def sanitize_answer_anchors(text: str) -> str:
+    """遮蔽案例结论，保留方法与条件描述（供 markdown 技能手册使用）。"""
+    cleaned = []
+    for line in str(text or "").splitlines():
+        if _is_answer_anchor(line):
+            cleaned.append(_mask_line(line, comment=False))
+            continue
+        line = _BOXED_RE.sub(r"\\boxed{<本题独立结论>}", line)
+        line = _ANSWER_TAIL_RE.sub("结论（需按本题独立计算）", line)
+        cleaned.append(line)
+    return "\n".join(cleaned)
+
+
+#: ``.py`` 提示词资产里，除 ``#`` 注释外，列表项与标题也是散文（这些文件本质是
+#: 提示词文档，含全角标点、从来不可编译也从不被 import）。
+_PY_PROSE_LINE_RE = re.compile(r"^(?:#|[-*+]\s)")
+
+
+def sanitize_python_prose(text: str) -> str:
+    """散文行变体：供 ``.py`` 提示词资产（验证示例）使用。
+
+    验证示例历史文件名是 .py，但正文是提示词文档（含列表项与代码片段）。
+      * 散文行（``#`` 注释、``-``/``*`` 列表项）：按锚点行遮蔽，保留行首符号；
+      * 代码行：只做 ``\\boxed`` 占位化（替换串不含引号，不破坏代码片段），
+        不做结论尾替换——尾部正则会吃掉 ``print("最终答案:", x)`` 的闭合引号，
+        那条契约本身是判分要求、必须原样保留。
+    """
+    cleaned = []
+    for line in str(text or "").splitlines():
+        stripped = line.lstrip()
+        if not _PY_PROSE_LINE_RE.match(stripped):
+            cleaned.append(_BOXED_RE.sub(r"\\boxed{<本题独立结论>}", line))
+            continue
+        if _is_answer_anchor(line):
+            cleaned.append(_mask_line(line, comment=stripped.startswith("#")))
+            continue
+        line = _BOXED_RE.sub(r"\\boxed{<本题独立结论>}", line)
+        line = _ANSWER_TAIL_RE.sub("结论（需按本题独立计算）", line)
+        cleaned.append(line)
+    return "\n".join(cleaned)
+
 
 #: 模块标题表达不出的主题线索。博弈论题目会说 游戏/必胜/策略，却从不写
 #: 博弈论 这个词，纯术语重合会把为它写的模块和无关模块打成同分。
@@ -126,7 +219,7 @@ def select_script_excerpt(script: str, problem: str, limit: int) -> str:
     裸 ``[:2000]`` 仍可能把长领域提示词里的相关知识点藏住，所以改为
     选取词汇与题目匹配的小节。
     """
-    return _select(script, problem, limit, _SCRIPT_SECTION_RE)
+    return _select(script, problem, limit, _SCRIPT_SECTION_RE, mode="python")
 
 
 def select_skill_excerpt(document: str, problem: str, limit: int) -> str:
@@ -135,26 +228,35 @@ def select_skill_excerpt(document: str, problem: str, limit: int) -> str:
     文档没有模块结构或全部零分时退化为 `document[:limit]`，
     因此可以无痛替换裸切片，且不改变那类场景的行为。
     """
-    return _select(document, problem, limit, _MODULE_RE)
+    return _select(document, problem, limit, _MODULE_RE, mode="md")
 
 
-def _select(document: str, problem: str, limit: int, boundary) -> str:
+def _select(document: str, problem: str, limit: int, boundary,
+            mode: str = "md") -> str:
+    def finish(value: str) -> str:
+        # 净化开关（kb_sanitize）关闭时逐字返回原文，保证与旧版零行为差异。
+        if not CONFIG.get("kb_sanitize", False):
+            return value
+        if mode == "python":
+            return sanitize_python_prose(value)
+        return sanitize_answer_anchors(value)
+
     text = document or ""
     if limit <= 0:
         return ""
     if len(text) <= limit:
-        return text
+        return finish(text)
 
     preamble, modules = _split_modules(text, boundary)
     if not modules:
-        return text[:limit]
+        return finish(text[:limit])
 
     problem_terms = _terms(problem)
     scored = [(index, _score(module, problem_terms) + _cue_bonus(module, problem)
                + _retrieval_bonus(module, problem))
               for index, module in enumerate(modules)]
     if not any(score for _, score in scored):
-        return text[:limit]
+        return finish(text[:limit])
 
     # 通用小节（跨学科通用方法论）对任何题目都适用，因此与其他模块同场竞争，
     # 而不是被领域打分单独挤出预算。
@@ -185,14 +287,16 @@ def _select(document: str, problem: str, limit: int, boundary) -> str:
                 continue
             pieces.append((index, module))
             room -= len(module)
-        return head + "".join(piece for _, piece in sorted(pieces))
+        return finish(head + "".join(piece for _, piece in sorted(pieces)))
     # 得分最高的模块先拿预算，必要时截断到能放下。若按文档序贪心填充，
     # 会塞进两个不相关的小模块，却给真正为本题写的那个模块留不出空间——
     # 这正是整个模块要防止的失败。
     best = ranked[0][0]
     room = max(0, limit - len(preamble))
     if len(modules[best]) > room:
-        return (preamble + modules[best][:room]) if room else modules[best][:limit]
+        return finish(
+            (preamble + modules[best][:room]) if room else modules[best][:limit]
+        )
 
     kept = [best]
     used = len(preamble) + len(modules[best])
@@ -205,4 +309,4 @@ def _select(document: str, problem: str, limit: int, boundary) -> str:
 
     parts = [preamble] + [modules[index] for index in sorted(kept)]
     excerpt = "".join(parts)
-    return excerpt if len(excerpt) <= limit else excerpt[:limit]
+    return finish(excerpt if len(excerpt) <= limit else excerpt[:limit])

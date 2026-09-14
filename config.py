@@ -11,7 +11,8 @@ CONFIG = {
     "node_timeouts": {"input": 5, "classifier": 200, "solving": 1150,
                       "reasoning_agent": 1100, "python_agent": 1100,
                       "python_mcp_execute": 60, "cross_validator": 15,
-                      "reconciliation": 10, "arbiter": 150, "coordinator": 420},
+                      "reconciliation": 10, "arbiter": 150, "recheck": 480,
+                      "coordinator": 420},
     "classifier_confidence_threshold": 0.85,
     # 零成本的确定性排序只作为 LLM 分类失败/不可解析时的兜底，不再缩窄 LLM
     # 的候选清单（全部 18 个领域在单次 prefill 调用里给全）。
@@ -78,10 +79,22 @@ CONFIG = {
     # 压到 550s，保证首轮 + 压缩重试(350s 估时) + 余量(250s) 仍能放进 1200s
     # 硬时限（1200-550=650 ≥ 350+250=600），让压缩重试真正可达。
     "first_attempt_timeout_s": 550,
+    # 知识库净化：注入前遮蔽技能手册里的案例结论行（"答案是 X / 标准答案 /
+    # 作答模板 / 判分口径"）与 \boxed 具体值。官方明文禁止标准答案类内容入包，
+    # 且案例结论与本题参数未必一致（照抄即错答）。关闭时与旧版逐字一致。
+    "kb_sanitize": False,
+    # 证据评分选优：交叉验证判 uncertain/mismatch 时，按确定性证据分（代回验证 /
+    # 全解覆盖 / 反例 / 条件矛盾 / 盲目复核一致）在两个候选间取舍；评分持平回落原有逻辑。
+    "evidence_select": False,
+    # 盲目独立复核（第三方证据）：两条分支判不出时买一次"不看既有答案、换方法路径"
+    # 的独立重解，只在硬时限前剩余 ≥ min_budget_s 时启动；产出只参与证据评分与仲裁，
+    # 不直接覆盖候选（"只增不改"）。关闭时路由不经过该节点、与旧版图结构一致。
+    "recheck": {"enabled": False, "min_budget_s": 600, "timeout_s": 420,
+                "max_tokens": 8192, "temperature": 0.7},
     "log_level": "INFO", "log_dir": "logs",
 }
 
 # ============ 版本标记（评测日志/trace 溯源用） ============
 # 每轮代码改动后更新此值；solve() 的 trace 会携带它，配合评测日志的
 # Commit ID 即可确定某次出分对应哪一版代码。
-AGENT_VERSION = "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9 2026-09-03"
+AGENT_VERSION = "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+errfix 2026-09-14"
