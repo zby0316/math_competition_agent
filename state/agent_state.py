@@ -48,6 +48,10 @@ class AgentState(TypedDict):
     arbiter_trace: NotRequired[List[Dict]]
     arbiter_attempts: NotRequired[int]
     answer_locked: NotRequired[bool]
+    # 盲目独立复核阶段（recheck_step 写入；未声明的键会被图静默丢弃，
+    # 导致复核产出既不进仲裁候选池、也拿不到盲复核证据分）
+    recheck_result: NotRequired[Optional[Dict[str, Any]]]
+    recheck_trace: NotRequired[List[Dict]]
     # 输出阶段
     final_response: NotRequired[str]
     coordination_detail: NotRequired[Optional[str]]  # coordinator 原始解题说明，记入 trace（计算题 final_response 已收敛为简洁答案）

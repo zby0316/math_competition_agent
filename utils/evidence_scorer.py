@@ -41,6 +41,21 @@ _NONNEGATIVE_PROBLEM_RE = re.compile(
 )
 _PLACEHOLDER_RE = re.compile(r"^\s*(?:\[?result\]?|\*+|待定|未知|n/?a|-)\s*$", re.IGNORECASE)
 
+#: 代码中存在"可执行比较/计算"的迹象。既有反伪造检查（verdict_authenticity）
+#: 对"纯打印 + 自称验证"的代码仍然放行（实测：只有 print 的代码 fabricated=False），
+#: 所以这里做本地加固：没有任何计算迹象却打印了旗标的代码，其旗标一律作废。
+#: 加固只作用于本模块的证据分，不改动既有 PASS/support 语义（flag 关时零影响）。
+_COMPUTATION_HINT_RE = re.compile(
+    r"assert\b|==|!=|<=|>=|\.subs\(|simplify\(|solve\(|Eq\(|symbols\(|factorint|"
+    r"isprime|binomial|\.count\(|for\s+\w+\s+in\b|range\(|len\(|sum\(|prod\(|"
+    r"Matrix\(|diff\(|integrate\(",
+    re.IGNORECASE,
+)
+
+
+def _has_computation(code: str) -> bool:
+    return bool(_COMPUTATION_HINT_RE.search(str(code or "")))
+
 
 def _flag_value(raw: str) -> bool | None:
     """把旗标值解析成 True/False；无法识别（含 na）返回 None。"""
@@ -150,9 +165,11 @@ def collect_flags(state: dict, match_result: dict | None = None) -> dict:
     evidence_status = str(python_output.get("evidence_status") or "")
     stdout = str(python_output.get("stdout") or "")
     flags = parse_python_flags(stdout)
-    # 反伪造闸门：静态检查判定"无实质计算却自称验证"时，模型自报的旗标一律作废
-    # （否则一段只打印 counterexample=0/substitution=1 的代码就能凭空拿到证据分）。
-    if (python_output.get("authenticity") or {}).get("fabricated"):
+    # 反伪造闸门：静态检查判定"无实质计算却自称验证"、或代码里根本没有任何
+    # 可执行比较/计算迹象时，模型自报的旗标一律作废（否则一段只打印
+    # counterexample=0/substitution=1 的代码就能凭空拿到证据分）。
+    if (python_output.get("authenticity") or {}).get("fabricated") \
+            or (flags and not _has_computation(state.get("python_code", ""))):
         flags = {}
     passed = str(flags.get("passed") or "")
     passed_reasoning = bool(passed) and _same_answer(passed, reasoning_answer)
