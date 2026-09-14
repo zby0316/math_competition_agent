@@ -82,26 +82,26 @@ CONFIG = {
     # 知识库净化：注入前遮蔽技能手册里的案例结论行（"答案是 X / 标准答案 /
     # 作答模板 / 判分口径"）与 \boxed 具体值。官方明文禁止标准答案类内容入包，
     # 且案例结论与本题参数未必一致（照抄即错答）。关闭时与旧版逐字一致。
-    "kb_sanitize": False,
+    "kb_sanitize": True,
     # 证据评分选优：交叉验证判 uncertain/mismatch 时，按确定性证据分（代回验证 /
     # 全解覆盖 / 反例 / 条件矛盾 / 盲目复核一致）在两个候选间取舍；评分持平回落原有逻辑。
-    "evidence_select": False,
+    "evidence_select": True,
     # 盲目独立复核（第三方证据）：两条分支判不出时买一次"不看既有答案、换方法路径"
     # 的独立重解，只在硬时限前剩余 ≥ min_budget_s 时启动；产出只参与证据评分与仲裁，
     # 不直接覆盖候选（"只增不改"）。关闭时路由不经过该节点、与旧版图结构一致。
-    "recheck": {"enabled": False, "min_budget_s": 600, "timeout_s": 420,
+    "recheck": {"enabled": True, "min_budget_s": 600, "timeout_s": 420,
                 "max_tokens": 8192, "temperature": 0.7},
     # 搜救层叙述门：行级搜救/散文捞回把"复核过程自述"当答案时不予交付
     # （实测交付过 "The consistency check … worked perfectly" 这类句子，期望答案
     # 是 1）。只作用于搜救来源，四章节/结论速览等结构化来源不受影响。
-    "narration_gate": False,
+    "narration_gate": True,
     # 双法互证协议：推理与 Python 提示词同时追加"两条独立方法互证 + 小规模枚举
     # 仲裁"要求（针对差 1~6 的计数错误族）。关闭时提示词与旧版逐字一致。
-    "double_count_check": False,
+    "double_count_check": True,
     "log_level": "INFO", "log_dir": "logs",
 }
 
 # ============ 版本标记（评测日志/trace 溯源用） ============
 # 每轮代码改动后更新此值；solve() 的 trace 会携带它，配合评测日志的
 # Commit ID 即可确定某次出分对应哪一版代码。
-AGENT_VERSION = "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+errfix 2026-09-14"
+AGENT_VERSION = "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+errfix-all-on 2026-09-15"
