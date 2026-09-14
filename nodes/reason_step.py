@@ -2,7 +2,7 @@ import re
 from utils.deps import get_deps
 from utils.guard_ceiling import NodeTimeoutError, run_with_timeout
 from utils.llm_retry_guard import chat_prefilled, chat_with_retry
-from utils.prompt_bank import REASONING_PROMPT
+from utils.prompt_bank import DOUBLE_CHECK_CLAUSE, REASONING_PROMPT
 from utils.score_budget import estimate_tokens
 from utils.answer_pull import (
     extract_answer_fallback_with_source,
@@ -428,6 +428,9 @@ def reason_step(state, config):
         problem=problem)
     base_prompt += mode_instruction(question_mode)
     base_prompt += structure_instruction(problem)
+    if CONFIG.get("double_count_check", False):
+        # 双法互证协议（开关门控；关闭时提示词与旧版逐字一致）。
+        base_prompt += DOUBLE_CHECK_CLAUSE
     # 压缩重试要压的是推导篇幅，不是答案该覆盖的分支（曾出现漏值事故）。
     coverage_clause = answer_coverage_clause(problem)
 

@@ -95,6 +95,9 @@ CONFIG = {
     # （实测交付过 "The consistency check … worked perfectly" 这类句子，期望答案
     # 是 1）。只作用于搜救来源，四章节/结论速览等结构化来源不受影响。
     "narration_gate": False,
+    # 双法互证协议：推理与 Python 提示词同时追加"两条独立方法互证 + 小规模枚举
+    # 仲裁"要求（针对差 1~6 的计数错误族）。关闭时提示词与旧版逐字一致。
+    "double_count_check": False,
     "log_level": "INFO", "log_dir": "logs",
 }
 
