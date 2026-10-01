@@ -395,7 +395,8 @@ def _domain_override(problem: str, categories: list[str]) -> str | None:
     # 微分算子的形式伴随是 PDE；泛泛的有界算子伴随则仍属泛函分析。离散化已
     # 在上面提前返回，因此数值 PDE 题留在 数值分析。
     pde_direct = (
-        "偏微分方程", "partial differential equation", "形式伴随", "formal adjoint",
+        "偏微分方程", "partial differential equation", "pde", "heat equation",
+        "wave equation", "形式伴随", "formal adjoint",
         "散度型", "divergence-form", "热方程", "波动方程", "poisson equation",
     )
     pde_adjoint = _has_cue_groups(
@@ -414,6 +415,26 @@ def _domain_override(problem: str, categories: list[str]) -> str | None:
     )
     if "抽象代数" in available and _has_any(text, abstract_cues):
         return "抽象代数"
+
+    # 定理及算子结构比“上确界/一致收敛”更能确定泛函领域。
+    # Banach 单独出现也可能是压缩映射定理；要求明确的泛函定理或结构组合。
+    functional_theorems = (
+        "泛函分析", "functional analysis", "闭图像定理", "闭图象定理",
+        "closed graph theorem", "一致有界性原理", "一致有界性定理",
+        "uniform boundedness principle", "uniform boundedness theorem",
+        "banach-steinhaus", "hahn-banach", "hahn–banach", "哈恩-巴拿赫",
+    )
+    functional_structure = _has_cue_groups(
+        text,
+        ("banach", "hilbert", "赋范空间", "范数空间", "normed space"),
+        ("有界线性算子", "有界线性泛函", "紧算子", "弱收敛",
+         "bounded linear operator", "bounded linear functional",
+         "compact operator", "weak convergence", "weakly convergent",
+         "开映射定理", "open mapping theorem"),
+    )
+    if "泛函分析" in available and (
+            _has_any(text, functional_theorems) or functional_structure):
+        return "泛函分析"
 
     analysis_cues = (
         "数学分析", "一致收敛", "uniform convergence", "逐点收敛",

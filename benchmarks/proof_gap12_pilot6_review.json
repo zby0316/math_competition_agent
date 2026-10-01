@@ -1,0 +1,265 @@
+{
+  "dataset_revision": "proof-gap12-v1",
+  "dataset_sha256": "504c06cb12517d2ffc3f48caedc2f4f7e162ecc4b7d65a5261c52b8384fe7983",
+  "input_sha256": "7e30672a524b81364eca45c931edbaf5609235d7b5cc74da44e00bd50102d2fc",
+  "run_date": "2026-10-01",
+  "code_baseline": "f3d8525",
+  "code_state": "uncommitted working tree",
+  "agent_version": "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+nan-evidence+candidate-completeness+equivalence-routing+pde-cue+crossref-answer+math-span-clean 2026-09-28",
+  "model": "intern-s2-preview-397b",
+  "concurrency": 1,
+  "reviewer": "Codex assistant, argument-by-argument mathematical review",
+  "review_policy": "Conservative default: valid main arguments with explicit boundary errors or scalar-field ambiguity are listed separately as needs_correction, not counted as fully passed.",
+  "review_policy_user_confirmation": "pending",
+  "official_score_change_verified": false,
+  "status": "reviewed",
+  "items": [
+    {
+      "idx": 1,
+      "category": "拓扑学",
+      "mode": "proof",
+      "elapsed_s": 160.42,
+      "recorded_model_calls": 3,
+      "reasoning_attempts": 1,
+      "reasoning_finish_reason": "stop",
+      "python_attempts": 0,
+      "response_chars": 4907,
+      "version": "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+nan-evidence+candidate-completeness+equivalence-routing+pde-cue+crossref-answer+math-span-clean 2026-09-28",
+      "call_details": [
+        {
+          "label": "classifier_prefill",
+          "seconds": 1.35
+        },
+        {
+          "label": "reasoning",
+          "seconds": 100.63
+        },
+        {
+          "label": "coordinator",
+          "seconds": 58.41
+        }
+      ],
+      "judgement": true,
+      "checkpoint_pass": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "missing_steps": [],
+      "invalid_steps": [],
+      "notes": "非空性用有限交性质；邻域吸收由递减异常闭集反证；正规性和连通性条件正确。反例相对参考构造旋转了坐标，闭、递减、连通及交集分离均验证；证明有效。",
+      "review_status": "passed",
+      "expected_category": "拓扑学",
+      "output_file": "outputs/proof_gap12_pilot6_20261001/1.json"
+    },
+    {
+      "idx": 2,
+      "category": "拓扑学",
+      "mode": "proof",
+      "elapsed_s": 138.97,
+      "recorded_model_calls": 3,
+      "reasoning_attempts": 1,
+      "reasoning_finish_reason": "stop",
+      "python_attempts": 0,
+      "response_chars": 3754,
+      "version": "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+nan-evidence+candidate-completeness+equivalence-routing+pde-cue+crossref-answer+math-span-clean 2026-09-28",
+      "call_details": [
+        {
+          "label": "classifier_prefill",
+          "seconds": 1.12
+        },
+        {
+          "label": "reasoning",
+          "seconds": 97.37
+        },
+        {
+          "label": "coordinator",
+          "seconds": 40.46
+        }
+      ],
+      "judgement": true,
+      "checkpoint_pass": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "missing_steps": [],
+      "invalid_steps": [],
+      "notes": "递减局部基交点序列同时收敛的反证完整；余可数拓扑非 Hausdorff 及收敛序列最终恒定的验证正确，极限唯一性及不可省略第一可数性的推论有效。",
+      "review_status": "passed",
+      "expected_category": "拓扑学",
+      "output_file": "outputs/proof_gap12_pilot6_20261001/2.json"
+    },
+    {
+      "idx": 4,
+      "category": "测度积分",
+      "mode": "proof",
+      "elapsed_s": 165.87,
+      "recorded_model_calls": 3,
+      "reasoning_attempts": 1,
+      "reasoning_finish_reason": "length",
+      "python_attempts": 0,
+      "response_chars": 4759,
+      "version": "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+nan-evidence+candidate-completeness+equivalence-routing+pde-cue+crossref-answer+math-span-clean 2026-09-28",
+      "call_details": [
+        {
+          "label": "classifier_prefill",
+          "seconds": 1.13
+        },
+        {
+          "label": "reasoning",
+          "seconds": 97.5
+        },
+        {
+          "label": "coordinator",
+          "seconds": 67.22
+        }
+      ],
+      "judgement": null,
+      "checkpoint_pass": [
+        true,
+        true,
+        true,
+        null
+      ],
+      "missing_steps": [],
+      "invalid_steps": [
+        "开头和最终摘要的 m(|f_n|>ε)=2^{-k} 未限定 0<ε<1；ε≥1 时实际为零。",
+        "正文‘对每个 k 存在 j≠j_k’在 k=0 时不成立，应限定 k≥1。"
+      ],
+      "notes": "子列选取、可求和异常集、Borel-Cantelli 及打字机序列的主要证明成立；完整正文部分写出了 0<ε<1，但摘要和 k=0 边界有明确表述错误。人工验收口径待用户选择，不按自动匹配判对。",
+      "review_status": "needs_correction",
+      "expected_category": "测度积分",
+      "output_file": "outputs/proof_gap12_pilot6_20261001/4.json"
+    },
+    {
+      "idx": 6,
+      "category": "测度积分",
+      "mode": "proof",
+      "elapsed_s": 145.41,
+      "recorded_model_calls": 3,
+      "reasoning_attempts": 1,
+      "reasoning_finish_reason": "length",
+      "python_attempts": 0,
+      "response_chars": 4236,
+      "version": "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+nan-evidence+candidate-completeness+equivalence-routing+pde-cue+crossref-answer+math-span-clean 2026-09-28",
+      "call_details": [
+        {
+          "label": "classifier_prefill",
+          "seconds": 1.15
+        },
+        {
+          "label": "reasoning",
+          "seconds": 95.96
+        },
+        {
+          "label": "coordinator",
+          "seconds": 48.27
+        }
+      ],
+      "judgement": false,
+      "checkpoint_pass": [
+        true,
+        true,
+        false,
+        true
+      ],
+      "missing_steps": [
+        "没有证明硬截断在 |f|=R 的正测度水平集上收敛，也未选择避开该水平集的阈值。"
+      ],
+      "invalid_steps": [
+        "由 g_j→f 几乎处处直接推出 g_j 1_{|g_j|≤R}→f 1_{|f|≤R}，继而在整个 Ω 上应用支配收敛，这一步不成立。"
+      ],
+      "notes": "主结论及尖峰反例正确，但第(1)问的关键证明存在无效推理，严格判不通过。反证该推理可取 [0,1] 上 g_j=R+1/j、f=R（R>0），仍一致可积且一致收敛，硬截断差恒为 R。修正应使用连续截断 c_R，或证明选择 R 使 μ(|f|=R)=0。‘直接取 R=1 推出统一尾界’也缺少从大阈值尾界回推的说明。",
+      "review_status": "failed",
+      "expected_category": "测度积分",
+      "output_file": "outputs/proof_gap12_pilot6_20261001/6.json"
+    },
+    {
+      "idx": 9,
+      "category": "泛函分析",
+      "mode": "proof",
+      "elapsed_s": 144.64,
+      "recorded_model_calls": 3,
+      "reasoning_attempts": 1,
+      "reasoning_finish_reason": "length",
+      "python_attempts": 0,
+      "response_chars": 4768,
+      "version": "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+nan-evidence+candidate-completeness+equivalence-routing+pde-cue+crossref-answer+math-span-clean 2026-09-28",
+      "call_details": [
+        {
+          "label": "classifier_prefill",
+          "seconds": 1.04
+        },
+        {
+          "label": "reasoning",
+          "seconds": 97.42
+        },
+        {
+          "label": "coordinator",
+          "seconds": 46.16
+        }
+      ],
+      "judgement": null,
+      "checkpoint_pass": [
+        true,
+        true,
+        true,
+        null
+      ],
+      "missing_steps": [],
+      "invalid_steps": [
+        "若按复 ℓ² 理解，所写 <z,y>=sum z_k conjugate(y_k) 之后 f(e_n)=y_n 漏共轭；应写 conjugate(y_n)，或明确反例取实 ℓ²。"
+      ],
+      "notes": "关键证明及 ℓ² 反例有效；标量域未明确而坐标公式在复数约定下不一致。严格口径暂列待澄清/修正；不把这一笔误等同于主证明失效。",
+      "review_status": "needs_correction",
+      "expected_category": "泛函分析",
+      "output_file": "outputs/proof_gap12_pilot6_20261001/9.json"
+    },
+    {
+      "idx": 10,
+      "category": "数学分析",
+      "mode": "proof",
+      "elapsed_s": 235.79,
+      "recorded_model_calls": 4,
+      "reasoning_attempts": 2,
+      "reasoning_finish_reason": "stop",
+      "python_attempts": 0,
+      "response_chars": 4116,
+      "version": "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+nan-evidence+candidate-completeness+equivalence-routing+pde-cue+crossref-answer+math-span-clean 2026-09-28",
+      "call_details": [
+        {
+          "label": "classifier_prefill",
+          "seconds": 1.27
+        },
+        {
+          "label": "reasoning",
+          "seconds": 105.25
+        },
+        {
+          "label": "reasoning",
+          "seconds": 87.94
+        },
+        {
+          "label": "coordinator",
+          "seconds": 41.3
+        }
+      ],
+      "judgement": true,
+      "checkpoint_pass": [
+        true,
+        true,
+        true,
+        true
+      ],
+      "missing_steps": [],
+      "invalid_steps": [],
+      "notes": "积分恒等式取一致极限证明图像闭；使用 x^n 的导数范数证明无界，虽然不同于参考序列但有效；指出定义域非完备并构造光滑逼近绝对值函数的 Cauchy 列，三问完整。",
+      "review_status": "passed",
+      "expected_category": "泛函分析",
+      "output_file": "outputs/proof_gap12_pilot6_20261001/10.json"
+    }
+  ]
+}

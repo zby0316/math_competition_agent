@@ -72,7 +72,10 @@ def _exploratory_sentences(text: str) -> int:
 
 def _narrative_ratio(text: str) -> float:
     """英文叙述词密度：单词里 the/we/so/that 类虚词占比高 → 思维流。"""
-    words = re.findall(r"[A-Za-z']+", text or "")
+    # LaTeX math spans are answer payload, not English prose. In particular,
+    # a function named A must not count as the article "a" six times.
+    prose = re.sub(r"\$[^$]*\$", " ", text or "")
+    words = re.findall(r"[A-Za-z']+", prose)
     if len(words) < 4:
         return 0.0
     narrative = {

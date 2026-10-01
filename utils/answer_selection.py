@@ -48,9 +48,9 @@ def preferred_answer(state, match_result):
         if python_ok and not looks_incomplete_answer(python_answer):
             r_missing = missing_components(problem, reasoning_answer)
             p_missing = missing_components(problem, python_answer)
-            if len(p_missing) < len(r_missing):
+            if set(p_missing) < set(r_missing):
                 return python_answer
-            if is_multi_part_problem(problem):
+            if set(p_missing) <= set(r_missing) and is_multi_part_problem(problem):
                 if answer_part_count(python_answer) > answer_part_count(reasoning_answer):
                     return python_answer
         return reasoning_answer

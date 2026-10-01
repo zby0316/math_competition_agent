@@ -1,0 +1,191 @@
+"""Build self-authored proof diagnostics and answer-free inputs, without API calls."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+from collections import Counter
+from pathlib import Path
+
+
+REVISION = "proof-gap12-v1"
+CHECKED_AT = "2026-10-01"
+TOPOLOGY = "https://math.mit.edu/classes/18.786/2024/TopologyPrimer.pdf"
+COUNTABILITY = "https://www.math.ucla.edu/~sharifi/notes/topology-ch04.html"
+MEASURE = "https://www.math.ucdavis.edu/~hunter/measure_theory/measure_notes.pdf"
+FUNCTIONAL = (
+    "https://ocw.mit.edu/courses/18-102-introduction-to-functional-analysis-spring-2021/"
+    "3d4cc88026d44a01f936cd6a0aa995cb_MIT18_102s20_lec_FA.pdf"
+)
+PILOT_IDS = (1, 2, 4, 6, 9, 10)
+
+# Independently composed prompts and proofs of standard facts. URLs are
+# background references, not claims that these are copied course exercises.
+TASKS = (
+    {
+        "subject": "拓扑学", "topic": "紧致连续双射与分离假设", "difficulty": "基础",
+        "problem": r"证明并讨论以下命题的假设：设 $X$ 是紧致拓扑空间，$Y$ 是 Hausdorff 空间，$f:X\to Y$ 是连续双射。(1) 证明 $f$ 是同胚，不能只引用‘紧致到 Hausdorff 的连续双射是同胚’。(2) 如果只删去 $Y$ 的 Hausdorff 假设，即使 $Y$ 仍紧致，结论是否成立？给出明确的空间、拓扑和映射，并验证。",
+        "answer": r"(1) 对任意闭集 $F\subset X$，$F$ 紧致，故连续像 $f(F)$ 紧致；Hausdorff 空间中的紧致子集闭，故 $f$ 是闭映射。由于 $f$ 双射，逆映射的闭集原像为 $f(F)$，从而 $f^{-1}$ 连续，$f$ 是同胚。(2) 不成立。令 $X=[0,1]$ 取通常拓扑，$Y=[0,1]$ 取平凡拓扑 $\{\varnothing,Y\}$，$f$ 为恒等映射。$X$ 紧致，$Y$ 紧致且非 Hausdorff，$f$ 连续双射。逆映射不连续，因为 $X$ 的非空真开集如 $[0,1/2)$ 在 $Y$ 中不开。",
+        "checkpoints": ["闭集在紧致空间中紧致，连续像紧致", "正确使用 Hausdorff 假设推出像闭并证明逆映射连续", "反例同时给出两种拓扑及连续双射", "验证目标仍紧致而逆映射不连续"],
+        "errors": ["无 Hausdorff 假设也把紧致集当作闭集", "只写定理名称或未验证反例"],
+        "references": [TOPOLOGY],
+    },
+    {
+        "subject": "拓扑学", "topic": "递减连通闭集与紧致性", "difficulty": "进阶",
+        "problem": r"证明并构造反例：设 $X$ 是紧致 Hausdorff 空间，$K_1\supseteq K_2\supseteq\cdots$ 是非空闭连通子集。(1) 证明 $K=\bigcap_{n\ge1}K_n$ 非空且连通，写出从紧致性得到‘某个 $K_n$ 落在给定邻域中’的步骤。(2) 删去 $X$ 的紧致性，保留 Hausdorff 及各 $K_n$ 非空、闭、连通，能否得到非空但不连通的交集？请在通常拓扑的 $\mathbb R^2$ 中构造并验证。",
+        "answer": r"(1) 递减非空闭集有有限交性质，紧致性给出 $K\ne\varnothing$。若 $K=A\cup B$ 被两个非空不交的相对闭开集分离，则 $A,B$ 是 $X$ 中不交闭集。紧致 Hausdorff 空间正规，可取不交开集 $U,V$ 分别包含 $A,B$。若每个 $K_n$ 都不包含于 $U\cup V$，则非空闭集 $K_n\cap(X\setminus(U\cup V))$ 仍递减，紧致性给出交点，与 $K\subset U\cup V$ 矛盾。因此某个 $K_N\subset U\cup V$；它同时交于 $U,V$，被两者分离，矛盾。(2) 令 $L=\{0,1\}\times[0,\infty)$，$K_n=L\cup([0,1]\times[n,\infty))$。它们非空、闭、递减，每个都道路连通：两条竖射线可经高度 $n$ 的横线连接，条带中各点也能连到横线。交集恰为 $L$，它的两条竖射线构成非空分离。",
+        "checkpoints": ["有限交性质证明交集非空", "分离交集并取得不交开邻域，使用正规性时说明条件", "通过递减闭集或有限子覆盖证明某个 K_N 落在邻域并推出矛盾", "反例的闭性、递减性、连通性及不连通交集全部验证"],
+        "errors": ["直接宣称连通集的任意交连通", "把非紧致的 K_n 也用有限交性质推出非空"],
+        "references": [TOPOLOGY],
+    },
+    {
+        "subject": "拓扑学", "topic": "第一可数性与序列极限唯一性", "difficulty": "进阶",
+        "problem": r"证明并检验条件：设拓扑空间 $X$ 第一可数，并且每个收敛序列只有一个极限。(1) 证明 $X$ 是 Hausdorff 空间。(2) 说明第一可数条件不能直接省略：在不可数集合上取余可数拓扑，证明它非 Hausdorff，而每个收敛序列最终恒定于其极限。",
+        "answer": r"(1) 若不同的 $x,y$ 不能被不交开邻域分开，取两点的可数开邻域基，并以有限交改为递减基 $U_n,V_n$。每个 $U_n\cap V_n$ 非空，选择 $z_n$ 属于该交。局部基的性质保证 $z_n\to x$ 且 $z_n\to y$，与极限唯一矛盾。(2) 在不可数集合 $S$ 上，非空开集的补集可数；两个非空开集之交的补集仍可数，所以交集非空，不能分开不同点。若 $z_n\to z$，集合 $C=\{z_n:z_n\ne z\}$ 可数，$S\setminus C$ 是含 $z$ 的开邻域；收敛要求序列最终在此邻域中，因此最终等于 $z$。最终恒为 $z$ 的序列不能收敛到另一点，因为另一点的开邻域 $S\setminus\{z\}$ 排除 $z$。",
+        "checkpoints": ["把两点可数邻域基化为递减基", "选择交点序列并证明同时收敛到两点", "验证余可数拓扑在不可数集合上非 Hausdorff", "使用序列非极限值的可数集合证明最终恒定和极限唯一"],
+        "errors": ["未有第一可数性就用序列刻画闭包或分离", "将余可数与余有限拓扑混淆"],
+        "references": [COUNTABILITY],
+    },
+    {
+        "subject": "拓扑学", "topic": "压缩闭集的商空间", "difficulty": "进阶",
+        "problem": r"证明并构造反例：设 $X$ 是紧致 Hausdorff 空间，$A\subset X$ 是非空闭集，把 $A$ 的所有点识别成一点，其余点各自成类，所得集合 $X/A$ 赋商拓扑。(1) 证明 $X/A$ 是紧致 Hausdorff 空间；分离等价类时必须说明所取开集是饱和的。(2) 若删去 $A$ 闭的假设，给出 $X=[0,1]$ 中的反例，证明所得商空间甚至不满足 $T_1$。",
+        "answer": r"(1) 商映射连续满射，故商空间紧致。若两类都为 $A$ 外单点 $x,y$，Hausdorff 性给出不交开邻域，再与开集 $X\setminus A$ 相交；所得开集不交于 $A$，因此饱和。若一类为 $A$，另一类为 $x\notin A$，正规性给出不交开集 $U,V$，其中 $A\subset U$、$x\in V$；$U$ 含整个 $A$，$V$ 不交于 $A$，均饱和。对饱和开集 $W$，$q^{-1}(q(W))=W$，商拓扑保证 $q(W)$ 开；两种情形都得到不交商邻域。只有一个等价类时 Hausdorff 性平凡成立。(2) 取 $A=(0,1)$。压缩类的单点若闭，其在连续商映射下的原像 $A$ 应闭，但 $(0,1)$ 在 $[0,1]$ 中不闭，所以商空间非 $T_1$。",
+        "checkpoints": ["连续满射推出商空间紧致", "分别处理两个普通点及压缩类对普通点", "验证邻域饱和并用商拓扑推出像开", "非闭 A 的反例通过单点原像证明不满足 T1"],
+        "errors": ["把任意商映射当成开映射", "未检查饱和性就把原空间邻域投到商空间"],
+        "references": [TOPOLOGY],
+    },
+    {
+        "subject": "测度积分", "topic": "依测度收敛与几乎处处子列", "difficulty": "进阶",
+        "problem": r"证明并给反例：在有限测度空间 $(\Omega,\mathcal F,\mu)$ 上，可测实值函数 $f_n$ 依测度收敛到 $f$。(1) 证明存在子列几乎处处收敛到 $f$，明确写出可求和的异常集估计。(2) 在 $[0,1)$ 的 Lebesgue 测度下，构造依测度收敛到零、却在每一点都不收敛到零的全序列，给出所有项的编号和验证。",
+        "answer": r"(1) 递增选择 $n_k$ 使 $\mu(E_k)<2^{-k}$，其中 $E_k=\{|f_{n_k}-f|>1/k\}$。因 $\mu(\bigcup_{k\ge m}E_k)\le\sum_{k\ge m}2^{-k}\to0$，$\limsup E_k$ 为零测集；外面的点最终满足误差不超过 $1/k$，故子列几乎处处收敛。(2) 对 $k=0,1,\ldots$ 和 $0\le j<2^k$，定义 $f_{2^k+j}=\mathbf1_{[j2^{-k},(j+1)2^{-k})}$，这覆盖所有 $n\ge1$。每项支持集测度为 $2^{-k}$，故依测度趋零。每个 $x\in[0,1)$ 在每个块恰属于一个半开区间，所以每块有一项值为 1，且从 $k\ge1$ 起有值为 0 的项；因此每点的上极限为 1、下极限为 0。",
+        "checkpoints": ["选取递增子列并给出异常集的可求和测度上界", "证明异常集的 limsup 零测并得到逐点子列收敛", "给出覆盖所有正整数的打字机序列编号及半开区间", "同时验证依测度收敛和每点全序列不收敛"],
+        "errors": ["依测度收敛直接推出全序列几乎处处收敛", "区间端点处理导致反例漏点"],
+        "references": [MEASURE],
+    },
+    {
+        "subject": "测度积分", "topic": "非负函数的积分收敛与 L1 收敛", "difficulty": "进阶",
+        "problem": r"证明并讨论符号条件：在测度空间 $(\Omega,\mathcal F,\mu)$ 上，$f_n,f\in L^1(\mu)$ 均非负且 $f_n\to f$ 几乎处处。(1) 证明 $\int f_n\,d\mu\to\int f\,d\mu$ 当且仅当 $\|f_n-f\|_1\to0$，不能只引用 Scheffe 引理。(2) 若改成可正可负的实值函数，仍有几乎处处收敛和有符号积分收敛，是否保证 $L^1$ 收敛？在 $(0,1)$ 上给出明确反例。",
+        "answer": r"(1) $L^1$ 收敛时，积分差的绝对值不超过 $\|f_n-f\|_1$。反过来，$\min(f_n,f)\to f$ 几乎处处且 $0\le\min(f_n,f)\le f\in L^1$，支配收敛给出其积分趋于 $\int f$。使用 $|f_n-f|=f_n+f-2\min(f_n,f)$ 积分，结合假设得到 $L^1$ 收敛。(2) 不保证。对 $n\ge2$，取 $f_n=n\mathbf1_{(0,1/n)}-n\mathbf1_{[1/n,2/n)}$，$f=0$。每个固定 $x>0$ 最终在支持集外，所以几乎处处趋零；两段积分相抵，$\int f_n=0=\int f$，但 $\|f_n\|_1=2$。可将 n=1 的项任取为零。",
+        "checkpoints": ["证明 L1 收敛推出积分收敛的方向", "对 min(f_n,f) 正确应用支配收敛", "积分绝对差恒等式推出另一方向", "有符号反例验证几乎处处收敛、积分为零及 L1 范数不趋零"],
+        "errors": ["对可正可负函数无条件沿用非负情形的结论", "未给出统一可积控制就直接使用支配收敛"],
+        "references": [MEASURE],
+    },
+    {
+        "subject": "测度积分", "topic": "一致可积与依测度到 L1 收敛", "difficulty": "进阶",
+        "problem": r"证明并检验假设：设 $\mu(\Omega)<\infty$，$f_n\in L^1(\mu)$ 是实值函数，依测度收敛到有限实值可测函数 $f$，且 $\lim_{R\to\infty}\sup_n\int_{\{|f_n|>R\}}|f_n|\,d\mu=0$。(1) 证明 $f\in L^1$ 且 $\|f_n-f\|_1\to0$；不能只引用 Vitali 收敛定理，可使用依测度收敛存在几乎处处收敛子列。(2) 去掉题设尾积分条件，保留有限测度和依测度收敛，给出不满足 $L^1$ 收敛的反例。",
+        "answer": r"(1) 尾积分条件结合 $\mu(\Omega)<\infty$ 给出 $\sup_n\|f_n\|_1<\infty$。取几乎处处收敛子列，Fatou 引理推出 $f\in L^1$。令 $c_R(t)=\max(-R,\min(t,R))$，$g_R(t)=(|t|-R)_+$，$a_R=\sup_n\int_{\{|f_n|>R\}}|f_n|$。有 $\int g_R(f_n)\le a_R$；对子列用 Fatou 得 $\int g_R(f)\le a_R$。截断是 1-Lipschitz，故 $c_R(f_n)\to c_R(f)$ 依测度；其差绝对值至多 $2R$，积分不超过 $\varepsilon\mu(\Omega)+2R\mu(|c_R(f_n)-c_R(f)|>\varepsilon)$，所以固定 R 时该差的积分趋零。三角不等式给出 $\limsup_n\|f_n-f\|_1\le2a_R$，令 R 趋无穷得到结论。(2) 在 $(0,1)$ 取 $f_n=n\mathbf1_{(0,1/n)}$、$f=0$。它依测度且逐点趋零，但 $L^1$ 范数恒为 1；对任意 R 选 n>R，尾积分为 1，恰不满足题设条件。",
+        "checkpoints": ["结合有限测度与尾积分得到 L1 有界，再用子列和 Fatou 证明 f 可积", "控制 f_n 及 f 的截断尾部积分", "证明固定截断层下依测度收敛推出积分差趋零并安排极限顺序", "反例验证收敛、L1 范数及尾积分条件失效"],
+        "errors": ["把 L1 范数有界误当一致可积", "有界依测度收敛推出 L1 时忽略有限测度或交换两个极限"],
+        "references": [MEASURE],
+    },
+    {
+        "subject": "测度积分", "topic": "几乎一致收敛与有限测度假设", "difficulty": "进阶",
+        "problem": r"证明并给反例：设 $\mu(\Omega)<\infty$，有限实值可测函数 $f_n\to f$ 几乎处处。(1) 对任意 $\delta>0$，证明存在可测集 $E$，$\mu(E)<\delta$，使 $f_n\to f$ 在 $\Omega\setminus E$ 上一致收敛；不能只引用 Egorov 定理。(2) 在 $\mathbb R$ 的 Lebesgue 测度下构造逐点趋零的可测函数列，证明删掉任意有限测度集后都无法一致趋零。",
+        "answer": r"(1) 先把不收敛的零测集 $N$ 纳入 E。对 k≥1 令 $E_{m,k}=\bigcup_{n\ge m}\{|f_n-f|\ge1/k\}$。随 m 递减，其交集包含于 N；有限测度下从上连续性给出 $\mu(E_{m,k})\to0$。选 $m_k$ 使 $\mu(E_{m_k,k})<\delta/2^{k+1}$，取 $E=N\cup\bigcup_{k\ge1}E_{m_k,k}$，测度至多 $\delta/2<\delta$。在其补集，当 n≥m_k 时误差小于 1/k，从而一致收敛。(2) 取 $f_n=\mathbf1_{[n,\infty)}$。每个固定实数最终小于 n，故逐点趋零。对任何有限测度 E，每条无限测度射线 $[n,\infty)$ 都有点在 E 外，所以 $\sup_{\mathbb R\setminus E}|f_n|=1$，不一致趋零。",
+        "checkpoints": ["构造尾部异常集并处理几乎处处例外集", "指出有限测度用于递减集合的测度从上连续性", "选取可求和测度界并证明补集上一致收敛", "无限测度反例验证逐点收敛和删除任意有限测度集后的失败"],
+        "errors": ["对无限测度递减集无条件使用测度从上连续性", "只证明每点最终收敛而未证明统一误差界"],
+        "references": [MEASURE],
+    },
+    {
+        "subject": "泛函分析", "topic": "Hilbert 空间弱收敛与范数条件", "difficulty": "基础",
+        "problem": r"证明并讨论条件：在实或复 Hilbert 空间 H 中，$x_n\rightharpoonup x$。(1) 证明 $\|x\|\le\liminf_n\|x_n\|$。(2) 证明如果 $\|x_n\|\to\|x\|$，则 $x_n\to x$ 依范数收敛。(3) 把第(2)问中的范数收敛条件换为范数有界是否足够？给出并验证反例。",
+        "answer": r"(1) 若 x=0 不等式显然；否则弱收敛给出 $\langle x_n,x\rangle\to\|x\|^2$，由 Cauchy-Schwarz 得 $\|x\|^2\le\|x\|\liminf\|x_n\|$，除以 $\|x\|$ 即得。(2) 恒等式 $\|x_n-x\|^2=\|x_n\|^2+\|x\|^2-2\operatorname{Re}\langle x_n,x\rangle$ 的右侧趋零。(3) 不够。在 $\ell^2$ 取标准基 e_n。对任意 y∈ℓ²，其第 n 坐标趋零，故 e_n 弱收敛到零；但范数恒为 1，不强收敛到零。",
+        "checkpoints": ["处理 x=0 并从固定测试向量导出范数下半连续", "使用 Hilbert 内积恒等式和弱收敛推出强收敛", "提供明确空间及有界序列", "验证反例弱收敛并验证不强收敛"],
+        "errors": ["把弱收敛直接当作范数收敛", "复空间内积展开遗漏实部"],
+        "references": [FUNCTIONAL],
+    },
+    {
+        "subject": "泛函分析", "topic": "紧算子将弱收敛变为范数收敛", "difficulty": "进阶",
+        "problem": r"证明并检验紧致性：设 X,Y 是 Banach 空间，$T:X\to Y$ 是紧的有界线性算子，$x_n\rightharpoonup x$。(1) 证明 $\|Tx_n-Tx\|_Y\to0$；不能只引用题述结论，需要交代弱收敛序列为何有界，以及如何从子列收敛推出全序列收敛。(2) 如果 T 仅有界而不紧，给出使结论失败的明确空间、算子和序列。允许使用一致有界性原理和 Hahn-Banach 定理。",
+        "answer": r"(1) 在 Banach 空间 X* 上定义 $J_n(\phi)=\phi(x_n)$。对每个 φ，标量序列收敛因而有界，一致有界性给出 sup||J_n||<∞；由 Hahn-Banach，||J_n||=||x_n||，故 x_n 有界。对任意 ψ∈Y*，ψ∘T∈X*，从而 Tx_n 弱收敛到 Tx。若不范数收敛，存在 ε>0 及子列，其所有项距 Tx 至少 ε；紧性给出该子列的范数收敛子子列，设极限为 y。范数收敛也蕴含弱收敛，而有界线性泛函分离点，故 y=Tx，矛盾。(2) 在 ℓ² 上取恒等算子和 e_n。e_n 弱收敛到零，但像的范数恒为 1；恒等算子有界而不紧，因为 e_n 两两距离为 sqrt(2)，无范数收敛子列。",
+        "checkpoints": ["通过双对偶评估泛函及一致有界性证明弱序列范数有界", "用复合泛函证明算子像弱收敛", "用紧性及极限唯一性完成坏子列的反证", "验证恒等算子反例的弱收敛、不强收敛及不紧性"],
+        "errors": ["将紧算子错误理解成像集本身闭且紧", "只证明存在一个收敛子列便宣称全序列收敛"],
+        "references": [FUNCTIONAL],
+    },
+    {
+        "subject": "泛函分析", "topic": "闭图像定理的完备性陷阱", "difficulty": "进阶",
+        "problem": r"证明并纠正错误推理：令 X=C^1([0,1]) 仅赋 $\|f\|_\infty$，Y=C([0,1]) 赋同一上确界范数，$D:X\to Y$ 为 $Df=f'$。(1) 证明 D 的图像在 X×Y 中闭。(2) 证明 D 无界。(3) 某人据‘图像闭，故闭图像定理推出 D 有界’得出矛盾。指出缺失假设，并构造 X 中的 Cauchy 序列验证该假设不成立。",
+        "answer": r"(1) 若 f_n→f 于 X 的上确界范数且 f_n'→g 于 Y，积分恒等式 f_n(t)-f_n(0)=∫_0^t f_n'(s)ds 可取极限，得到 f(t)-f(0)=∫_0^t g(s)ds，因此 f'=g，图像闭。范数空间可用序列刻画闭性。(2) f_n(t)=sin(nt)/n 满足 ||f_n||∞≤1/n，而 ||f_n'||∞=1（t=0 处取到），故不可能有统一算子界。(3) 闭图像定理要求定义域和目标空间都为 Banach 空间，但 X 在该范数下不完备。g_n(t)=sqrt((t-1/2)^2+1/n) 属于 C^1，且一致收敛到 |t-1/2|，因为误差不超过 1/sqrt(n)，故为 Cauchy 列。极限在 1/2 处不可微，不属于 X；若在 X 中收敛，其一致极限必是同一函数，矛盾。",
+        "checkpoints": ["从函数及导数一致收敛的积分恒等式证明相对图像闭", "构造范数趋零而导数范数不趋零的序列", "指出定义域在给定范数下不是 Banach 空间", "明确 C1 Cauchy 序列、一致极限及该极限不属于 C1"],
+        "errors": ["把 C1 的上确界范数与含导数的 C1 范数混淆", "因为导数无界便错误否定图像闭性"],
+        "references": [FUNCTIONAL],
+    },
+    {
+        "subject": "泛函分析", "topic": "一致有界性与非完备反例", "difficulty": "进阶",
+        "problem": r"证明并检验完备性：(1) 设 X 是实 Banach 空间，T_n:X→R 是有界线性泛函，且对每个 x∈X 都有 sup_n|T_n x|<∞。用 Baire 类定理证明 sup_n||T_n||<∞，不能只引用一致有界性原理。(2) 在赋上确界范数的有限支撑实序列空间 c_00 上，构造每个都是有界泛函、逐点有界但算子范数不一致有界的 T_n，并验证 c_00 不完备。",
+        "answer": r"(1) 设 E_m={x:sup_n|T_nx|≤m}，每个 E_m 是闭集，且 X=∪_{m≥1}E_m。Baire 定理给出某 E_m 含开球 B(x_0,r)。对 ||h||<r，由 x_0+h 及 x_0 都在 E_m 得 |T_nh|≤2m。缩放并令缩放系数逼近 r 得 ||T_n||≤2m/r，所有 n 同界。(2) 取 T_n(x)=n x_n。每个泛函有界且范数恰为 n，在 e_n 处达到；每个有限支撑 x 的 T_n(x) 最终为零，故逐点有界。有限截断 u^(N)=(1,1/2,...,1/N,0,...) 在上确界范数下是 Cauchy 列，其坐标极限是 (1/j)_{j≥1}，无限支撑而不在 c_00，故 c_00 不完备。",
+        "checkpoints": ["构造闭集 E_m 并由逐点有界保证其覆盖 X", "正确应用 Baire 并从有内点得到统一算子范数界", "验证 c00 上各泛函有界、逐点有界但范数发散", "通过有限截断 Cauchy 列及无限支撑极限证明不完备"],
+        "errors": ["忽略 Banach 假设并对任意赋范空间引用 Baire", "将逐点的上界错误当作对所有向量统一的上界"],
+        "references": [FUNCTIONAL],
+    },
+)
+
+
+def build_records() -> list[dict]:
+    records = []
+    for idx, task in enumerate(TASKS):
+        records.append({
+            "idx": idx, "problem": task["problem"], "answer": task["answer"],
+            "review_checkpoints": task["checkpoints"], "common_errors": task["errors"],
+            "source_id": f"proof_gap12_{idx:02d}", "source_subject": task["subject"],
+            "source_topic": task["topic"], "source_difficulty": task["difficulty"],
+            "source_kind": "self_authored_standard_mathematics",
+            "source_revision": REVISION, "source_checked_at": CHECKED_AT,
+            "reference_urls": task["references"],
+        })
+    if Counter(r["source_subject"] for r in records) != {
+        "拓扑学": 4, "测度积分": 4, "泛函分析": 4,
+    }:
+        raise ValueError("Expected four proofs in each of three domains")
+    if len({r["problem"] for r in records}) != 12:
+        raise ValueError("Duplicate or missing proof prompts")
+    for r in records:
+        if not r["problem"].startswith("证明") or len(r["review_checkpoints"]) != 4:
+            raise ValueError(f"Malformed proof or rubric: {r['source_id']}")
+    return records
+
+
+def jsonl(records: list[dict]) -> str:
+    return "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in records)
+
+
+def answer_free(records: list[dict]) -> list[dict]:
+    """Keep the model input independent of reference proofs and domain labels."""
+    return [{"idx": r["idx"], "problem": r["problem"]} for r in records]
+
+
+def main() -> None:
+    root = Path(__file__).resolve().parents[1]
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output-dir", type=Path, default=Path(__file__).resolve().parent)
+    parser.add_argument("--review-dir", type=Path, default=root / "outputs" / "proof_gap12_prepared")
+    args = parser.parse_args()
+    records = build_records()
+    full = jsonl(records)
+    digest = hashlib.sha256(full.encode("utf-8")).hexdigest()
+    pilot = [records[i] for i in PILOT_IDS]
+    for directory in (args.output_dir, args.review_dir):
+        directory.mkdir(parents=True, exist_ok=True)
+    (args.output_dir / "proof_gap12.jsonl").write_text(full, encoding="utf-8", newline="\n")
+    (args.output_dir / "proof_gap12_pilot6_input.jsonl").write_text(
+        jsonl(answer_free(pilot)), encoding="utf-8", newline="\n")
+    (args.review_dir / "proof_gap12_input.jsonl").write_text(
+        jsonl(answer_free(records)), encoding="utf-8", newline="\n")
+    review = {
+        "dataset_revision": REVISION, "dataset_sha256": digest,
+        "status": "not_run", "judgement_values": [True, False, None],
+        "items": [{
+            "idx": r["idx"], "source_id": r["source_id"], "judgement": None,
+            "checkpoint_pass": [None] * len(r["review_checkpoints"]),
+            "review_checkpoints": r["review_checkpoints"],
+            "missing_steps": [], "invalid_steps": [], "notes": "", "output_file": "",
+        } for r in records],
+    }
+    (args.review_dir / "proof_gap12_review_template.json").write_text(
+        json.dumps(review, ensure_ascii=False, indent=2) + "\n", encoding="utf-8", newline="\n")
+    print(f"Prepared {len(records)} proofs; pilot IDs: {PILOT_IDS}; SHA-256: {digest}")
+
+
+if __name__ == "__main__":
+    main()

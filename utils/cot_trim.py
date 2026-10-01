@@ -85,6 +85,15 @@ def is_placeholder_answer(text: str) -> bool:
     value = (text or "").strip()
     if not value:
         return True
+    # A section that only points to another section carries no answer payload.
+    # Reasoning output has used this literal phrase despite providing a boxed
+    # formula in the quick conclusion; let that formula become the fallback.
+    cross_reference = re.sub(r"\s+", "", value).casefold().rstrip("。.!！")
+    if cross_reference in {
+        "sameas结论速览", "sameasthequickconclusion", "sameasquickconclusion",
+        "sameasabove", "同结论速览", "见结论速览", "同上",
+    }:
+        return True
     normalized = _normalize_placeholder_text(value)
     if not normalized:
         return True

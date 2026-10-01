@@ -168,7 +168,8 @@ def _parse_selection(raw: str, nonce: str, candidate_ids: set[str]) -> str | Non
 _SEMANTIC_STALEMATE = {"abstained"}
 
 
-def _enforce_contract(problem: str, selected: _Candidate, candidates: list[_Candidate]):
+def _enforce_contract(problem: str, selected: _Candidate, candidates: list[_Candidate],
+                      *, unresolved_contradiction: bool = False):
     """当选中的候选被证明漏掉了另一候选具有的可交付结论时，强制改选。
 
     仲裁自身的规则说"覆盖题面全部可交付结论的候选优于不覆盖的"，但仲裁是
@@ -180,7 +181,7 @@ def _enforce_contract(problem: str, selected: _Candidate, candidates: list[_Cand
     重选，且仅当契约能*证明*另一候选严格更完整时才改选。契约无意见（多数
     题目）时，仲裁的选择原样保留。
     """
-    if not problem or len(candidates) < 2:
+    if unresolved_contradiction or not problem or len(candidates) < 2:
         return selected, None
     selected_missing = missing_components(problem, selected.answer)
     if not selected_missing:
@@ -192,7 +193,8 @@ def _enforce_contract(problem: str, selected: _Candidate, candidates: list[_Cand
         if candidate is selected:
             continue
         candidate_missing = missing_components(problem, candidate.answer)
-        if len(candidate_missing) < len(best_missing):
+        # A shorter but different missing list does not prove better coverage.
+        if set(candidate_missing) < set(best_missing):
             best, best_missing = candidate, candidate_missing
     if best is selected:
         return selected, None
@@ -371,10 +373,13 @@ def arbiter_step(state, config):
         result["arbiter_attempts"] = attempts
         return result
 
-    selected = by_id[selected_id]
-    selected, override = _enforce_contract(problem, selected, candidates)
     unresolved_contradiction = bool(
         (state.get("validation_details") or {}).get("unresolved_contradiction")
+    )
+    selected = by_id[selected_id]
+    selected, override = _enforce_contract(
+        problem, selected, candidates,
+        unresolved_contradiction=unresolved_contradiction,
     )
     selection_status = "selected_unresolved" if unresolved_contradiction else "selected"
     trace.append({

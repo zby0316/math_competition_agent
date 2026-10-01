@@ -4,9 +4,8 @@
 曾出现这几类残缺：假设检验只给统计量不给结论、置信区间只给单侧端点、运输问题
 只给总运费、枚举题只列一个对象、比较题不给建议、矩阵法不展示中间矩阵。
 
-契约只做"是否残缺"的轻量判定，供 cross_validator 拣选答案与 formatter 回退/
-回捞使用；判定宁松勿严——漏报的代价是维持现状，误报的代价只是改用更完整的
-coordinator 最终答案节，不会破坏正确答案。
+契约只做"是否残缺"的轻量判定，供仲裁、答案选择与 formatter 回捞使用。
+仲裁会据此改选候选，因此新增规则必须能从题面明确判断，并且只比较已存在答案。
 """
 import re
 
@@ -41,6 +40,92 @@ def _enumeration_satisfied(answer):
 
 
 _NUMERIC_OR_SYMBOLIC_RE = re.compile(r"\d|\\frac|\\sqrt|\\pi|π|\\infty")
+
+
+def _needs_integration_constant(problem):
+    """Recognize a single indefinite integral, leaving bounded integrals alone."""
+    text = problem or ""
+    if re.search(r"(?i)\b(?:indefinite integral|antiderivative)\b|不定积分|原函数", text):
+        return True
+    integrals = list(re.finditer(r"\\int\b|∫", text))
+    if len(integrals) != 1:
+        return False
+    tail = text[integrals[0].end():]
+    if re.match(r"\s*(?:\\limits\s*)?[_^]", tail):
+        return False
+    if re.search(r"(?i)\b(?:definite integral|from .{0,40} to .{0,40})\b|定积分", text):
+        return False
+    return True
+
+
+def _integration_constant_satisfied(answer):
+    text = answer or ""
+    return _has(
+        text,
+        r"(?:\+\s*(?:C|K)|(?:C|K)\s*\+)(?:_\{?\d+\}?)?(?![A-Za-z])",
+        r"(?i)arbitrary\s+(?:integration\s+)?constant|constant\s+of\s+integration",
+        r"积分常数|任意常数",
+    )
+
+
+def _needs_periodic_solution(problem):
+    text = problem or ""
+    if _has(text, r"\\int\b|∫|\b(?i:integral|antiderivative)\b|积分|原函数"):
+        return False
+    if not _has(text, r"(?i)\bsolve\b", r"解方程|求(?:解|通解)"):
+        return False
+    if not _has(text, r"\\?(?:sin|cos|tan|cot)\b|\\?(?:sec|csc)\b|正弦|余弦|正切"):
+        return False
+    # A restricted interval asks for its solutions, not an unrestricted family.
+    if _has(text, r"(?i)\b(?:on|within|over|in)\s+(?:the\s+)?(?:interval|range)\b",
+            r"区间|范围|\\in\s*[\[\(]|∈\s*[\[\(]",
+            r"(?i)\b[a-z]+\s+in\s*[\[\(]",
+            r"0\s*(?:\\leq?|≤|<=|<)\s*(?:\\?[A-Za-z]+)"):
+        return False
+    return True
+
+
+def _periodic_solution_satisfied(answer):
+    text = answer or ""
+    if _has(text, r"(?i)\\pmod\s*\{?2?\\pi|\bmod\s*2?\s*(?:\\pi|π|pi)"):
+        return True
+    has_pi = _has(text, r"\\pi|π|\b(?i:pi)\b")
+    has_parameter = _has(text, r"(?<![A-Za-z])(?:k|n|m|j)(?![A-Za-z])")
+    return has_pi and has_parameter
+
+
+def _requested_answer_fields(problem):
+    """Extract only bare function labels from explicit numbered subquestions."""
+    text = problem or ""
+    clauses = re.findall(r"(?ms)^\s*\d+[.)]\s*(.*?)(?=^\s*\d+[.)]\s*|\Z)", text)
+    if len(clauses) < 2:
+        return []
+    fields = []
+    for clause in clauses:
+        if not re.match(r"(?i)\s*(?:construct|find|compute|calculate|determine|evaluate|give|求|计算|构造|写出)", clause):
+            continue
+        spans = re.findall(r"\$([^$]+)\$", clause)
+        if len(spans) != 1:
+            continue
+        label = re.sub(r"\s+", "", spans[0])
+        if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*\([^()]*\)", label):
+            fields.append(label)
+    return list(dict.fromkeys(fields)) if len(fields) >= 2 else []
+
+
+def _answer_has_field(answer, field):
+    # Match a named result such as R(x,y)=...; mentioning R(x,y) alone is not a result.
+    parts = re.match(r"([A-Za-z][A-Za-z0-9_]*)\(([^()]*)\)", field)
+    if not parts:
+        return False
+    name, args = parts.groups()
+    arg_pattern = r"\s*,\s*".join(re.escape(arg) for arg in args.split(","))
+    pattern = rf"(?<![A-Za-z0-9_]){re.escape(name)}\s*\(\s*{arg_pattern}\s*\)\s*\$?\s*="
+    for match in re.finditer(pattern, answer or ""):
+        value = re.split(r"[;；\n]", (answer or "")[match.end():], maxsplit=1)[0].strip(" $ ")
+        if value and value not in {"?", "...", "\\cdots"}:
+            return True
+    return False
 
 
 def _extremum_satisfied(answer):
@@ -97,6 +182,8 @@ _SATISFIED = {
     "extremum_value": _extremum_satisfied,
     "tangent_and_area": _tangent_and_area_satisfied,
     "feasibility_count": _feasibility_count_satisfied,
+    "integration_constant": _integration_constant_satisfied,
+    "periodic_solution": _periodic_solution_satisfied,
 }
 
 
@@ -104,6 +191,11 @@ def required_components(problem):
     """由题面文本推断答案必须包含的组成部分（component id 列表）。"""
     p = problem or ""
     comps = []
+    if _needs_integration_constant(p):
+        comps.append("integration_constant")
+    if _needs_periodic_solution(p):
+        comps.append("periodic_solution")
+    comps.extend("field:" + field for field in _requested_answer_fields(p))
     if "检验" in p and _has(p, r"H_?\{?0\}?|原假设|显著性水平|\\alpha|α"):
         comps.append("hypothesis_conclusion")
     if "置信区间" in p and not _has(p, r"单侧|置信上限|置信下限"):
@@ -142,7 +234,11 @@ def required_components(problem):
 
 def missing_components(problem, answer):
     """返回答案缺失的契约组成部分；空列表表示满足契约。"""
-    return [c for c in required_components(problem) if not _SATISFIED[c](answer or "")]
+    return [
+        component for component in required_components(problem)
+        if not (_answer_has_field(answer, component[6:]) if component.startswith("field:")
+                else _SATISFIED[component](answer or ""))
+    ]
 
 
 def recover_hypothesis_conclusion(fulltext):

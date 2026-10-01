@@ -36,6 +36,8 @@ INTERN_MODEL=intern-s2-preview
 pip install -r requirements.txt
 ```
 
+Windows 环境若将文件按 GBK 读取而报编码错误，可用 `python -X utf8 -m pip install -r requirements.txt`。
+
 ### 3. 批量运行
 
 ```bash
@@ -60,6 +62,12 @@ python main.py --input_file input.jsonl --output_dir outputs
     "trace": [...]
 }
 ```
+
+### 5. 本地诊断题集
+
+`benchmarks/umath_text24.jsonl` 是固定的 24 道 U-MATH 纯文本题，用于比较不同代码版本的逐题表现。来源、重建方式及自动判分限制见 [诊断集说明](benchmarks/README.md)。运行评测会调用模型 API；仅重建数据不会。
+
+拓扑、测度与泛函分析另有新编的 12 道证明题及人工清单，均已分批试跑；首批暴露的问题修复后，原失败题另复跑一次，剩余六题严格核对为 3 通过、3 需修正。见[证明题说明](benchmarks/拓扑测度泛函证明题说明.md)、[首批报告](benchmarks/证明题首批六题评测报告.md)和[后续报告](benchmarks/证明问题修复与剩余六题评测报告.md)；这些结果不代表官方提分。
 
 ## 目录结构
 

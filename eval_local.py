@@ -1,7 +1,7 @@
 """本地评测：用真实 LLM 接口跑测试集并对照参考答案判分。
 
 用法（在项目根目录）：
-    python eval_local.py                 # 默认跑全部 50 题，并发 1
+    python eval_local.py                 # 默认跑本地题集，并发 1
     python eval_local.py --limit 5       # 只跑前 5 题，快速验证方向
     python eval_local.py --idx 0,3,7     # 只跑指定 idx（逗号分隔）
     python eval_local.py --concurrency 2 # 并发求解（共享同一个 client）
@@ -9,9 +9,9 @@
 
 密钥从 .env 读取：INTERN_API_KEY 必填；INTERN_API_URL / INTERN_MODEL 可选。
 判分口径：
-    * 计算题：从 final_response 抠出答案后走 AnswerCompare 符号/数值等价
-      （容差 1e-6），这是平台判分同思路的本地近似，不是平台本身；
-    * 证明题：同样走 AnswerCompare，匹配不上即记错——本地只做粗略对照。
+    * 计算题：确定等价判对，确定数值差异判错，其余标记为待复核；
+    * 证明题：论证需人工检查，标记为待复核。
+    这是本地诊断，不是平台判分。
 """
 import argparse
 import json
@@ -111,21 +111,14 @@ def extract_answer(final_response: str) -> str:
 
 
 def grade(problem: str, final_response: str, expected: str) -> tuple:
-    """判分单题。返回 (ok, reason)。
-
-    统一走 AnswerCompare.match_computation_answer：它能处理数值、符号表达式、
-    分数、矩阵与复合答案；证明题的字符串答案也走同一条管道，匹配不上算错。
-    """
-    from utils.answer_compare import AnswerCompare
+    """判分单题。ok 为 True / False / None（需人工复核）。"""
+    from utils.local_grader import grade_math_answer
 
     pred = extract_answer(final_response)
-    if not pred:
-        return False, "no_answer"
     try:
-        ok, _conf, reason = AnswerCompare.match_computation_answer(pred, expected)
-        return bool(ok), reason
+        return grade_math_answer(problem, pred, expected)
     except Exception as exc:  # noqa: BLE001 - 判分器偶发失败不应中断整批。
-        return False, f"grader_error: {exc}"
+        return None, f"review: grader_error: {exc}"
 
 
 def run_one(idx: int, problem: str, expected: str, agent) -> dict:
@@ -142,7 +135,7 @@ def run_one(idx: int, problem: str, expected: str, agent) -> dict:
     return {
         "idx": idx, "ok": ok, "reason": reason,
         "elapsed_s": round(time.time() - started, 1),
-        "predicted": predicted[:400], "expected": expected[:400],
+        "predicted": predicted, "expected": expected,
         "trace_steps": len(result.get("trace", [])),
     }
 
@@ -184,7 +177,8 @@ def main():
         problem = row.get("problem", "")
         expected = row.get("answer", "")
         rec = run_one(idx, problem, expected, agent)
-        print(f"[{'OK' if rec['ok'] else 'X '}] idx={idx} "
+        label = "OK" if rec["ok"] is True else "X " if rec["ok"] is False else "REVIEW"
+        print(f"[{label}] idx={idx} "
               f"{rec['elapsed_s']}s  {rec['reason']}", flush=True)
         done[str(idx)] = rec
         out_path.write_text(json.dumps(list(done.values()), ensure_ascii=False, indent=1),
@@ -199,9 +193,17 @@ def main():
             work(row)
 
     results = list(done.values())
-    ok = sum(1 for r in results if r.get("ok"))
+    ok = sum(1 for r in results if r.get("ok") is True)
+    review = sum(1 for r in results if r.get("ok") is None)
+    wrong = len(results) - ok - review
     total = len(results)
-    print(f"\n完成 {total} 题，正确 {ok} 题，acc = {ok / total:.1%}" if total else "\n无新增题")
+    if total:
+        checked = ok + wrong
+        checked_rate = f"{ok / checked:.1%}" if checked else "暂无可自动判定题"
+        print(f"\n完成 {total} 题：自动判对 {ok}，判错 {wrong}，待复核 {review}；"
+              f"自动判定覆盖 {checked}/{total}，覆盖内正确率 {checked_rate}")
+    else:
+        print("\n无新增题")
     print(f"结果写入 {out_path}")
 
 

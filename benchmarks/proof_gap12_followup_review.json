@@ -1,0 +1,482 @@
+{
+  "dataset_revision": "proof-gap12-v1",
+  "dataset_sha256": "504c06cb12517d2ffc3f48caedc2f4f7e162ecc4b7d65a5261c52b8384fe7983",
+  "run_date": "2026-10-01",
+  "code_baseline": "f3d8525",
+  "code_state": "uncommitted working tree",
+  "model": "intern-s2-preview-397b",
+  "concurrency": 1,
+  "reviewer": "Codex assistant, full-answer mathematical argument review",
+  "review_policy": "Conservative default: valid main arguments with explicit false assertions or undefined scalar-field operations are needs_correction, not fully passed. Alternative valid proofs and counterexamples are accepted; checkpoints are not an exhaustive correctness certificate.",
+  "review_policy_user_confirmation": "No explicit strict/permissive choice; conservative default retained.",
+  "official_score_change_verified": false,
+  "offline_tests_passed": 55,
+  "measure_excerpt_checks_passed": 8,
+  "phases": [
+    {
+      "phase": "fixcheck",
+      "input_path": "outputs/proof_gap12_fixcheck6_input.jsonl",
+      "input_sha256": "b0aaf2f58d2b7880b2f2703ad28c18bbaf07b4a92f40077ca45646560be49196",
+      "output_dir": "outputs/proof_gap12_fixcheck6_20261001",
+      "log_path": "outputs/proof_gap12_fixcheck6_20261001.log",
+      "summary": {
+        "items": 1,
+        "passed": 0,
+        "failed": 0,
+        "needs_correction": 1,
+        "elapsed_s": 318.2,
+        "median_elapsed_s": 318.2,
+        "max_elapsed_s": 318.2,
+        "recorded_model_calls": 4,
+        "call_seconds_by_stage": {
+          "classifier_prefill": 1.23,
+          "reasoning": 221.97,
+          "coordinator": 94.98
+        },
+        "automatic_grade_coverage": 0,
+        "python_execution_attempts": 0
+      },
+      "items": [
+        {
+          "idx": 6,
+          "source_id": "proof_gap12_06",
+          "expected_subject": "测度积分",
+          "category": "测度积分",
+          "mode": "proof",
+          "elapsed_s": 318.2,
+          "recorded_model_calls": 4,
+          "call_details": [
+            {
+              "label": "classifier_prefill",
+              "seconds": 1.23
+            },
+            {
+              "label": "reasoning",
+              "seconds": 109.8
+            },
+            {
+              "label": "reasoning",
+              "seconds": 112.17
+            },
+            {
+              "label": "coordinator",
+              "seconds": 94.98
+            }
+          ],
+          "reasoning_attempts": 2,
+          "reasoning_response_attempts": [
+            {
+              "attempt": 1,
+              "status": "failed",
+              "response_chars": 23978
+            },
+            {
+              "attempt": 2,
+              "status": "failed",
+              "response_chars": 23897
+            }
+          ],
+          "reasoning_finish_reason": "length",
+          "python_attempts": 0,
+          "response_chars": 4131,
+          "agent_version": "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+nan-evidence+candidate-completeness+equivalence-routing+pde-cue+crossref-answer+math-span-clean+functional-cue+measure-proof-guard 2026-10-01",
+          "output_path": "outputs/proof_gap12_fixcheck6_20261001/6.json",
+          "output_sha256": "8df7c7ea6daaeba7b6b02c776ed27d761805be4e286415adae15cc7078778803",
+          "review_checkpoints": [
+            "结合有限测度与尾积分得到 L1 有界，再用子列和 Fatou 证明 f 可积",
+            "控制 f_n 及 f 的截断尾部积分",
+            "证明固定截断层下依测度收敛推出积分差趋零并安排极限顺序",
+            "反例验证收敛、L1 范数及尾积分条件失效"
+          ],
+          "judgement": null,
+          "checkpoint_pass": [
+            true,
+            true,
+            true,
+            null
+          ],
+          "review_status": "needs_correction",
+          "missing_steps": [],
+          "invalid_steps": [
+            "反例中对任意 ε>0 写‘当 n>1/ε 时 μ(|f_n|>ε)=1/n’，该条件不保证 n>ε；应改为 n>ε，或充分大使 n>max(ε,1/ε)。"
+          ],
+          "notes": "原来的不连续硬截断/DCT 漏洞未复现；改用一致绝对连续性和依测度收敛的有效证明，L1 有界与 Fatou 步骤也补全。反例主要结论有效，但阈值表述有明确错误，严格统计仍单列待修正。两次推理响应解析失败，最后由协调节点整理输出；本次只表明原关键漏洞在一个样本中消失，不证明一般可靠性或提速。"
+        }
+      ]
+    },
+    {
+      "phase": "remaining6",
+      "input_path": "outputs/proof_gap12_remaining6_input.jsonl",
+      "input_sha256": "09bfeb300be97e76fa9f128633bfeccec60eeaed7254728eb64528cba41c6fb3",
+      "output_dir": "outputs/proof_gap12_remaining6_20261001",
+      "log_path": "outputs/proof_gap12_remaining6_20261001.log",
+      "summary": {
+        "items": 6,
+        "passed": 3,
+        "failed": 0,
+        "needs_correction": 3,
+        "elapsed_s": 1222.17,
+        "median_elapsed_s": 192.66,
+        "max_elapsed_s": 279.55,
+        "recorded_model_calls": 20,
+        "call_seconds_by_stage": {
+          "classifier_prefill": 7.3,
+          "reasoning": 885.62,
+          "coordinator": 329.15
+        },
+        "automatic_grade_coverage": 0,
+        "python_execution_attempts": 0
+      },
+      "items": [
+        {
+          "idx": 0,
+          "source_id": "proof_gap12_00",
+          "expected_subject": "拓扑学",
+          "category": "拓扑学",
+          "mode": "proof",
+          "elapsed_s": 256.56,
+          "recorded_model_calls": 4,
+          "call_details": [
+            {
+              "label": "classifier_prefill",
+              "seconds": 1.14
+            },
+            {
+              "label": "reasoning",
+              "seconds": 118.23
+            },
+            {
+              "label": "reasoning",
+              "seconds": 96.44
+            },
+            {
+              "label": "coordinator",
+              "seconds": 40.74
+            }
+          ],
+          "reasoning_attempts": 2,
+          "reasoning_response_attempts": [
+            {
+              "attempt": 1,
+              "status": "failed",
+              "response_chars": 343
+            },
+            {
+              "attempt": 2,
+              "status": "success",
+              "response_chars": 2428
+            }
+          ],
+          "reasoning_finish_reason": "stop",
+          "python_attempts": 0,
+          "response_chars": 3489,
+          "agent_version": "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+nan-evidence+candidate-completeness+equivalence-routing+pde-cue+crossref-answer+math-span-clean+functional-cue+measure-proof-guard 2026-10-01",
+          "output_path": "outputs/proof_gap12_remaining6_20261001/0.json",
+          "output_sha256": "bfd085b4458ef58343d901cf3fc265a7ff670c7a22c973e716579c6e7f6ee058",
+          "review_checkpoints": [
+            "闭集在紧致空间中紧致，连续像紧致",
+            "正确使用 Hausdorff 假设推出像闭并证明逆映射连续",
+            "反例同时给出两种拓扑及连续双射",
+            "验证目标仍紧致而逆映射不连续"
+          ],
+          "judgement": true,
+          "checkpoint_pass": [
+            true,
+            true,
+            true,
+            true
+          ],
+          "review_status": "passed",
+          "missing_steps": [],
+          "invalid_steps": [],
+          "notes": "闭集经连续映射成为紧集，再由目标空间 Hausdorff 性成为闭集，推出逆映射连续；有限集合上离散到不可分拓扑的恒等映射反例满足全部条件。"
+        },
+        {
+          "idx": 3,
+          "source_id": "proof_gap12_03",
+          "expected_subject": "拓扑学",
+          "category": "拓扑学",
+          "mode": "proof",
+          "elapsed_s": 151.53,
+          "recorded_model_calls": 3,
+          "call_details": [
+            {
+              "label": "classifier_prefill",
+              "seconds": 1.14
+            },
+            {
+              "label": "reasoning",
+              "seconds": 105.73
+            },
+            {
+              "label": "coordinator",
+              "seconds": 44.64
+            }
+          ],
+          "reasoning_attempts": 1,
+          "reasoning_response_attempts": [
+            {
+              "attempt": 1,
+              "status": "success",
+              "response_chars": 2778
+            }
+          ],
+          "reasoning_finish_reason": "stop",
+          "python_attempts": 0,
+          "response_chars": 3752,
+          "agent_version": "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+nan-evidence+candidate-completeness+equivalence-routing+pde-cue+crossref-answer+math-span-clean+functional-cue+measure-proof-guard 2026-10-01",
+          "output_path": "outputs/proof_gap12_remaining6_20261001/3.json",
+          "output_sha256": "e6316f5ed3dffbbd7f1a722f0b89c990c29775113c1ecd5ff94101233fd5813d",
+          "review_checkpoints": [
+            "连续满射推出商空间紧致",
+            "分别处理两个普通点及压缩类对普通点",
+            "验证邻域饱和并用商拓扑推出像开",
+            "非闭 A 的反例通过单点原像证明不满足 T1"
+          ],
+          "judgement": null,
+          "checkpoint_pass": [
+            true,
+            true,
+            true,
+            true
+          ],
+          "review_status": "needs_correction",
+          "missing_steps": [],
+          "invalid_steps": [
+            "附加拓扑枚举写为 {∅,{q},{p,q}}，其中 q=[0]、p=[A]；实际 {q} 原像 {0} 非开，{p} 原像 (0,1] 在 [0,1] 中开，应为 {∅,{p},{p,q}}。"
+          ],
+          "notes": "紧致性、分离两类点、饱和邻域及非 T1 反例的主证明全部成立；附加 Sierpiński 拓扑枚举含明确错误，严格判为需修正。"
+        },
+        {
+          "idx": 5,
+          "source_id": "proof_gap12_05",
+          "expected_subject": "测度积分",
+          "category": "测度积分",
+          "mode": "proof",
+          "elapsed_s": 162.81,
+          "recorded_model_calls": 3,
+          "call_details": [
+            {
+              "label": "classifier_prefill",
+              "seconds": 1.21
+            },
+            {
+              "label": "reasoning",
+              "seconds": 116.36
+            },
+            {
+              "label": "coordinator",
+              "seconds": 45.23
+            }
+          ],
+          "reasoning_attempts": 1,
+          "reasoning_response_attempts": [
+            {
+              "attempt": 1,
+              "status": "success",
+              "response_chars": 1785
+            }
+          ],
+          "reasoning_finish_reason": "length",
+          "python_attempts": 0,
+          "response_chars": 4255,
+          "agent_version": "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+nan-evidence+candidate-completeness+equivalence-routing+pde-cue+crossref-answer+math-span-clean+functional-cue+measure-proof-guard 2026-10-01",
+          "output_path": "outputs/proof_gap12_remaining6_20261001/5.json",
+          "output_sha256": "7b473ec1cf75f0da053a7597eba06a4a3478511b5289f53f1fe497549d6f4838",
+          "review_checkpoints": [
+            "证明 L1 收敛推出积分收敛的方向",
+            "对 min(f_n,f) 正确应用支配收敛",
+            "积分绝对差恒等式推出另一方向",
+            "有符号反例验证几乎处处收敛、积分为零及 L1 范数不趋零"
+          ],
+          "judgement": null,
+          "checkpoint_pass": [
+            true,
+            true,
+            true,
+            null
+          ],
+          "review_status": "needs_correction",
+          "missing_steps": [],
+          "invalid_steps": [
+            "反例未限制 n≥2，却声称所有 n 的积分恒为0、L1范数恒为2；在(0,1)上 n=1 时负峰在域外，实际积分和范数均为1。应限制 n≥2 或单独定义首项。"
+          ],
+          "notes": "非负情形使用 Fatou 而非参考的 min/DCT 路线，辅助函数非负可测、极限和 limsup 估计均有效，接受该等价证明；有符号反例从 n≥2 起有效，结论正确但首项等式错误，严格列待修正。"
+        },
+        {
+          "idx": 7,
+          "source_id": "proof_gap12_07",
+          "expected_subject": "测度积分",
+          "category": "数学分析",
+          "mode": "proof",
+          "elapsed_s": 279.55,
+          "recorded_model_calls": 4,
+          "call_details": [
+            {
+              "label": "classifier_prefill",
+              "seconds": 1.18
+            },
+            {
+              "label": "reasoning",
+              "seconds": 111.62
+            },
+            {
+              "label": "reasoning",
+              "seconds": 118.8
+            },
+            {
+              "label": "coordinator",
+              "seconds": 47.93
+            }
+          ],
+          "reasoning_attempts": 2,
+          "reasoning_response_attempts": [
+            {
+              "attempt": 1,
+              "status": "failed",
+              "response_chars": 478
+            },
+            {
+              "attempt": 2,
+              "status": "success",
+              "response_chars": 2677
+            }
+          ],
+          "reasoning_finish_reason": "length",
+          "python_attempts": 0,
+          "response_chars": 5858,
+          "agent_version": "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+nan-evidence+candidate-completeness+equivalence-routing+pde-cue+crossref-answer+math-span-clean+functional-cue+measure-proof-guard 2026-10-01",
+          "output_path": "outputs/proof_gap12_remaining6_20261001/7.json",
+          "output_sha256": "51b5b6d3f91265e96a15ee718f86bd72402248b422e0c1358bb41cbbcb3411f8",
+          "review_checkpoints": [
+            "构造尾部异常集并处理几乎处处例外集",
+            "指出有限测度用于递减集合的测度从上连续性",
+            "选取可求和测度界并证明补集上一致收敛",
+            "无限测度反例验证逐点收敛和删除任意有限测度集后的失败"
+          ],
+          "judgement": true,
+          "checkpoint_pass": [
+            true,
+            true,
+            true,
+            true
+          ],
+          "review_status": "passed",
+          "missing_steps": [],
+          "invalid_steps": [],
+          "notes": "通过递增好集合及有限测度下补集测度趋零证明 Egorov，几乎处处例外自动包含于构造的异常集；平移单位区间指示函数反例利用有限测度集与各区间交的测度趋零，论证有效。接受不同于参考的集合方向和反例。实际分类数学分析偏离测度领域，单列路由问题，不据此判证明错误。"
+        },
+        {
+          "idx": 8,
+          "source_id": "proof_gap12_08",
+          "expected_subject": "泛函分析",
+          "category": "泛函分析",
+          "mode": "proof",
+          "elapsed_s": 149.22,
+          "recorded_model_calls": 3,
+          "call_details": [
+            {
+              "label": "classifier_prefill",
+              "seconds": 1.27
+            },
+            {
+              "label": "reasoning",
+              "seconds": 101.69
+            },
+            {
+              "label": "coordinator",
+              "seconds": 46.24
+            }
+          ],
+          "reasoning_attempts": 1,
+          "reasoning_response_attempts": [
+            {
+              "attempt": 1,
+              "status": "success",
+              "response_chars": 1337
+            }
+          ],
+          "reasoning_finish_reason": "length",
+          "python_attempts": 0,
+          "response_chars": 3434,
+          "agent_version": "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+nan-evidence+candidate-completeness+equivalence-routing+pde-cue+crossref-answer+math-span-clean+functional-cue+measure-proof-guard 2026-10-01",
+          "output_path": "outputs/proof_gap12_remaining6_20261001/8.json",
+          "output_sha256": "dfce67c24f09bbbf2479a6c2138ef16e763e3231233f0f05d8d0ed85f2805f27",
+          "review_checkpoints": [
+            "处理 x=0 并从固定测试向量导出范数下半连续",
+            "使用 Hilbert 内积恒等式和弱收敛推出强收敛",
+            "提供明确空间及有界序列",
+            "验证反例弱收敛并验证不强收敛"
+          ],
+          "judgement": null,
+          "checkpoint_pass": [
+            null,
+            true,
+            true,
+            true
+          ],
+          "review_status": "needs_correction",
+          "missing_steps": [],
+          "invalid_steps": [
+            "题目允许复 Hilbert 空间，正文却对可能为复数的 <x_n,x> 直接写 liminf 并比较 ≤；复数无此序结构。应先对 |<x_n,x>| 或实部取极限，再用 Cauchy–Schwarz。"
+          ],
+          "notes": "最终证明概要给出的绝对值估计有效，强收敛推导保留实部，Bessel 弱收敛反例正确；但正文下半连续性推导含复数 liminf 的未定义操作，严格列待修正。未据该局部表述问题判主要结论错误。"
+        },
+        {
+          "idx": 11,
+          "source_id": "proof_gap12_11",
+          "expected_subject": "泛函分析",
+          "category": "泛函分析",
+          "mode": "proof",
+          "elapsed_s": 222.5,
+          "recorded_model_calls": 3,
+          "call_details": [
+            {
+              "label": "classifier_prefill",
+              "seconds": 1.36
+            },
+            {
+              "label": "reasoning",
+              "seconds": 116.75
+            },
+            {
+              "label": "coordinator",
+              "seconds": 104.37
+            }
+          ],
+          "reasoning_attempts": 1,
+          "reasoning_response_attempts": [
+            {
+              "attempt": 1,
+              "status": "success",
+              "response_chars": 3364
+            }
+          ],
+          "reasoning_finish_reason": "length",
+          "python_attempts": 0,
+          "response_chars": 4013,
+          "agent_version": "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+nan-evidence+candidate-completeness+equivalence-routing+pde-cue+crossref-answer+math-span-clean+functional-cue+measure-proof-guard 2026-10-01",
+          "output_path": "outputs/proof_gap12_remaining6_20261001/11.json",
+          "output_sha256": "5d130dad0e30e98ce7695ed69d5efd263a85367178bc11a97b566d0f3543f7a0",
+          "review_checkpoints": [
+            "构造闭集 E_m 并由逐点有界保证其覆盖 X",
+            "正确应用 Baire 并从有内点得到统一算子范数界",
+            "验证 c00 上各泛函有界、逐点有界但范数发散",
+            "通过有限截断 Cauchy 列及无限支撑极限证明不完备"
+          ],
+          "judgement": true,
+          "checkpoint_pass": [
+            true,
+            true,
+            true,
+            true
+          ],
+          "review_status": "passed",
+          "missing_steps": [],
+          "invalid_steps": [],
+          "notes": "Baire 闭集覆盖、有内点、缩放统一界完整；采用前 n 项和泛函而非参考的 n x_n，逐点有界、各泛函范数为 n 及 c00 非完备验证有效，接受该替代反例。"
+        }
+      ]
+    }
+  ]
+}

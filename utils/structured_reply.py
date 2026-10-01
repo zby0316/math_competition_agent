@@ -42,6 +42,12 @@ _LABEL_RE = re.compile(
     r"%s[a-z0-9]*(?:\s*_\s*(?:\{\s*[a-z0-9]+\s*\}|[a-z0-9]+))?)$" % _LABEL_ATOM,
     re.IGNORECASE,
 )
+_FUNCTION_LABEL_RE = re.compile(
+    r"^[A-Za-z][A-Za-z0-9_]*\(\s*[A-Za-z0-9_.-]+(?:\s*,\s*[A-Za-z0-9_.-]+)*\s*\)$"
+)
+_FUNCTION_KEY_RE = re.compile(
+    r"^[a-z][a-z0-9_]*\([a-z0-9_.-]+(?:,[a-z0-9_.-]+)*\)$"
+)
 #: 匹配记号/字母包裹，让 `_canonical_label` 能把 `\bar{y}` 和 `\beta_0` 归约成
 #: 纯文本答案产生的同一键。
 _LATEX_ACCENT_STRIP_RE = re.compile(
@@ -91,6 +97,8 @@ def _canonical_label(label: str) -> str:
     推理答案与纯文本 Python 答案命名同一个字段。
     """
     raw = (label or "").strip()
+    if _FUNCTION_LABEL_RE.fullmatch(raw):
+        return re.sub(r"\s+", "", raw).lower()
     if _MAXIMUM_ALIAS_RE.fullmatch(raw):
         return "maximum"
     # An accent names no quantity of its own; drop it before the letter survives.
@@ -233,7 +241,7 @@ def _parse_assignment(text: str):
         return None
     position = equals[0]
     label, expression = value[:position].strip(), value[position + 1:].strip()
-    if not _LABEL_RE.fullmatch(label):
+    if not (_LABEL_RE.fullmatch(label) or _FUNCTION_LABEL_RE.fullmatch(label)):
         return None
     key = _canonical_label(label)
     expression = _clean_expression(expression)
@@ -244,7 +252,8 @@ def _parse_assignment(text: str):
 
 def _record(fields: dict[str, list[str]], key: str, expression: str) -> bool:
     value = _clean_expression(expression)
-    if (key != "maximum" and not re.fullmatch(r"[a-z][a-z0-9]*", key or "")) \
+    if (key != "maximum" and not re.fullmatch(r"[a-z][a-z0-9]*", key or "")
+            and not _FUNCTION_KEY_RE.fullmatch(key or "")) \
             or not value or len(value) > MAX_EXPRESSION_LENGTH:
         return False
     if key not in fields and len(fields) >= MAX_FIELDS:

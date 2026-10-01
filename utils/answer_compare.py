@@ -7,6 +7,7 @@ unicode 常量归一化（π√×÷²）→ LaTeX 转 sympy 文本（\\frac \\sq
 import re
 
 from utils.cot_trim import contains_unsafe_expr_text, is_placeholder_answer
+from utils.answer_pull import extract_boxed_answer
 from utils.structured_reply import (
     LABEL_ASSIGNMENT_PREFIX_RE, compare_structured_answers, is_self_conflicting,
 )
@@ -216,6 +217,56 @@ def _try_parse_expr(text: str):
 
 class AnswerCompare:
     @staticmethod
+    def _minimum_only_problem(problem: str) -> bool:
+        return bool(re.fullmatch(
+            r"(?is)\s*(?:find|compute|determine)\s+the\s+minimum\s+value\s+of\s+\$[^$]+\$\s*[.。?]?\s*",
+            problem or "",
+        ))
+
+    @staticmethod
+    def _stated_minimum(answer: str) -> str:
+        markers = list(re.finditer(
+            r"(?:最小值|minimum\s+value)\s*(?:为|是|[：:=])\s*",
+            answer or "", re.IGNORECASE,
+        ))
+        if len(markers) != 1:
+            return ""
+        tail = re.split(r"[;；\n]", answer[markers[0].end():], maxsplit=1)[0].strip()
+        boxed = extract_boxed_answer(tail)
+        if boxed:
+            return boxed
+        if tail.startswith("$") and tail.endswith("$") and tail.count("$") == 2:
+            tail = tail[1:-1].strip()
+        return tail.rstrip(".。 ") if len(tail) <= 400 else ""
+
+    @staticmethod
+    def _minimum_answers_match(problem: str, left: str, right: str,
+                               tolerance: float) -> bool:
+        if not AnswerCompare._minimum_only_problem(problem):
+            return False
+        a, b = AnswerCompare._stated_minimum(left), AnswerCompare._stated_minimum(right)
+        return bool(a and b and AnswerCompare._sympy_equivalent(a, b, tolerance) is True)
+
+    @staticmethod
+    def _identity_matches_expression(left: str, right: str, tolerance: float) -> bool:
+        """Match a proved identity to its standalone result, not an arbitrary equation."""
+        def unwrap(text):
+            value = text.strip()
+            if value.startswith("$") and value.endswith("$") and value.count("$") == 2:
+                value = value[1:-1].strip()
+            return value
+
+        equation, expression = unwrap(left), unwrap(right)
+        if equation.count("=") != 1 or "=" in expression or "$" in expression:
+            return False
+        lhs, rhs = (part.strip() for part in equation.split("=", 1))
+        return bool(
+            lhs and rhs and expression
+            and AnswerCompare._sympy_equivalent(lhs, rhs, tolerance) is True
+            and AnswerCompare._sympy_equivalent(rhs, expression, tolerance) is True
+        )
+
+    @staticmethod
     def _python_verification_succeeded(python_result) -> bool:
         result = python_result or {}
         return bool(result.get("success")) and bool(result.get("stdout"))
@@ -240,6 +291,20 @@ class AnswerCompare:
                 "reason": "占位符或空答案，无法判定匹配",
                 "method": "placeholder",
                 "text_similarity": 0.0,
+                "matched_fields": [],
+                "mismatched_fields": [],
+                "field_coverage": 0.0,
+            }
+
+        if (AnswerCompare._identity_matches_expression(a1, a2, tolerance)
+                or AnswerCompare._identity_matches_expression(a2, a1, tolerance)):
+            return {
+                "verdict": True,
+                "is_match": True,
+                "confidence": 0.98,
+                "reason": "恒等式与独立表达式符号等价",
+                "method": "symbolic",
+                "text_similarity": AnswerCompare._string_similarity(a1, a2),
                 "matched_fields": [],
                 "mismatched_fields": [],
                 "field_coverage": 0.0,
@@ -555,6 +620,16 @@ class AnswerCompare:
         reasoning_answer = (reasoning_result or {}).get("answer", "")
         python_answer = (python_result or {}).get("answer", "") if python_result else ""
         detail = AnswerCompare._match_computation_detailed(reasoning_answer, python_answer)
+        if detail["verdict"] is None and AnswerCompare._minimum_answers_match(
+                problem, reasoning_answer, python_answer, 1e-6):
+            detail = {
+                **detail,
+                "verdict": True,
+                "is_match": True,
+                "confidence": 0.98,
+                "reason": "题目所求最小值符号等价",
+                "method": "symbolic",
+            }
         python_success = bool((python_result or {}).get("success"))
         confidence_components = {
             "symbolic": detail["confidence"]
