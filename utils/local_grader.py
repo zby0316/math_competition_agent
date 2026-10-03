@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 
 from utils.answer_compare import AnswerCompare, _try_parse_expr
-from utils.structured_reply import is_self_conflicting
+from utils.structured_reply import is_self_conflicting, compare_structured_answers
 
 
 _FINAL_LABEL_RE = re.compile(r"(?i)^\s*(?:the\s+final\s+answer|final\s+answer|answer|最终答案|答案|结论)\s*[：:]\s*")
@@ -75,8 +75,25 @@ def _standalone_expression(text: str) -> str | None:
     return value or None
 
 
-def _equivalent(left: str, right: str) -> bool | None:
+def _equivalent(left: str, right: str, problem: str = "") -> bool | None:
+    from utils.domain_constraints import explicit_domains, domain_equivalent
+    if explicit_domains(problem):
+        return domain_equivalent(problem, left, right)
     return AnswerCompare._sympy_equivalent(left, right, tolerance=1e-6)
+
+
+def _finite_set(text):
+    import sympy as sp
+    value = _standalone_expression(text)
+    if not value:
+        return None
+    value = value.replace(r"\{", "{").replace(r"\}", "}")
+    if not re.fullmatch(r"\{[^{}]+\}", value):
+        return None
+    items = [_try_parse_expr(item.strip()) for item in value[1:-1].split(",")]
+    if any(item is None or getattr(item, "free_symbols", {1}) or item.is_finite is not True for item in items):
+        return None
+    return sp.FiniteSet(*items)
 
 
 def _numeric_mismatch(left: str, right: str) -> bool:
@@ -102,10 +119,19 @@ def grade_math_answer(problem: str, predicted: str, expected: str) -> tuple[bool
         return None, "review: proof_requires_argument_check"
 
     pred, ref = _prepare(predicted), _prepare(expected)
+    from utils.question_profile import classify_question_mode
+    if classify_question_mode(problem) == "choice":
+        if all(re.fullmatch(r"[A-E](?:\s*[,、，/]\s*[A-E])*", text) for text in (pred, ref)):
+            equal = set(re.findall(r"[A-E]", pred)) == set(re.findall(r"[A-E]", ref))
+            return equal, "choice_labels"
+    left_set, right_set = _finite_set(pred), _finite_set(ref)
+    if left_set is not None and right_set is not None:
+        return bool(left_set == right_set), "finite_numeric_set"
+    equivalent = lambda a, b, tolerance=1e-6: _equivalent(a, b, problem)
     # The generic conflict detector mistakes numbered subanswers and alternate
     # trigonometric forms for contradictions. Apply it only to semicolon lists.
     conflicting_list = (";" in pred or "；" in pred) and is_self_conflicting(
-        pred, AnswerCompare._sympy_equivalent, 1e-6)
+        pred, equivalent, 1e-6)
     if re.sub(r"\s+", " ", pred) == re.sub(r"\s+", " ", ref) and not conflicting_list:
         return True, "exact_reference"
 
@@ -114,7 +140,7 @@ def grade_math_answer(problem: str, predicted: str, expected: str) -> tuple[bool
     if left_fields and right_fields and len(left_fields) == len(pred_spans) and len(right_fields) == len(ref_spans):
         if left_fields.keys() != right_fields.keys():
             return None, "review: different_answer_fields"
-        verdicts = [_equivalent(left_fields[key], right_fields[key]) for key in left_fields]
+        verdicts = [equivalent(left_fields[key], right_fields[key]) for key in left_fields]
         if all(verdict is True for verdict in verdicts):
             return True, "symbolic_function_fields"
         if any(verdict is False for verdict in verdicts):
@@ -124,7 +150,7 @@ def grade_math_answer(problem: str, predicted: str, expected: str) -> tuple[bool
     if len(pred_spans) == len(ref_spans) == 1:
         pred_eq, ref_eq = pred_spans[0].split("="), ref_spans[0].split("=")
         if len(pred_eq) == len(ref_eq) == 2:
-            verdicts = [_equivalent(a, b) for a, b in zip(pred_eq, ref_eq)]
+            verdicts = [equivalent(a, b) for a, b in zip(pred_eq, ref_eq)]
             if all(verdict is True for verdict in verdicts):
                 return True, "symbolic_equation"
 
@@ -132,14 +158,17 @@ def grade_math_answer(problem: str, predicted: str, expected: str) -> tuple[bool
     pred_scalar = minimum.group(1).strip() if minimum else _standalone_expression(pred)
     ref_scalar = _standalone_expression(ref)
     if pred_scalar and ref_scalar:
-        verdict = _equivalent(pred_scalar, ref_scalar)
+        verdict = equivalent(pred_scalar, ref_scalar)
         if verdict is True:
             return True, "symbolic_scalar"
         if verdict is False and _numeric_mismatch(pred_scalar, ref_scalar):
             return False, "numeric_mismatch"
 
     # Retain the existing matcher for clean non-scalar types such as matrices.
-    detail = AnswerCompare._match_computation_detailed(pred, ref)
+    structured = compare_structured_answers(pred, ref, equivalent, tolerance=1e-6)
+    if structured.applicable and structured.verdict is not None:
+        return structured.verdict, "structured_fields"
+    detail = AnswerCompare._match_computation_detailed(pred, ref, problem=problem)
     if detail["verdict"] is True and detail["method"] in {
         "exact", "numeric", "symbolic", "structured_symbolic"
     }:

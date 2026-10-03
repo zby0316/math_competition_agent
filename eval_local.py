@@ -21,6 +21,9 @@ import time
 import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+import threading
+from llm_client import InternChatClient
+from utils.run_manifest import make_manifest, ensure_manifest, atomic_json
 
 ROOT = Path(__file__).resolve().parent
 
@@ -39,7 +42,7 @@ def load_env(path: Path = ROOT / ".env") -> dict:
     return env
 
 
-class LocalClient:
+class LocalClient(InternChatClient):
     """OpenAI 兼容 Chat 接口的最小客户端，仅实现 pipeline 需要的 chat()。
 
     pipeline 通过 `client.chat(messages=..., temperature=..., max_tokens=...)`
@@ -47,41 +50,11 @@ class LocalClient:
     """
 
     def __init__(self, env: dict):
-        self.api_key = env.get("INTERN_API_KEY", "")
-        self.url = env.get(
-            "INTERN_API_BASE",
-            env.get("INTERN_API_URL",
-                   "https://chat.intern-ai.org.cn/api/v1/chat/completions"),
-        )
-        self.model = env.get("INTERN_MODEL", "intern-s2-preview-397b")
-        if not self.api_key:
+        if not env.get("INTERN_API_KEY"):
             raise SystemExit("缺少 INTERN_API_KEY，请先按 .env.example 填写 .env")
-
-    def chat(self, messages, temperature=0.2, max_tokens=4096):
-        import requests
-
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }
-        # 读超时放到 1300s：让 pipeline 自己的墙钟预算（1200s）来决定何时放弃，
-        # 传输层不该在难题的正常长推理中途切断（曾把 >600s 的调用掐掉导致降级）。
-        resp = requests.post(
-            self.url,
-            headers={"Authorization": f"Bearer {self.api_key}"},
-            json=payload,
-            timeout=1300,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        # 有些网关把内容包在 choices[0].message.content，有些是 delta/多段。
-        content = data["choices"][0]["message"].get("content", "")
-        return content if isinstance(content, str) else "".join(
-            seg.get("text", "") if isinstance(seg, dict) else str(seg)
-            for seg in content
-        )
+        super().__init__(api_key=env["INTERN_API_KEY"],
+                         api_base=env.get("INTERN_API_BASE", env.get("INTERN_API_URL")),
+                         model=env.get("INTERN_MODEL"))
 
 
 def extract_answer(final_response: str) -> str:
@@ -131,12 +104,16 @@ def run_one(idx: int, problem: str, expected: str, agent) -> dict:
                 "elapsed_s": round(time.time() - started, 1),
                 "predicted": "", "expected": expected}
     predicted = result.get("final_response", "")
+    if getattr(agent.client, "record_dir", None) is not None:
+        atomic_json(Path(agent.client.record_dir) / f"{idx}.json", result)
     ok, reason = grade(problem, predicted, expected)
     return {
         "idx": idx, "ok": ok, "reason": reason,
         "elapsed_s": round(time.time() - started, 1),
         "predicted": predicted, "expected": expected,
         "trace_steps": len(result.get("trace", [])),
+        "trace": result.get("trace", []),
+        "solve_success": not any(entry.get("step") == "error" for entry in result.get("trace", [])),
     }
 
 
@@ -150,7 +127,11 @@ def main():
     parser.add_argument("--out", default="eval_results.json")
     args = parser.parse_args()
 
+    if args.concurrency < 1:
+        parser.error("--concurrency must be positive")
     env = load_env()
+    env.update({key: os.environ[key] for key in
+                ("INTERN_API_KEY", "INTERN_API_BASE", "INTERN_API_URL", "INTERN_MODEL") if key in os.environ})
     client = LocalClient(env)
     from user_agent import ReasoningAgent
 
@@ -167,11 +148,19 @@ def main():
 
     # 断点续跑：已存在的结果文件里跳过已完成的 idx。
     out_path = Path(args.out)
+    client.record_dir = out_path.with_suffix(".artifacts")
+    inputs = [{"idx": row["idx"], "problem": row["problem"]} for row in rows]
+    if len({row["idx"] for row in inputs}) != len(inputs):
+        raise ValueError("Duplicate input idx")
+    ensure_manifest(out_path.with_suffix(".manifest.json"),
+                    make_manifest(Path(args.dataset), inputs, client, args.concurrency),
+                    has_results=out_path.exists())
     done = {}
     if out_path.exists():
         done = {str(r["idx"]): r for r in json.loads(out_path.read_text(encoding="utf-8"))}
     todo = [r for r in rows if str(r.get("idx", -1)) not in done]
 
+    write_lock = threading.Lock()
     def work(row):
         idx = row.get("idx", -1)
         problem = row.get("problem", "")
@@ -180,9 +169,9 @@ def main():
         label = "OK" if rec["ok"] is True else "X " if rec["ok"] is False else "REVIEW"
         print(f"[{label}] idx={idx} "
               f"{rec['elapsed_s']}s  {rec['reason']}", flush=True)
-        done[str(idx)] = rec
-        out_path.write_text(json.dumps(list(done.values()), ensure_ascii=False, indent=1),
-                            encoding="utf-8")
+        with write_lock:
+            done[str(idx)] = rec
+            atomic_json(out_path, list(done.values()))
         return rec
 
     if args.concurrency > 1:

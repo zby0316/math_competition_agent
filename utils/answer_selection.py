@@ -4,7 +4,7 @@
 node_guard（utils 层）与 judge_step（nodes 层）共用同一套选择逻辑。
 """
 from utils.answer_pull import is_multi_part_problem, looks_incomplete_answer
-from utils.answer_schema import answer_part_count, missing_components
+from utils.answer_schema import answer_part_count, missing_components, coverage_dominates
 from utils.cot_trim import is_placeholder_answer
 from utils.question_profile import is_objective_mode, normalize_objective_answer, objective_answer_is_usable
 
@@ -46,13 +46,8 @@ def preferred_answer(state, match_result):
         return reasoning_answer
     if match_result.get("status") == "uncertain" and reasoning_ok:
         if python_ok and not looks_incomplete_answer(python_answer):
-            r_missing = missing_components(problem, reasoning_answer)
-            p_missing = missing_components(problem, python_answer)
-            if set(p_missing) < set(r_missing):
+            if coverage_dominates(problem, python_answer, reasoning_answer):
                 return python_answer
-            if set(p_missing) <= set(r_missing) and is_multi_part_problem(problem):
-                if answer_part_count(python_answer) > answer_part_count(reasoning_answer):
-                    return python_answer
         return reasoning_answer
     if ptype == "computation" and python_ok and not looks_incomplete_answer(python_answer):
         if not (fabricated and reasoning_ok):

@@ -236,6 +236,11 @@ def verify_step(state, config):
             + "\n请不要盲从该候选；根据代码计算结果填写验证状态和验证证据。"
         )
     hint = state.get("branch_hint")
+    from utils.domain_constraints import explicit_domains
+    import json
+    base_prompt += ("\n题面中可识别的显式标量约束：" + json.dumps(explicit_domains(problem), ensure_ascii=False)
+                    + "。空映射表示未识别；须继续逐字核对原题定义域。符号未化简不构成反例，"
+                    "采样无反例不能证明等价；FAIL 必须包含定义域内的真实反例或失败断言。")
     prompt = f"{base_prompt}\n\n[复核提示] {hint}" if hint else base_prompt
 
     trace = []
@@ -326,7 +331,8 @@ def verify_step(state, config):
                     "success": False, "stdout": "", "stderr": str(exc)[:300],
                     "answer": None, "execution_time": 0.0,
                 }
-                trace.append({"attempt": attempts, "status": "failed", "error": str(exc)[:200]})
+                trace.append({"attempt": attempts, "status": "failed", "error": str(exc)[:200],
+                              "failure_kind": "generation_failed"})
                 # 首轮超时/传输失败同样先试压缩挽救（与推理分支同规则）：压缩调用
                 # 输出短，在并发拥堵下更可能按时返回。
                 if not compressed_used:
@@ -358,6 +364,7 @@ def verify_step(state, config):
                            "answer": None, "execution_time": 0.0}
             trace.append({"attempt": attempts, "status": "failed",
                           "error": "truncated before code" if exhausted else "no code block",
+                          "failure_kind": "generation_failed",
                           "response_chars": len(resp or "")})
             if compressed_used:
                 break
@@ -368,6 +375,21 @@ def verify_step(state, config):
                 "你上一次没有输出 ```python``` 代码块。请只输出一个 ```python``` 代码块，"
                 "不要任何其他文字。用 sympy 计算，最后一行 print(\"最终答案:\", answer)。",
                 problem, candidate_answer)
+            continue
+        try:
+            compile(code, "<generated-verification>", "exec")
+        except (SyntaxError, ValueError) as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            last_output = {"success": False, "stdout": "", "stderr": error,
+                           "answer": None, "execution_time": 0.0}
+            trace.append({"attempt": attempts, "status": "failed", "failure_kind": "syntax_failed",
+                          "error": error, "line": getattr(exc, "lineno", None),
+                          "column": getattr(exc, "offset", None)})
+            if compressed_used:
+                break
+            prompt = _retry_prompt("代码语法检查失败（未执行）：" + error
+                                   + "。请修正该语法错误；避免嵌套复杂 f-string，只输出完整代码块。",
+                                   problem, candidate_answer)
             continue
         if not _prints_answer(code):
             # 缺少最终答案打印的代码**仍然执行**：stdout 里往往已有结论
@@ -384,6 +406,7 @@ def verify_step(state, config):
         trace.append({
             "attempt": attempts,
             "status": "success" if output.get("success") else "failed",
+            **({"failure_kind": "execution_failed"} if not output.get("success") else {}),
             "error": (output.get("stderr") or "")[:200],
         })
         if output.get("success"):

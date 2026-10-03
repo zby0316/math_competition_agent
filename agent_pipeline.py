@@ -55,7 +55,7 @@ class AgentPipeline:
         self.skills_loader = skills_loader
         self.mcp_client = mcp_client
 
-    def run(self, initial_state, token_budget=None, time_budget=None):
+    def run(self, initial_state, token_budget=None, time_budget=None, client=None):
         from utils.deps import Deps
         from utils.score_budget import ScoreBudget
         from utils.wall_clock import TimeBudget
@@ -63,7 +63,7 @@ class AgentPipeline:
         # 每题一把时钟，从这里起算，保证所有节点对着同一原点计时。平台限制是
         # 墙钟，因此这份预算是真正决定成败的约束。
         clock = time_budget or TimeBudget()
-        deps = Deps(client=self.client, skills_loader=self.skills_loader,
+        deps = Deps(client=client if client is not None else self.client, skills_loader=self.skills_loader,
                     mcp_client=self.mcp_client, token_budget=tb, time_budget=clock)
         final_state = self.app.invoke(initial_state, config={"configurable": {"deps": deps}})
         if isinstance(final_state, dict):

@@ -2,7 +2,7 @@ import re
 from utils.deps import get_deps
 from utils.guard_ceiling import NodeTimeoutError, run_with_timeout
 from utils.llm_retry_guard import chat_prefilled, chat_with_retry
-from utils.prompt_bank import REASONING_PROMPT
+from utils.prompt_bank import REASONING_PROMPT, PROOF_REASONING_PROMPT
 from utils.score_budget import estimate_tokens
 from utils.answer_pull import (
     extract_answer_fallback_with_source,
@@ -27,17 +27,30 @@ from config import CONFIG
 
 def _parse_reasoning_output(response, question_mode="computation"):
     raw = response
-    response = strip_cot_prefix(response)
+    if question_mode == "proof":
+        from utils.proof_review import proof_visible_text
+        response = proof_visible_text(raw)
+    else:
+        response = strip_cot_prefix(response)
     r = {"analysis": "", "steps": [], "answer": "", "validation_points": []}
-    m = re.search(r"## 问题分析\s+(.*?)(?=##|$)", response, re.DOTALL)
+    r["question_mode"] = question_mode
+    r["finish_reason"] = getattr(raw, "finish_reason", None)
+    if question_mode == "proof" and str(raw or "").strip() and not response:
+        r.update({"format_failure": "draft_without_formal_proof", "proof_body": "",
+                  "missing_sections": ["analysis", "steps", "answer"]})
+        return r
+    m = re.search(r"^ {0,3}## 问题分析\s+(.*?)(?=^ {0,3}##|\Z)", response, re.DOTALL | re.MULTILINE)
     if m:
         r["analysis"] = m.group(1).strip()
-    sec = re.search(r"## 详细解题步骤\s+(.*?)(?=## 最终答案|$)", response, re.DOTALL)
+    sec = re.search(r"^ {0,3}## 详细解题步骤\s+(.*?)(?=^ {0,3}## 最终答案|\Z)", response, re.DOTALL | re.MULTILINE)
     if sec:
+        r["proof_body"] = sec.group(1).strip()
         for sm in re.finditer(r"(?:步骤|Step)\s*(\d+)\s*[：:](.*?)(?=(?:步骤|Step)\s*\d+\s*[：:]|##|$)",
                               sec.group(1), re.DOTALL | re.IGNORECASE):
             r["steps"].append({"step_num": int(sm.group(1)), "description": sm.group(2).strip()})
-    am = re.search(r"## 最终答案\s+(.*?)(?=##|$)", response, re.DOTALL)
+        if question_mode == "proof" and not r["steps"] and r["proof_body"]:
+            r["steps"] = [{"step_num": 1, "description": r["proof_body"]}]
+    am = re.search(r"^ {0,3}## 最终答案\s+(.*?)(?=^ {0,3}##|\Z)", response, re.DOTALL | re.MULTILINE)
     if am:
         r["answer"] = _distill_answer(am.group(1).strip())
     # 结论速览先行："## 结论速览" 是输出最前的压缩结论（oxed{}），当模型
@@ -45,12 +58,12 @@ def _parse_reasoning_output(response, question_mode="computation"):
     # 可用的答案落点（gbq 提分核心：答案前置，截断也不丢答案）。仅在"最终
     # 答案"缺失时作为兜底，并打上来源标记，避免与四章节答案混淆。
     if not r["answer"]:
-        qc = re.search(r"## 结论速览\s+(.*?)(?=##|$)", response, re.DOTALL)
+        qc = re.search(r"^ {0,3}## 结论速览\s+(.*?)(?=^ {0,3}##|\Z)", response, re.DOTALL | re.MULTILINE)
         if qc:
             r["answer"] = _distill_answer(qc.group(1).strip())
             if r["answer"]:
                 r["answer_source"] = "quick_conclusion"
-    vm = re.search(r"## 关键验证点\s+(.*?)(?=##|$)", response, re.DOTALL)
+    vm = re.search(r"^ {0,3}## 关键验证点\s+(.*?)(?=^ {0,3}##|\Z)", response, re.DOTALL | re.MULTILINE)
     if vm:
         r["validation_points"] = re.findall(r"-\s*(.+)", vm.group(1))
     # 兜底：模型得出了结论却始终没写章节标题。曾在同一道竞赛题上观察到三次，
@@ -103,6 +116,9 @@ def _parse_reasoning_output(response, question_mode="computation"):
         evidence = re.search(r"(?:依据|理由|说明)\s*[：:]\s*(.+)", response or "", re.S)
         description = evidence.group(1).strip() if evidence else "按选项/空位逐项核对题面条件。"
         r["steps"] = [{"step_num": 1, "description": description[:600]}]
+    r["missing_sections"] = [name for name, value in
+                              (("analysis", r["analysis"]), ("steps", r["steps"]), ("answer", r["answer"]))
+                              if not value]
     return r
 
 
@@ -238,6 +254,9 @@ def _distill_answer(text):
 
 
 def _is_complete(r):
+    if r.get("question_mode") == "proof" and r.get("finish_reason") == "length" \
+            and r.get("answer_source") == "quick_conclusion":
+        return False
     return bool(r["answer"]) and len(r["steps"]) >= 1
 
 
@@ -264,6 +283,9 @@ def _looks_token_exhausted(response: str, parsed: dict) -> bool:
     的解析状态为准，否则一条被扫描到的中间句就会掩盖真实的耗尽、跳过唯一
     有效的挽救手段（压缩重试），让残片直接出厂。
     """
+    if parsed.get("format_failure") == "draft_without_formal_proof" \
+            and getattr(response, "finish_reason", None) == "length":
+        return True
     answer = parsed.get("answer")
     if answer and parsed.get("answer_source") not in _SCAVENGED_SOURCES:
         return False
@@ -354,7 +376,7 @@ def _extract_clues(text, limit=2000):
 
 def _compressed_reasoning_retry(deps, base_prompt,
                                 failure="因长度超限被截断，没有产出任何章节",
-                                coverage="", first_resp=None):
+                                coverage="", first_resp=None, question_mode="computation"):
     """Token 耗尽/传输超时后的阶段性熔断。
 
     普通重试会以同样的方式再耗尽一次 ~450s；prefill 压缩重试把整份额度花在
@@ -373,7 +395,16 @@ def _compressed_reasoning_retry(deps, base_prompt,
     # 复用首轮已算出的结论：压缩重试不再从头重解，而是把首轮 CoT 里已经
     # 推导出的关键结果作为线索注入（曾实测 idx 0 首轮已算出 T=29，但从头
     # 重解却产出 44+√(6109/90) 的错误值）。
-    clue_block = _extract_clues(first_resp) if first_resp else ""
+    if question_mode == "proof":
+        from utils.proof_review import proof_visible_text
+        instruction = (
+            f"\n\n上次答卷{failure}。现在直接输出正式证明，禁止讨论格式。"
+            "简述结论，逐问写完必要论证和反例验证；不强制步数或行数。"
+            "核查已有片段，不能把它们当作已证事实；缺口须明确说明。" + coverage)
+        visible = proof_visible_text(first_resp)
+        clue_block = "\n\n上次正式答卷片段（可能有错，须核查）：\n" + visible if visible else ""
+    else:
+        clue_block = _extract_clues(first_resp) if first_resp else ""
     try:
         resp = chat_prefilled(
             deps.client,
@@ -416,12 +447,16 @@ def reason_step(state, config):
     # 按主题选摘，而不是按位置截断。裸 [:3000] 切片只取到文档开头模块，当
     # 非基础及进阶课程长到 8949 字符后，其数论（offset 3404）与博弈论（offset 5369）
     # 模块再也到不了模型——博弈题会拿到 Lebesgue 测度。
-    base_prompt = REASONING_PROMPT.format(
+    template = PROOF_REASONING_PROMPT if question_mode == "proof" else REASONING_PROMPT
+    base_prompt = template.format(
         category=category,
         skill_document=select_skill_excerpt(skill_doc, problem, 3000),
         problem=problem)
     base_prompt += mode_instruction(question_mode)
     base_prompt += structure_instruction(problem)
+    if question_mode == "proof":
+        from utils.proof_review import CHECKLIST
+        base_prompt += "\n\n" + CHECKLIST
     # 压缩重试要压的是推导篇幅，不是答案该覆盖的分支（曾出现漏值事故）。
     coverage_clause = answer_coverage_clause(problem)
 
@@ -615,6 +650,33 @@ def reason_step(state, config):
     clock = deps.time_budget
     if clock and clock.fast_path():
         max_attempts = 1
+    proof_partials = []
+
+    def finish_result():
+        selected, selected_raw = parsed, resp
+        if question_mode == "proof":
+            # Structural recovery only: an empty retry must not erase a proof.
+            # Retain every candidate for semantic review, without merging claims.
+            if not selected.get("proof_body"):
+                for earlier, earlier_raw, _ in reversed(proof_partials):
+                    if earlier.get("proof_body"):
+                        selected, selected_raw = earlier, earlier_raw
+                        break
+            from utils.proof_review import proof_visible_text
+            selected = dict(selected)
+            from utils.answer_schema import coverage_report
+            selected["coverage"] = coverage_report(problem, selected.get("answer", ""))
+            selected["proof_attempts"] = [
+                {"attempt": number, "visible_response": proof_visible_text(raw),
+                 "finish_reason": candidate.get("finish_reason"),
+                 "missing_sections": candidate.get("missing_sections", []),
+                 "format_failure": candidate.get("format_failure"),
+                 "structurally_complete": _is_complete(candidate),
+                 "mathematical_correctness_verified": False}
+                for candidate, raw, number in proof_partials]
+        return {"reasoning_result": selected, "reasoning_trace": trace,
+                "reasoning_attempts": attempts, "reasoning_raw_response": selected_raw}
+
     for _ in range(max_attempts):
         # 重试额度按上一轮实际成本核拨，而不是按"时间还没用完"核拨。否则会出现在
         # 只剩 349s 时又批准一次 545s 的尝试，超 deadline 198s 且最终无答案
@@ -671,13 +733,15 @@ def reason_step(state, config):
             rescued, fail_reason = _compressed_reasoning_retry(
                 deps, hinted_base,
                 failure="因首轮生成超出时限被切断" if is_first_timeout else "因网络传输故障未能返回",
-                coverage=coverage_clause)
+                coverage=coverage_clause, question_mode=question_mode)
             if rescued is None:
                 trace.append({"attempt": attempts, "status": "skipped",
                               "reason": fail_reason or "compressed_rescue_failed"})
                 break
             resp = rescued
             rescued_parsed = _parse_reasoning_output(resp, question_mode=question_mode)
+            if question_mode == "proof":
+                proof_partials.append((dict(rescued_parsed), resp, attempts))
             if rescued_parsed.get("answer") or rescued_parsed.get("steps") \
                     or rescued_parsed.get("analysis"):
                 parsed = rescued_parsed
@@ -694,15 +758,21 @@ def reason_step(state, config):
         if budget:
             budget.consume(estimate_tokens(prompt), estimate_tokens(resp))
         parsed = _parse_reasoning_output(resp, question_mode=question_mode)
+        from utils.answer_schema import coverage_report
+        parsed["coverage"] = coverage_report(problem, parsed.get("answer", ""))
+        if question_mode == "proof":
+            proof_partials.append((dict(parsed), resp, attempts))
         exhausted = _looks_token_exhausted(resp, parsed)
         trace.append({"attempt": attempts,
                       "status": "success" if _is_complete(parsed) else "failed",
                       "response_chars": len(resp or ""),
+                      "finish_reason": getattr(resp, "finish_reason", None),
+                      "missing_sections": parsed.get("missing_sections", []),
+                      "missing_components": parsed["coverage"]["missing"],
                       **({"reason": "token_budget_exhausted",
                           "raw_excerpt": _raw_excerpt(resp)} if exhausted else {})})
         if _is_complete(parsed):
-            return {"reasoning_result": parsed, "reasoning_trace": trace,
-                    "reasoning_attempts": attempts, "reasoning_raw_response": resp}
+            return finish_result()
         # 两种失败需要两种重试。格式失误值得带格式提醒重问一次；Token 耗尽则不然：
         # 难题上模型可能把整个额度花在 reasoning_content 上、一个章节都不输出
         # （曾实测：550s、~30k tokens、analysis_len=0、steps=0），同样的提示会以
@@ -719,13 +789,16 @@ def reason_step(state, config):
         if exhausted or drifted:
             attempts += 1
             compressed_resp, fail_reason = _compressed_reasoning_retry(
-                deps, hinted_base, coverage=coverage_clause, first_resp=resp)
+                deps, hinted_base, coverage=coverage_clause, first_resp=resp,
+                question_mode=question_mode)
             if compressed_resp is None:
                 trace.append({"attempt": attempts, "status": "skipped",
                               "reason": fail_reason or "compressed_retry_failed"})
                 break
             resp = compressed_resp
             compressed_parsed = _parse_reasoning_output(resp, question_mode=question_mode)
+            if question_mode == "proof":
+                proof_partials.append((dict(compressed_parsed), resp, attempts))
             # 压缩重试产出的任何章节都严格优于上一轮的空产出。
             if compressed_parsed.get("answer") or compressed_parsed.get("steps") \
                     or compressed_parsed.get("analysis"):
@@ -743,11 +816,13 @@ def reason_step(state, config):
                                      else "compressed_prefill_after_drift"),
                           "response_chars": len(resp or "")})
             if _is_complete(compressed_parsed):
-                return {"reasoning_result": parsed, "reasoning_trace": trace,
-                        "reasoning_attempts": attempts, "reasoning_raw_response": resp}
+                return finish_result()
             break
-        prompt = (base_prompt + "\n\n注意：上一次输出缺少必需章节（必须含 '## 问题分析'、'## 详细解题步骤'、"
-                  "'## 最终答案'）。'## 最终答案' 下必须按题面要求完整列出各字段/各问项的结果"
-                  "（含检验结论、区间上下限、全部枚举对象等），不得只给单个数值。请重新严格按格式输出。")
-    return {"reasoning_result": parsed, "reasoning_trace": trace,
-            "reasoning_attempts": attempts, "reasoning_raw_response": resp}
+        if question_mode == "proof":
+            prompt = (base_prompt + "\n\n上次证明答卷缺失或截断。请直接补齐正式答卷，"
+                      "逐问给出完整证明及反例验证，不讨论输出格式；未解决的缺口须说明。")
+        else:
+            prompt = (base_prompt + "\n\n注意：上一次输出缺少必需章节（必须含 '## 问题分析'、'## 详细解题步骤'、"
+                      "'## 最终答案'）。'## 最终答案' 下必须按题面要求完整列出各字段/各问项的结果"
+                      "（含检验结论、区间上下限、全部枚举对象等），不得只给单个数值。请重新严格按格式输出。")
+    return finish_result()

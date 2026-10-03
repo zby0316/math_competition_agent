@@ -84,4 +84,4 @@ CONFIG = {
 # ============ 版本标记（评测日志/trace 溯源用） ============
 # 每轮代码改动后更新此值；solve() 的 trace 会携带它，配合评测日志的
 # Commit ID 即可确定某次出分对应哪一版代码。
-AGENT_VERSION = "v71.43base+fix5+drift-guard+diag-probe+proof-skip+kb9+nan-evidence+candidate-completeness+equivalence-routing+pde-cue+crossref-answer+math-span-clean+functional-cue+measure-proof-guard 2026-10-01"
+AGENT_VERSION = "round2-B-repair7+candidate-claim-locations+coverage 2026-10-03"

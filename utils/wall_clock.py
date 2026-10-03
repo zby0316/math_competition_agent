@@ -108,9 +108,10 @@ class TimeBudget:
 
     # ---- 可观测性 ----
 
-    def record(self, label: str, seconds: float) -> None:
+    def record(self, label: str, seconds: float, model_call=False, http_attempts=None) -> None:
         with self._lock:
-            self._spend_log.append({"label": label, "seconds": round(float(seconds), 2)})
+            self._spend_log.append({"label": label, "seconds": round(float(seconds), 2),
+                                    "model_call": model_call, "http_attempts": http_attempts})
 
     def spend_log(self) -> list[dict]:
         with self._lock:

@@ -30,15 +30,19 @@ class InternChatClient:
         self,
         timeout: int = 1300,
         retry: int = 3,
+        api_key: str | None = None,
+        api_base: str | None = None,
+        model: str | None = None,
     ) -> None:
-        raw_api_key = os.environ.get("INTERN_API_KEY")
+        raw_api_key = api_key if api_key is not None else os.environ.get("INTERN_API_KEY")
         if not raw_api_key:
             raise RuntimeError("Missing АРI keys. Set INTERN_API_KEY.")
         self.authorization = (
             raw_api_key if raw_api_key.startswith("Bearer ") else f"Bearer {raw_api_key}"
         )
-        self.api_base = os.environ.get("INTERN_API_BASE", DEFAULT_API_BASE)
-        self.model = os.environ.get("INTERN_MODEL", DEFAULT_MODEL)
+        self.api_base = api_base or os.environ.get("INTERN_API_BASE", DEFAULT_API_BASE)
+        self.model = model or os.environ.get("INTERN_MODEL", DEFAULT_MODEL)
+        self.record_dir = None
         self.timeout = timeout
         self.retry = retry
         # 最近一次成功调用的传输层元信息，供上层做截断判定（本地调试用）。
@@ -47,6 +51,12 @@ class InternChatClient:
         self.last_reasoning_content = None
         # 线程本地存储：并发下每个调用线程读到自己的元信息。
         self._tls = threading.local()
+
+    def for_problem(self, idx):
+        if self.record_dir is None:
+            return self
+        from utils.call_recording import RecordedClient
+        return RecordedClient(self, self.record_dir, idx)
 
     def chat(
         self,
@@ -66,8 +76,13 @@ class InternChatClient:
         }
 
         last_error = None
+        self._tls.finish_reason = None
+        self._tls.usage = None
+        self._tls.reasoning_content = ""
+        self._tls.http_attempts = 0
         for attempt in range(self.retry):
             try:
+                self._tls.http_attempts += 1
                 response = requests.post(
                     self.api_base,
                     headers=headers,
@@ -89,7 +104,11 @@ class InternChatClient:
                 self._tls.finish_reason = finish_reason
                 self._tls.usage = usage
                 self._tls.reasoning_content = reasoning_content
-                return (message.get("content") or "").strip()
+                content = message.get("content") or ""
+                if isinstance(content, list):
+                    content = "".join(part.get("text", "") if isinstance(part, dict) else str(part)
+                                      for part in content)
+                return str(content).strip()
             except Exception as exc:  # noqa: BLE001 - keep sample robust and simple.
                 last_error = exc
                 if attempt + 1 < self.retry:

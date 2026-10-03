@@ -7,6 +7,7 @@ from typing import Dict, List  # 导入类型提示库
 
 from llm_client import InternChatClient  # 导入大语言模型客户端
 from user_agent import ReasoningAgent  # 导入推理代理类
+from utils.run_manifest import make_manifest, ensure_manifest
 
 
 LOCAL_MAX_CONCURRENCY = int(os.environ.get("LOCAL_MAX_CONCURRENCY", "8"))  # 从环境变量获取最大并发数，默认为8
@@ -133,6 +134,16 @@ async def run(args: argparse.Namespace) -> None:  # 定义运行主函数
 
     client = InternChatClient()  # 创建大语言模型客户端
     agent = ReasoningAgent(client=client)  # 创建推理代理
+    client.record_dir = output_dir / "calls"
+    inputs = [{"idx": item["idx"], "problem": item["problem"],
+               "metadata": {key: item[key] for key in
+                            ("type", "question_mode", "question_type", "subject", "category") if key in item}}
+              for item in items]
+    if len({item["idx"] for item in items}) != len(items):
+        raise ValueError("Duplicate input idx")
+    ensure_manifest(output_dir / "run.manifest.json",
+                    make_manifest(input_path, inputs, client, LOCAL_MAX_CONCURRENCY),
+                    has_results=any(path.name != "run.manifest.json" for path in output_dir.glob("*.json")))
     semaphore = asyncio.Semaphore(LOCAL_MAX_CONCURRENCY)  # 创建并发控制信号量
 
     print(f"Loaded {len(items)} items. Max concurrency: {LOCAL_MAX_CONCURRENCY}.")  # 打印加载信息

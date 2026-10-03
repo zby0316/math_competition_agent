@@ -280,7 +280,11 @@ class AnswerCompare:
         return "proof" if classify_question_mode(problem) == "proof" else "computation"
 
     @staticmethod
-    def _match_computation_detailed(answer1: str, answer2: str, tolerance: float = 1e-6):
+    def _match_computation_detailed(answer1: str, answer2: str, tolerance: float = 1e-6, problem: str = ""):
+        from utils.domain_constraints import explicit_domains, domain_equivalent
+        restricted = bool(explicit_domains(problem))
+        def equivalent(left, right, tolerance=1e-6):
+            return domain_equivalent(problem, left, right) if restricted else AnswerCompare._sympy_equivalent(left, right, tolerance)
         a1 = (answer1 or "").strip()
         a2 = (answer2 or "").strip()
         if is_placeholder_answer(a1) or is_placeholder_answer(a2):
@@ -296,7 +300,7 @@ class AnswerCompare:
                 "field_coverage": 0.0,
             }
 
-        if (AnswerCompare._identity_matches_expression(a1, a2, tolerance)
+        if not restricted and (AnswerCompare._identity_matches_expression(a1, a2, tolerance)
                 or AnswerCompare._identity_matches_expression(a2, a1, tolerance)):
             return {
                 "verdict": True,
@@ -311,7 +315,7 @@ class AnswerCompare:
             }
 
         structured = compare_structured_answers(
-            a1, a2, AnswerCompare._sympy_equivalent, tolerance=tolerance)
+            a1, a2, equivalent, tolerance=tolerance)
         if structured.applicable:
             # 字段解析器怎么解读，都不改变"文本相同就是相同"。结构化门曾先于
             # 精确匹配运行并返回 None，导致两个逐字节相同的答案被判 "indeterminate"，
@@ -322,7 +326,7 @@ class AnswerCompare:
             # 排除，维持其原本的 uncertain 判定。
             if a1 == a2 and structured.verdict is not False \
                     and not is_self_conflicting(
-                        a1, AnswerCompare._sympy_equivalent, tolerance):
+                        a1, equivalent, tolerance):
                 return {
                     "verdict": True,
                     "is_match": True,
@@ -408,7 +412,7 @@ class AnswerCompare:
         except Exception:
             pass
 
-        verdict = AnswerCompare._sympy_equivalent(a1, a2, tolerance)
+        verdict = equivalent(a1, a2, tolerance)
         if verdict is True:
             return {
                 "verdict": True,
@@ -469,8 +473,7 @@ class AnswerCompare:
             采样无法裁决；
           * 采样点是固定的而非随机，保证判定可复现；
           * 包含复数点，使只在正实数轴相等的对（`sqrt(x**2)` vs `x`）也能被区分；
-          * 单个条件良好的反例即证明不等价，而处处相等只在足够多次成功求值后才
-            视为等价——否则返回 None，不靠猜。
+          * 单个条件良好的反例可否定等价，有限点上相等只返回 None。
         """
         import sympy as sp
 
@@ -507,8 +510,8 @@ class AnswerCompare:
                 return False
             evaluated += 1
 
-        # 三个一致点足以排除巧合（这类答案通常是有理/代数形态）；不足三个则无法判定。
-        return True if evaluated >= 3 else None
+        # Agreement at finitely many samples is not a proof of identity.
+        return None
 
     @staticmethod
     def _sympy_equivalent(a1: str, a2: str, tolerance: float):
@@ -619,7 +622,7 @@ class AnswerCompare:
 
         reasoning_answer = (reasoning_result or {}).get("answer", "")
         python_answer = (python_result or {}).get("answer", "") if python_result else ""
-        detail = AnswerCompare._match_computation_detailed(reasoning_answer, python_answer)
+        detail = AnswerCompare._match_computation_detailed(reasoning_answer, python_answer, problem=problem)
         if detail["verdict"] is None and AnswerCompare._minimum_answers_match(
                 problem, reasoning_answer, python_answer, 1e-6):
             detail = {

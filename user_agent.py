@@ -44,7 +44,9 @@ class ReasoningAgent:
         try:
             self.logger.info(f"Solving problem {idx}")
             initial = create_initial_state(str(problem or ""), meta)
-            final_state = self.graph.run(initial, token_budget=ScoreBudget())
+            bind = getattr(self.client, "for_problem", None)
+            bound_client = bind(idx) if callable(bind) else self.client
+            final_state = self.graph.run(initial, token_budget=ScoreBudget(), client=bound_client)
             # 诊断探针：每题一行紧凑诊断打向 stdout。平台若在评测日志/结果
             # 文件中收集选手输出，112 行诊断即可离线聚类失败模式（解析丢分/
             # 超时/异常/来源分布）指导下一轮迭代；不收集时零影响（不改变
@@ -104,6 +106,15 @@ class ReasoningAgent:
 
     def _build_trace(self, state: dict) -> list:
         trace = []
+        from utils.diagnostics import python_diagnostics, call_counts
+        trace.append({"step": "diagnostics", "python": python_diagnostics(state),
+                      **call_counts(state.get("_llm_spend_log") or [])})
+        if state.get("proof_review"):
+            trace.append({"step": "proof_review", **state["proof_review"]})
+        elif state.get("question_mode") == "proof":
+            trace.append({"step": "proof_review", "status": "unknown",
+                          "reason": state.get("fallback_source", "review_not_recorded"),
+                          "mathematical_correctness_verified": False})
         if state.get("category"):
             trace.append({
                 "step": "classification",
@@ -137,6 +148,10 @@ class ReasoningAgent:
                     "answer_source": rr.get("answer_source", "parsed_sections"),
                     "raw_response_excerpt": self._excerpt(
                         state.get("reasoning_raw_response", "")),
+                    "proof_body": rr.get("proof_body", ""),
+                    "coverage": rr.get("coverage"),
+                    "missing_sections": rr.get("missing_sections", []),
+                    "proof_attempts": rr.get("proof_attempts", []),
                 },
                 "tools": [
                     {
@@ -345,7 +360,7 @@ def _dump_diag_summary() -> None:
         fb_c = Counter()
         valid_c = Counter()
         time_buckets = Counter()
-        py_fail = 0
+        py_counts = Counter()
         for _idx, elapsed, st in _DIAG_ROWS:
             rr = st.get("reasoning_result") or {}
             po = st.get("python_output") or {}
@@ -362,9 +377,9 @@ def _dump_diag_summary() -> None:
                 time_buckets["600-900s"] += 1
             else:
                 time_buckets[">900s"] += 1
-            if not po.get("success"):
-                py_fail += 1
-        print(f"[AGENT-DIAG-SUM] total={n} py_fail={py_fail}", flush=True)
+            from utils.diagnostics import python_diagnostics
+            py_counts.update(python_diagnostics(st))
+        print(f"[AGENT-DIAG-SUM] total={n} python={dict(py_counts)}", flush=True)
         print(f"[AGENT-DIAG-SUM] src={dict(src_c)}", flush=True)
         print(f"[AGENT-DIAG-SUM] fb={dict(fb_c)}", flush=True)
         print(f"[AGENT-DIAG-SUM] valid={dict(valid_c)}", flush=True)

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from config import CONFIG
 from nodes.judge_step import _preferred_answer
-from utils.answer_schema import missing_components
+from utils.answer_schema import missing_components, coverage_dominates
 from utils.answer_pull import looks_incomplete_answer
 from utils.cot_trim import is_placeholder_answer
 from utils.deps import get_deps
@@ -194,7 +194,7 @@ def _enforce_contract(problem: str, selected: _Candidate, candidates: list[_Cand
             continue
         candidate_missing = missing_components(problem, candidate.answer)
         # A shorter but different missing list does not prove better coverage.
-        if set(candidate_missing) < set(best_missing):
+        if set(candidate_missing) < set(best_missing) and coverage_dominates(problem, candidate.answer, best.answer):
             best, best_missing = candidate, candidate_missing
     if best is selected:
         return selected, None

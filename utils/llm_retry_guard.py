@@ -112,7 +112,8 @@ class LLMRetryGuard:
                     max_tokens=max_tokens,
                 )
                 if self.time_budget:
-                    self.time_budget.record(label, self._now() - started)
+                    self.time_budget.record(label, self._now() - started, model_call=True,
+                        http_attempts=getattr(getattr(self.client, "_tls", None), "http_attempts", None))
                 # 从客户端线程本地读本次调用的真实停止原因（平台 client 无
                 # _tls 时优雅降级为 None，ChatResult 仍是普通字符串）。
                 finish_reason = None
@@ -131,7 +132,8 @@ class LLMRetryGuard:
                 last_error = exc
                 observed = self._now() - started
                 if self.time_budget:
-                    self.time_budget.record(f"{label}:failed", observed)
+                    self.time_budget.record(f"{label}:failed", observed, model_call=True,
+                        http_attempts=getattr(getattr(self.client, "_tls", None), "http_attempts", None))
                 if attempt >= self.max_retries:
                     break
                 # 只有当时钟还能负担一次与上次同样耗时的调用，重试才值得买。

@@ -436,6 +436,23 @@ def _domain_override(problem: str, categories: list[str]) -> str | None:
             _has_any(text, functional_theorems) or functional_structure):
         return "泛函分析"
 
+    # Strong measure cues precede generic convergence; stochastic models retain
+    # their own handbook unless a specifically measure-theoretic theorem is asked.
+    measure_theorem = _has_any(text, (
+        "egorov", "egoroff", "叶戈罗夫", "叶果罗夫", "测度积分", "measure theory",
+        "radon-nikodym", "radon–nikodym", "勒贝格测度", "lebesgue measure",
+    ))
+    measure_structure = _has_cue_groups(text,
+        ("可测函数", "measurable function", "测度空间", "measure space"),
+        ("几乎处处", "almost everywhere", "依测度", "in measure", "支配收敛", "dominated convergence", "fatou"))
+    stochastic = _has_any(text, ("随机变量", "random variable", "依概率", "in probability",
+                                "几乎必然", "almost surely", "brownian", "markov", "鞅", "martingale"))
+    if "测度积分" in available and (measure_theorem or (measure_structure and not stochastic)):
+        return "测度积分"
+    if stochastic and "概率论" in available and _has_any(text, ("随机变量", "random variable")):
+        if not _has_any(text, ("brownian", "markov", "martingale", "鞅", "泊松过程", "poisson process")):
+            return "概率论"
+
     analysis_cues = (
         "数学分析", "一致收敛", "uniform convergence", "逐点收敛",
         "pointwise convergence", "极限函数", "limit function", "广义积分",

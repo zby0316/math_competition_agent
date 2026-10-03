@@ -257,11 +257,6 @@ def _format_inertia_tuple(validated_answer: str, cleaned: str) -> str:
     return f"正定性：{definiteness}；正惯性指数：{positive_index}；负惯性指数：{negative_index}"
 
 
-def _proof_completeness_score(text: str) -> int:
-    terms = ("一致收敛", "逐点收敛", "可导", "导数", "极限", "收敛", "存在", "唯一", "连续")
-    return sum(1 for term in terms if term in (text or ""))
-
-
 _STRUCTURED_PROBLEM_TERMS = (
     "回归", "最小二乘", "标准误", "置信区间", "假设检验", "检验统计量",
     "ANOVA", "方差分析表", "拒绝", "不拒绝", "显著", "求和表达式",
@@ -540,7 +535,10 @@ def build_proof_body(final_response: str, reasoning_result: dict) -> str:
     analysis = str(rr.get("analysis") or "").strip()
     if analysis:
         parts.append(analysis)
-    for step in rr.get("steps") or []:
+    proof_body = str(rr.get("proof_body") or "").strip()
+    if proof_body:
+        parts.append(proof_body)
+    for step in ([] if proof_body else rr.get("steps") or []):
         if not isinstance(step, dict):
             continue
         description = str(step.get("description") or "").strip()
@@ -556,26 +554,6 @@ def build_proof_body(final_response: str, reasoning_result: dict) -> str:
     if len(body) > _MAX_PROOF_BODY_CHARS:
         body = body[:_MAX_PROOF_BODY_CHARS].rstrip() + "\n…（后续细节从略）"
     return f"{final_response}\n\n{_PROOF_BODY_HEADING}\n{body}"
-
-
-def _prefer_complete_proof_answer(cleaned: str, formatted_answer: str) -> str:
-    section_answer = _extract_final_section(cleaned)
-    if not section_answer:
-        return formatted_answer
-    if not formatted_answer:
-        return section_answer
-    stripped = formatted_answer.strip()
-    looks_fragmentary = (stripped.startswith("\\") or stripped.count("$") % 2 == 1
-                         or looks_like_latex_fragment(stripped))
-    if looks_fragmentary and len(section_answer) > len(stripped):
-        return section_answer
-    if _proof_completeness_score(section_answer) > _proof_completeness_score(stripped):
-        return section_answer
-    # 推理解析器可能只从证明句中提取 '=' 号后的尾巴碎片。当协调器的完整末段
-    # 明显包含该短碎片时，优先用完整末段。
-    if len(section_answer) > len(stripped) and stripped in section_answer:
-        return section_answer
-    return formatted_answer
 
 
 def _clean_noise_head(fa: str) -> str:
@@ -610,15 +588,11 @@ def post_process_final_response(raw: str, validated_answer: str, problem_type: s
             cleaned = cleaned.replace(term, "计算过程")
     fa = format_answer_for_output(validated_answer, problem_type)
     if problem_type == "proof":
-        # 证明题：结论在前，证明过程本身即答案主体（不可省略）
-        fa = _prefer_complete_proof_answer(cleaned, fa)
-        if not fa or looks_like_latex_fragment(fa):
-            # 结论是被截头的 LaTeX 残片 → 换用文本回退，仍是残片则弃用
-            candidate = _extract_fallback_answer(cleaned, problem_type)
-            fa = "" if looks_like_latex_fragment(candidate) else candidate
-        if len(cleaned.strip()) < 100:
-            cleaned = f"根据推理与计算过程，得到结论：{fa or '无法确定'}"
-        # 证明题结论行同样不得携带思维流尾巴；证明过程正文不受影响。
+        # 协调响应是一份独立答卷，不能把旧候选的摘要重新插入已修正的正文。
+        # 仲裁锁定与协调异常的候选保护由 assemble_step 的独立分支负责。
+        if cleaned.strip():
+            return cleaned.strip()
+        cleaned = "未取得完整证明；以下结论仍需论证核对。"
         fa = _clean_noise_head(fa)
         return f"结论：{fa}\n\n{cleaned}" if fa else cleaned
     # 计算题：仅输出简洁最终答案，避免 final_response 过长（赛题明确要求"避免过长"）。

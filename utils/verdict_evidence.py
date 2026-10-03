@@ -37,6 +37,15 @@ _UNDEFINED_ANSWER_RE = re.compile(
     r"(?i)\s*(?:(?:[A-Za-z]\w*)\s*=\s*)?(?:nan|zoo|complexinfinity)\s*"
 )
 _EXPLICIT_COUNTEREXAMPLE_RE = re.compile(r"(?:反例|counterexample)", re.IGNORECASE)
+_UNCERTAIN_RE = re.compile(r"未化简|无法化简|未能化简|无法判定|不能判定|outside.{0,20}domain|定义域外|"
+                           r"could not simplify|unable to simplify|unevaluated|inconclusive", re.I)
+
+
+def _uncertain_only(line):
+    return bool(_UNCERTAIN_RE.search(line or "") and not
+                (re.search(r"失败断言|assertion failed", line or "", re.I)
+                 or (_EXPLICIT_COUNTEREXAMPLE_RE.search(line or "") and not
+                     re.search(r"outside.{0,20}domain|定义域外", line or "", re.I))))
 
 
 def _scalar(value: str):
@@ -102,7 +111,7 @@ def parse_verification_evidence(
             continue
         # A comparison involving an undefined value proves neither equality nor
         # contradiction. Other, independent counterexamples remain usable.
-        if _undefined_only(line):
+        if _undefined_only(line) or _uncertain_only(line):
             continue
         if _CONTRADICTION_RE.search(line):
             text = line.strip()
@@ -110,10 +119,9 @@ def parse_verification_evidence(
                 contradictions.append(text)
 
     if marker_status == "FAIL":
-        if evidence_summary and not invalid_evidence and evidence_summary not in contradictions:
+        if evidence_summary and not invalid_evidence and not _uncertain_only(evidence_summary) and evidence_summary not in contradictions:
             contradictions.insert(0, evidence_summary)
-        elif not contradictions and not (invalid_answer or invalid_evidence):
-            contradictions.append("验证状态: FAIL")
+        # A bare FAIL marker is not a counterexample.
 
     candidate_value = _scalar(candidate_answer or result.get("answer", ""))
     if candidate_value is not None:

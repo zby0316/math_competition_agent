@@ -11,7 +11,7 @@ from utils.verdict_salvage import recover_verdict_sentence
 from utils.cot_trim import is_placeholder_answer, strip_cot_prefix
 from utils.answer_pull import looks_incomplete_answer
 from utils.llm_retry_guard import chat_prefilled, chat_with_retry
-from utils.prompt_bank import COORDINATOR_PROMPT
+from utils.prompt_bank import COORDINATOR_PROMPT, PROOF_COORDINATOR_PROMPT
 from utils.score_budget import estimate_tokens
 from config import CONFIG
 from utils.question_profile import is_objective_mode
@@ -268,6 +268,22 @@ def assemble_step(state, config):
         python_output=(state.get("python_output") or {}).get("stdout", ""),
         validation_status=state.get("validation_status", ""),
         validated_answer=validated)
+    from utils.answer_schema import coverage_report
+    import json
+    prompt += "\n题面交付覆盖检查（缺项需补齐，不确定项需语义核对）：\n" + json.dumps(
+        coverage_report(state["problem"], validated), ensure_ascii=False)
+    if ptype == "proof":
+        from utils.proof_review import candidate_proof_text, targeted_proof_checks
+        requested_checks = targeted_proof_checks(
+            state["problem"], state.get("category", ""), candidate_proof_text(state))
+        from utils.proof_claims import indexed_handoff, compact_index
+        handoff = indexed_handoff(state, [task["id"] for task in requested_checks["tasks"]])
+        prompt_handoff = {**handoff, "candidate_index": compact_index(handoff["candidate_index"])}
+        prompt = PROOF_COORDINATOR_PROMPT.format(
+            problem=state["problem"], category=state.get("category", ""),
+            validation_status=state.get("validation_status", ""),
+            validated_answer=validated, proof_handoff=json.dumps(prompt_handoff, ensure_ascii=False, separators=(',', ':')),
+            targeted_checks=json.dumps(requested_checks, ensure_ascii=False))
     try:
         raw = chat_with_retry(
             client,
@@ -300,6 +316,19 @@ def assemble_step(state, config):
     if budget:
         budget.consume(estimate_tokens(prompt), estimate_tokens(raw))
     cleaned_raw = strip_cot_prefix(raw)
+    proof_review = {"status": "unknown", "mathematical_correctness_verified": False}
+    if ptype == "proof":
+        from utils.proof_review import extract_review
+        cleaned_raw, proof_review = extract_review(cleaned_raw)
+        proof_review["finish_reason"] = getattr(raw, "finish_reason", None)
+        proof_review["requested_checks"] = requested_checks
+        from utils.proof_claims import claim_coverage
+        proof_review["candidate_index"] = handoff["candidate_index"]
+        proof_review["claim_coverage"] = claim_coverage(
+            proof_review, handoff["candidate_index"], getattr(raw, "finish_reason", None))
+        if proof_review["claim_coverage"]["status"] == "uncertain" and proof_review["status"] in {"none_reported", "issues_corrected"}:
+            proof_review.setdefault("model_reported_status", proof_review["status"])
+            proof_review["status"] = "unresolved"
     final = post_process_final_response(cleaned_raw, validated, ptype, problem=state["problem"])
     if not isinstance(final, str) or not final.strip():
         final = f"最终答案：{validated}" if validated else "无法生成完整答案。"
@@ -308,4 +337,5 @@ def assemble_step(state, config):
         final = attach_steps(final, state.get("problem", ""), rr.get("steps"))
     # coordination_detail 保留完整解题说明，供 trace 记录（计算题 final_response 仅含简洁答案）
     return {"final_response": final, "coordination_detail": cleaned_raw,
+            **({"proof_review": proof_review} if ptype == "proof" else {}),
             "fallback_source": evidence_note or "coordinator_llm"}

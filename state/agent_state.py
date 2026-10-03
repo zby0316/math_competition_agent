@@ -51,6 +51,7 @@ class AgentState(TypedDict):
     # 输出阶段
     final_response: NotRequired[str]
     coordination_detail: NotRequired[Optional[str]]  # coordinator 原始解题说明，记入 trace（计算题 final_response 已收敛为简洁答案）
+    proof_review: NotRequired[Dict[str, Any]]
     fallback_source: NotRequired[str]
     # 内部控制
     branch_hint: NotRequired[Optional[str]]  # Send() 扇出携带的重试提示（solving 子图内）

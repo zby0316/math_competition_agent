@@ -117,7 +117,9 @@ def _answer_has_field(answer, field):
     # Match a named result such as R(x,y)=...; mentioning R(x,y) alone is not a result.
     parts = re.match(r"([A-Za-z][A-Za-z0-9_]*)\(([^()]*)\)", field)
     if not parts:
-        return False
+        pattern = rf"(?<![A-Za-z0-9_]){re.escape(field)}\s*\$?\s*="
+        return any(re.split(r"[;；\n]", (answer or "")[m.end():], maxsplit=1)[0].strip(" $")
+                   not in {"", "?", "...", "\\cdots"} for m in re.finditer(pattern, answer or ""))
     name, args = parts.groups()
     arg_pattern = r"\s*,\s*".join(re.escape(arg) for arg in args.split(","))
     pattern = rf"(?<![A-Za-z0-9_]){re.escape(name)}\s*\(\s*{arg_pattern}\s*\)\s*\$?\s*="
@@ -158,8 +160,7 @@ def _feasibility_count_satisfied(answer):
 
     曾出现："Is it possible to cover ...? If it is possible, what is the minimum
     number needed?" 的交付是光秃秃的"不可能"——由一个错误的整除性论证得出。
-    题面把计数写成第二问，说明出题人预期可行；答案只有否定词而无数量时判为残缺，
-    让更完整的候选（通常是 Python 分支或协调器正文）有机会胜出。
+    条件计数由 missing_components 单独处理，题面的问法不证明可行性。
     """
     text = (answer or "").strip()
     if not text:
@@ -196,6 +197,7 @@ def required_components(problem):
     if _needs_periodic_solution(p):
         comps.append("periodic_solution")
     comps.extend("field:" + field for field in _requested_answer_fields(p))
+    comps.extend("field:" + field for field in _scalar_requests(p) if "field:" + field not in comps)
     if "检验" in p and _has(p, r"H_?\{?0\}?|原假设|显著性水平|\\alpha|α"):
         comps.append("hypothesis_conclusion")
     if "置信区间" in p and not _has(p, r"单侧|置信上限|置信下限"):
@@ -236,9 +238,70 @@ def missing_components(problem, answer):
     """返回答案缺失的契约组成部分；空列表表示满足契约。"""
     return [
         component for component in required_components(problem)
-        if not (_answer_has_field(answer, component[6:]) if component.startswith("field:")
+        if not (component == "feasibility_count" and _conditional_negative(problem, answer))
+        and not (_answer_has_field(answer, component[6:]) if component.startswith("field:")
                 else _SATISFIED[component](answer or ""))
     ]
+
+
+def _conditional_negative(problem, answer):
+    return bool(re.search(r"(?i)if\s+(?:(?:it\s+is\s+)?possible|feasible|so)|若.{0,8}(?:可行|可以)|如果.{0,8}(?:可行|可能|可以)", problem or "")
+                and re.match(r"(?i)\s*(?:最终答案[：:]\s*)?(?:不可能|不可行|无解|impossible|not possible|infeasible|no solution|no[,，.])", answer or ""))
+
+
+def _scalar_requests(problem):
+    # Explicit requests for multiple named quantities, not every problem symbol.
+    fields = []
+    for match in re.finditer(r"(?i)(?:求出?|计算|写出|find|compute|determine)\s*"
+                             r"((?:\$[A-Za-z][A-Za-z0-9_]*\$\s*(?:、|，|,|和|与|及|and)\s*)+"
+                             r"\$[A-Za-z][A-Za-z0-9_]*\$)", problem or ""):
+        fields.extend(re.findall(r"\$([^$]+)\$", match.group(1)))
+    clauses = re.split(r"[（(]\s*\d+\s*[）)]|(?:^|\n)\s*\d+[.)]", problem or "")
+    if len(clauses) >= 3:
+        for clause in clauses[1:]:
+            match = re.match(r"(?i)\s*(?:求出?|计算|写出|find|compute|determine)\s*"
+                             r"\$([A-Za-z][A-Za-z0-9_]*)\$\s*[。.；;]?\s*$", clause)
+            if match:
+                fields.append(match.group(1))
+    return list(dict.fromkeys(fields))
+
+
+def coverage_report(problem, answer):
+    required = required_components(problem)
+    unknown = []
+    if _conditional_negative(problem, answer):
+        unknown.append("conditional_count_requires_argument_check")
+    if re.search(r"(?i)证明|prove|反例|counterexample", problem or ""):
+        unknown.append("proof_obligations_require_argument_check")
+    numbered = re.findall(r"[（(]\s*\d+\s*[）)]|(?:^|\n)\s*\d+[.)]", problem or "")
+    if len(numbered) >= 2:
+        unknown.append("numbered_subquestions_require_semantic_coverage_check")
+    if re.search(r"参数|适用条件|parameter|conditions", problem or "", re.I):
+        unknown.append("parameter_conditions_require_semantic_check")
+    return {"required": required, "missing": missing_components(problem, answer), "unknown": unknown,
+            "mathematical_correctness_verified": False}
+
+
+def coverage_dominates(problem, candidate, selected):
+    """More requested fields cannot excuse disagreement on a shared result."""
+    if not set(missing_components(problem, candidate)) < set(missing_components(problem, selected)):
+        return False
+    from utils.structured_reply import extract_named_fields
+    from utils.answer_compare import AnswerCompare
+    from utils.domain_constraints import domain_equivalent, explicit_domains
+    left, right = extract_named_fields(candidate), extract_named_fields(selected)
+    requested_fields = set()
+    for component in required_components(problem):
+        if component.startswith("field:"):
+            requested_fields.update(extract_named_fields(component[6:] + "=0").fields)
+    for key in left.fields.keys() & right.fields.keys() & requested_fields:
+        for a in left.fields[key]:
+            for b in right.fields[key]:
+                equivalent = (domain_equivalent(problem, a, b) if explicit_domains(problem)
+                              else AnswerCompare._sympy_equivalent(a, b, 1e-6))
+                if equivalent is not True:
+                    return False
+    return True
 
 
 def recover_hypothesis_conclusion(fulltext):
