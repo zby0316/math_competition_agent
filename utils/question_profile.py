@@ -41,24 +41,47 @@ _CHOICE_MAX_SCAN_CHARS = 60
 _SOLVING_VERB_RE = re.compile(r"求|计算|证明|化简|求解|判断|最大值|最小值|最大|最小")
 
 
+def _label_letters(text: str, pattern) -> set:
+    """取某个标签正则命中处的字母集合（全角归一、去重、大写）。"""
+    letters = set()
+    for match in pattern.finditer(text):
+        found = re.search(r"[A-HＡ-Ｈ]", match.group(0))
+        if found:
+            letters.add(found.group(0).translate(_FULLWIDTH_TRANSLATION).upper())
+    return letters
+
+
+def _looks_like_option_list(text: str) -> bool:
+    """标签是否真的构成一份选项列表。
+
+    **真选项列表从 A 开始。** 把字母表放宽到 A–H 之后，英文题面里的变量加句点
+    （``Simplify F. 2 and G. 3 expressions.``）会被 ``_DOT_LABEL_RE`` 数成两个标签，
+    把计算题误判成选择题——而单选题模式会强制模型只回一个选项字母，答案直接作废。
+    实测（放宽字母表前）：4 个英文计算题全判 ``computation``；放宽后全变 ``choice``。
+
+    括号族仍按原设计要求 ≥ 3 项（选项列表通常至少三项）。
+    """
+    dot = _label_letters(text, _DOT_LABEL_RE)
+    if len(dot) >= 2 and min(dot) == "A":
+        return True
+    paren = _label_letters(text, _PAREN_LABEL_RE) | _label_letters(
+        text, _RIGHTPAREN_LABEL_RE)
+    return len(paren) >= 3 and min(paren) == "A"
+
+
 def _looks_like_real_choice(text: str) -> bool:
     """对已命中选项判据的题面做二次裁决：是否真的构成选择题。
 
-    三类强信号直接判选择题：
-      1. 选择题主干标记（下列/正确的是/选项/单选…）；
-      2. 点号族选项（``A.`` ``A、``）≥ 2 个——官方题面内嵌选项的标准形态；
-      3. 括号族选项 ≥ 3 个——选项列表通常至少三项。
-    仅 2 个括号族标签且含求解动词、无主干标记时判不是选择题（假设条件贴
-    标签的典型形态）。
+    强信号直接判选择题：选择题主干标记（下列/正确的是/选项/单选…）。
+    其余情形**必须先构成选项列表**（见 ``_looks_like_option_list``）：
+      * 仅 2 个括号族标签且含求解动词、无主干标记时判不是选择题（假设条件贴标签
+        的典型形态，如"设 (A)(B) 是两矩阵求 det(AB) 最大值"）；
+      * 标签不从 A 开始时判不是选择题（英文题面里的 F./G./H. 是变量不是选项）。
     """
     if _CHOICE_STEM_RE.search(text):
         return True
-    if len(_DOT_LABEL_RE.findall(text)) >= 2:
-        return True
-    paren_hits = (len(_PAREN_LABEL_RE.findall(text))
-                  + len(_RIGHTPAREN_LABEL_RE.findall(text)))
-    if paren_hits >= 3:
-        return True
+    if not _looks_like_option_list(text):
+        return False
     if _SOLVING_VERB_RE.search(text):
         return False
     return True
