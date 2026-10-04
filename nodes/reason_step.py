@@ -84,17 +84,19 @@ def _parse_reasoning_output(response, question_mode="computation"):
                 r["answer"] = cleaned
                 r["answer_source"] = ("fallback_line" if tier == "payload_line"
                                       else "fallback_marker")
-    if not r["answer"] and is_objective_mode(question_mode) and "##" not in str(response or ""):
+    if not r["answer"] and is_objective_mode(question_mode) \
+            and not _KNOWN_SECTION_RE.search(str(response or "")):
         # 普通对话回复偶尔会漏掉 ``答案：`` 标签，只把规范载荷单独放一行
         # （测试替身与裁掉种子前缀的 provider 常见）。在下面逐行恢复该载荷，
         # 但不要把任意推理文字误当成选项列表。
         #
-        # 仅限**完全没有章节结构**的裸回复：带 ``##`` 的回复其载荷归 _distill_answer
-        # 管，在这里捞会把结构行或正文步骤当成答案。实测（修复前）：
+        # 门槛只认**解析器真正处理的章节标题**（见 _KNOWN_SECTION_RE），不是任意
+        # ``##``：带这些标题的回复其载荷归 _distill_answer 管，在这里捞会把结构行
+        # 或正文步骤当成答案。实测（两种垃圾）：
         #   '## 最终答案\n无解'                       -> answer='## 最终答案'
         #   '## 问题分析…## 详细解题步骤…## 最终答案\n无法确定'
         #                                            -> answer='步骤1：代入'
-        # 两者都会产出必然判 0 的垃圾 final_response。
+        # 而 '## 答案\nB' 这类非标准小标题不在解析器认识范围内，必须继续走兜底。
         for line in reversed(str(response or "").splitlines()):
             if line.lstrip().startswith("#"):
                 continue
@@ -155,6 +157,14 @@ def _reject_bad_answer(answer):
     return answer
 
 
+#: 解析器真正认识的章节标题（与 _parse_reasoning_output 里那几条 `## …` 正则一致）。
+#: 客观题兜底只在这些标题**缺席**时才允许逐行捞载荷：用 ``"##" not in response``
+#: 会把 ``## 答案`` / ``## 结论`` 这类非标准小标题的裸载荷一并挡掉——实测
+#: ``'## 答案\\nB'`` 原本能救回 'B'，加严后变成空答案（空答案会多烧一次重试）。
+_KNOWN_SECTION_RE = re.compile(
+    r"^ {0,3}##\s*(?:问题分析|详细解题步骤|最终答案|结论速览|关键验证点)",
+    re.MULTILINE,
+)
 _ENUM_ITEM_RE = re.compile(r"^\s*(?:\d+\s*[.、)]|[-*•①②③④⑤])")
 #: 多空填空题的逐空标签：``空1:`` / ``第2空：`` / ``(1)`` / ``（1）``。
 #: ``_ENUM_ITEM_RE`` 既不认括号编号、也不认 ``空N:`` 前缀，于是多空答案会落到下面

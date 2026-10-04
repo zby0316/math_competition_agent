@@ -52,36 +52,43 @@ def _label_letters(text: str, pattern) -> set:
 
 
 def _looks_like_option_list(text: str) -> bool:
-    """标签是否真的构成一份选项列表。
+    """标签是否构成选项列表，且**从 A 开始**。
 
-    **真选项列表从 A 开始。** 把字母表放宽到 A–H 之后，英文题面里的变量加句点
-    （``Simplify F. 2 and G. 3 expressions.``）会被 ``_DOT_LABEL_RE`` 数成两个标签，
-    把计算题误判成选择题——而单选题模式会强制模型只回一个选项字母，答案直接作废。
-    实测（放宽字母表前）：4 个英文计算题全判 ``computation``；放宽后全变 ``choice``。
+    "从 A 开始"是必要约束：把字母表放宽到 A–H 后，英文题面里的变量加句点
+    （``Simplify F. 2 and G. 3 expressions.``）会被数成两个标签，把计算题误判成
+    选择题——而单选题模式会强制模型只回一个选项字母，答案直接作废。
+    实测（放宽前）：4 个英文计算题全判 ``computation``；放宽后全变 ``choice``。
 
-    括号族仍按原设计要求 ≥ 3 项（选项列表通常至少三项）。
+    判据与上游 ``option_count`` 共用同一套分隔符（``_OPTION_RE`` 含 ``: ： )``），
+    否则同一份题面会得到两套结论：``A：均值 B：方差 C：标准差`` 这类官方常见写法
+    会因为在二次裁决里数不到 ``.．、`` 而被否掉。
     """
-    dot = _label_letters(text, _DOT_LABEL_RE)
-    if len(dot) >= 2 and min(dot) == "A":
-        return True
-    paren = _label_letters(text, _PAREN_LABEL_RE) | _label_letters(
-        text, _RIGHTPAREN_LABEL_RE)
-    return len(paren) >= 3 and min(paren) == "A"
+    letters = (_label_letters(text, _OPTION_RE)
+               | _label_letters(text, _OPTION_PAREN_RE))
+    return len(letters) >= 2 and min(letters) == "A"
 
 
 def _looks_like_real_choice(text: str) -> bool:
     """对已命中选项判据的题面做二次裁决：是否真的构成选择题。
 
-    强信号直接判选择题：选择题主干标记（下列/正确的是/选项/单选…）。
-    其余情形**必须先构成选项列表**（见 ``_looks_like_option_list``）：
-      * 仅 2 个括号族标签且含求解动词、无主干标记时判不是选择题（假设条件贴标签
-        的典型形态，如"设 (A)(B) 是两矩阵求 det(AB) 最大值"）；
-      * 标签不从 A 开始时判不是选择题（英文题面里的 F./G./H. 是变量不是选项）。
+    设计（前两轮改动曾把它改坏，此处是修回并加严的版本）：
+      1. 选择题主干标记（下列/正确的是/选项/单选…）直接放行；
+      2. 其余情形**必须先构成从 A 开始的选项列表**；
+      3. 点号族（``A.`` ``A、``）≥2 是官方内嵌选项的标准形态，放行；
+      4. 只有括号族时用求解动词排除"假设条件贴标签"的形态
+         （"设 (A)(B)(C) 是三个矩阵，求 det(ABC) 的最大值"）。
+
+    ⚠️ 第 4 步的动词否决**只能作用在括号族**。曾实测：把否决扩展到点号族后，
+    ``若 a+b=10，则 ab 的最大值是（ ）A. 25 B. 20 C. 50 D. 100`` 与
+    ``求 P(X>0) 的值（ ）A. 0.5 …`` 这两道真选择题被判成 **fill**，模型不再被要求
+    给选项字母，按官方字母判分整题失分。
     """
     if _CHOICE_STEM_RE.search(text):
         return True
     if not _looks_like_option_list(text):
         return False
+    if len(_DOT_LABEL_RE.findall(text)) >= 2:
+        return True
     if _SOLVING_VERB_RE.search(text):
         return False
     return True

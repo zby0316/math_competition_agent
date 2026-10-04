@@ -49,22 +49,23 @@ _EXPLICIT_COUNTEREXAMPLE_RE = re.compile(r"(?:反例|counterexample)", re.IGNORE
 #: 仍然是货真价实的反例信号，必须继续被识别。
 _ZERO_COUNT_RE = re.compile(
     r"(?i)"
-    # 计数形态：关键词（复数名词或显式计数字段名）**紧邻**分隔符与 0。
-    # 旧写法允许关键词与 0 之间夹 `[^\n:：=]{0,24}` 的任意文本，于是
-    # ``1 contradiction found at t=0`` 这类"反例 + 坐标等于 0"的混合行被整行
-    # 跳过，真实反例证据被静默丢弃（实测：该行返回 support、contradictions 为空）。
-    # 同时不收单数 counterexample：``counterexample: 0`` 更像"反例的取值是 0"
-    # 而不是"零个反例"。
+    # 计数形态：关键词 + **白名单连接词** + 可选分隔符 + 0。
+    # 两次踩坑的教训：早期允许关键词与 0 之间夹任意文本，于是
+    # ``1 contradiction found at t=0`` 被整行跳过、真实反例丢失；收紧成"紧邻"后
+    # 又漏掉了 ``contradictions found: 0`` / ``failures observed: 0`` /
+    # ``反例的个数: 0``，这些零失败行重新被判成反例、进而用 Python 分支答案顶掉
+    # 推理答案。所以连接词必须**显式白名单**，两头都要挡住。
     r"(?:"
     r"fail[_ ]?count|error[_ ]?count|mismatch[_ ]?count|"
     r"contradiction[_ ]?count|counterexample[_ ]?count|"
     r"num(?:ber)?[_ ]?of[_ ]?(?:failures?|errors?|mismatches?)|"
     r"failures?|fails|errors?|mismatches?|contradictions?|counterexamples"
     r")"
+    r"(?:\s*(?:found|observed|detected|reported|counted|occurred))?"
     r"\s*[:：=]?\s*0(?![\d.])"
     r"|\b0\s+(?:failures?|fails|errors?|mismatches?|contradictions?|counterexamples)\b"
-    r"|0\s*(?:个|处|条)?\s*(?:反例|矛盾|不一致)"
-    r"|(?:反例|矛盾|不一致|失败)\s*(?:数|个数|数量|计数)?\s*[:：=]?\s*0(?![\d.])"
+    r"|\b0\s*(?:个|处|条)?\s*(?:反例|矛盾|不一致)"
+    r"|(?:反例|矛盾|不一致|失败)\s*的?\s*(?:数|个数|数量|计数|次数)?\s*(?:为|是)?\s*[:：=]?\s*0(?![\d.])"
 )
 _UNCERTAIN_RE = re.compile(r"未化简|无法化简|未能化简|无法判定|不能判定|outside.{0,20}domain|定义域外|"
                            r"could not simplify|unable to simplify|unevaluated|inconclusive", re.I)
@@ -142,12 +143,13 @@ def parse_verification_evidence(
         # contradiction. Other, independent counterexamples remain usable.
         if _undefined_only(line) or _uncertain_only(line):
             continue
-        # "零个失败"不是失败：fail_count: 0 / 0 mismatches / 反例: 0 这类行必须
-        # 在读 _CONTRADICTION_RE 之前拦掉，否则整题会被判成 contradict。
-        if _ZERO_COUNT_RE.search(line):
-            continue
-        if _CONTRADICTION_RE.search(line):
-            text = line.strip()
+        # "零个失败"不是失败，但它**只否定自己那一段**：同一行里可能还有真实反例
+        # （实测 ``0 个反例；x=2 处不一致``、``0 errors; 1 counterexample at x=2``）。
+        # 所以这里剥离零计数片段后再判反例，而不是整行跳过——整行跳过会把真反例
+        # 一并丢弃（早期版本的实测缺陷）。
+        stripped = _ZERO_COUNT_RE.sub(" ", line)
+        if _CONTRADICTION_RE.search(stripped):
+            text = stripped.strip()
             if text and text not in contradictions:
                 contradictions.append(text)
 
