@@ -84,11 +84,20 @@ def _parse_reasoning_output(response, question_mode="computation"):
                 r["answer"] = cleaned
                 r["answer_source"] = ("fallback_line" if tier == "payload_line"
                                       else "fallback_marker")
-    if not r["answer"] and is_objective_mode(question_mode):
+    if not r["answer"] and is_objective_mode(question_mode) and "##" not in str(response or ""):
         # 普通对话回复偶尔会漏掉 ``答案：`` 标签，只把规范载荷单独放一行
         # （测试替身与裁掉种子前缀的 provider 常见）。在下面逐行恢复该载荷，
         # 但不要把任意推理文字误当成选项列表。
+        #
+        # 仅限**完全没有章节结构**的裸回复：带 ``##`` 的回复其载荷归 _distill_answer
+        # 管，在这里捞会把结构行或正文步骤当成答案。实测（修复前）：
+        #   '## 最终答案\n无解'                       -> answer='## 最终答案'
+        #   '## 问题分析…## 详细解题步骤…## 最终答案\n无法确定'
+        #                                            -> answer='步骤1：代入'
+        # 两者都会产出必然判 0 的垃圾 final_response。
         for line in reversed(str(response or "").splitlines()):
+            if line.lstrip().startswith("#"):
+                continue
             candidate = line.strip().strip("`*_ ")
             if question_mode == "choice" and not re.fullmatch(
                     r"[A-HＡ-Ｈ](?:\s*[、,，/和及&]\s*[A-HＡ-Ｈ])*[。.]?", candidate,
