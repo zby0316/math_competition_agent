@@ -162,7 +162,38 @@ _PAYLOAD_LINE_RE = re.compile(r"[=$]|\d|拒绝|接受|显著|结论|因此|所�
 
 
 def _strip_bullet(line):
-    return line.lstrip("-*•①②③④⑤ ").strip()
+    """剥掉列表符号，但**绝不能吃掉负数的负号**。
+
+    旧实现 ``lstrip("-*•①②③④⑤ ")`` 会把 ``-3`` 剥成 ``3``——负号丢失等于答案错。
+    实测：多值答案 ``'-3\\n7\\n2'`` 被拼成 ``'3；7；2'``。
+    只有 ``-`` 后面跟空白时才算列表标记（``- 3``）；``-3`` 的短横是负号。
+    """
+    text = (line or "").strip()
+    text = re.sub(r"^-\s+", "", text)
+    # 其余符号（*、•、圆数字）没有"负号"歧义，维持原有剥离行为。
+    return text.lstrip("*•①②③④⑤ ").strip()
+
+
+#: 「裸值行」判定：用于识别"多栏答案逐行罗列"（六栏数值答案等）的形态。
+#: 不含 CJK、不含句末标点、长度受限，且含数字或是单个字母。
+_BARE_VALUE_MAX_CHARS = 40
+_CJK_ANY_RE = re.compile(r"[一-鿿]")
+_SENTENCE_PUNCT_RE = re.compile(r"[。！？；;]")
+
+
+def _is_bare_value_line(line):
+    """该行是否像一个"值"而不是一句叙述。
+
+    用于把 ``70\\n175``、``A\\nB\\nC``、``1\\n2\\n3\\n4\\n5\\n6`` 这类多栏答案逐行
+    拼起来；同时把 ``计算得 x = 3`` / ``最终结果：3`` 这类叙述式短节排除在外，
+    保持"短节取最后一行"的原有行为。
+    """
+    text = (line or "").strip()
+    if not text or len(text) > _BARE_VALUE_MAX_CHARS:
+        return False
+    if _CJK_ANY_RE.search(text) or _SENTENCE_PUNCT_RE.search(text):
+        return False
+    return bool(re.search(r"\d", text)) or bool(re.fullmatch(r"[A-Za-z]", text))
 
 
 def _join_parts(parts):
@@ -249,6 +280,18 @@ def _distill_answer(text):
     blank_items = [l for l in lines if _BLANK_ITEM_RE.match(l)]
     if len(blank_items) >= 2:
         joined = _join_parts([_strip_bullet(l) for l in blank_items])
+        if not looks_like_latex_fragment(joined) and not is_placeholder_answer(joined):
+            return joined
+
+    # 2.7. 纯值多行答案：逐行拼接，避免"短节取最后一行"把前面几栏丢掉。
+    # 实测（修复前）：
+    #   '70\n175'            -> '175'
+    #   'A\nB\nC'            -> 'C'
+    #   '1\n2\n3\n4\n5\n6'   -> '6'      ← 六栏答案只剩一栏
+    #   '上界: 70\n下界: 175'  -> '下界: 175'
+    # 只在**每一行都是裸值**时拼接（见 _is_bare_value_line），叙述式短节不受影响。
+    if len(lines) >= 2 and all(_is_bare_value_line(l) for l in lines):
+        joined = _join_parts([_strip_bullet(l) for l in lines])
         if not looks_like_latex_fragment(joined) and not is_placeholder_answer(joined):
             return joined
 
