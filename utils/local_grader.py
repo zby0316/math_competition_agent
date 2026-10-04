@@ -121,8 +121,8 @@ def grade_math_answer(problem: str, predicted: str, expected: str) -> tuple[bool
     pred, ref = _prepare(predicted), _prepare(expected)
     from utils.question_profile import classify_question_mode
     if classify_question_mode(problem) == "choice":
-        if all(re.fullmatch(r"[A-E](?:\s*[,、，/]\s*[A-E])*", text) for text in (pred, ref)):
-            equal = set(re.findall(r"[A-E]", pred)) == set(re.findall(r"[A-E]", ref))
+        if all(re.fullmatch(r"[A-H](?:\s*[,、，/]\s*[A-H])*", text) for text in (pred, ref)):
+            equal = set(re.findall(r"[A-H]", pred)) == set(re.findall(r"[A-H]", ref))
             return equal, "choice_labels"
     left_set, right_set = _finite_set(pred), _finite_set(ref)
     if left_set is not None and right_set is not None:

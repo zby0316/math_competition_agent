@@ -31,6 +31,12 @@ def main():
             archive.writestr(entry, path.read_bytes())
     manifest = {"status": "draft_not_submitted", "code": identity, "files": files,
                 "archive_sha256": hashlib.sha256(args.out.read_bytes()).hexdigest(),
+                # 官方总分记录（平台只给总分，不给逐题日志）：
+                #   初赛 69.64/100  —— 2026-09-28 及之前各报告使用的基线
+                #   决赛客观评审 85/100 —— 2026-10-04 由用户在决赛榜单确认
+                # 注意：这个字段是记录，不是估算，也不与 official_version_verified
+                # 冲突（后者表示"分数尚未绑定到某个已验证的代码版本"）。
+                # 分数刷新后请同步更新该值与日期。
                 "official_score": 85, "official_version_verified": False,
                 "api_evaluation_status": "not_run", "model": "intern-s2-preview-397b",
                 "needs_before_official_submission": ["approved paired API runs", "strict proof review",

@@ -23,16 +23,16 @@ _TYPE_TO_MODE = {
 }
 
 # 选项标记既出现在行首，也可能内嵌在题干中间（官方题集原文即如此）。
-_OPTION_RE = re.compile(r"(?<![A-Za-z0-9])[A-EＡ-Ｅ]\s*[.．、:：)）]")
-_OPTION_PAREN_RE = re.compile(r"(?<![A-Za-z0-9])[（(]\s*[A-EＡ-Ｅ]\s*[）)]")
+_OPTION_RE = re.compile(r"(?<![A-Za-z0-9])[A-HＡ-Ｈ]\s*[.．、:：)）]")
+_OPTION_PAREN_RE = re.compile(r"(?<![A-Za-z0-9])[（(]\s*[A-HＡ-Ｈ]\s*[）)]")
 
 # ---- 选择题二次裁决（防误判）----
 # 曾出现："设 (A)(B) 是两矩阵求 det(AB) 最大值" 因 (A)(B) 标签命中选项判据被
 # 判成选择题，模型只答一个选项字母、整题丢分——(A)(B) 是矩阵名不是选项。
 _CHOICE_STEM_RE = re.compile(r"下列|正确的是|错误的是|不正确|选项|选出|符合题意|单选|多选")
-_DOT_LABEL_RE = re.compile(r"(?<![A-Za-z0-9])[A-EＡ-Ｅ]\s*[.．、]")
-_PAREN_LABEL_RE = re.compile(r"[（(]\s*[A-EＡ-Ｅ]\s*[）)]")
-_RIGHTPAREN_LABEL_RE = re.compile(r"(?<![A-Za-z0-9（(])[A-EＡ-Ｅ]\s*[)）]")
+_DOT_LABEL_RE = re.compile(r"(?<![A-Za-z0-9])[A-HＡ-Ｈ]\s*[.．、]")
+_PAREN_LABEL_RE = re.compile(r"[（(]\s*[A-HＡ-Ｈ]\s*[）)]")
+_RIGHTPAREN_LABEL_RE = re.compile(r"(?<![A-Za-z0-9（(])[A-HＡ-Ｈ]\s*[)）]")
 _SOLVING_VERB_RE = re.compile(r"求|计算|证明|化简|求解|判断|最大值|最小值|最大|最小")
 
 
@@ -396,7 +396,7 @@ def is_multi_ask(problem: str) -> bool:
     return is_multi_part_problem(problem)
 
 
-_FULLWIDTH_TRANSLATION = str.maketrans("ＡＢＣＤＥａｂｃｄｅ", "ABCDEabcde")
+_FULLWIDTH_TRANSLATION = str.maketrans("ＡＢＣＤＥＦＧＨａｂｃｄｅｆｇｈ", "ABCDEFGHabcdefgh")
 
 
 def _strip_answer_wrappers(answer: str) -> str:
@@ -434,11 +434,13 @@ def normalize_objective_answer(answer: str, mode: str) -> str:
         text = text.translate(_FULLWIDTH_TRANSLATION)
         # 连写形态（"BD"、"\boxed{BD}" 剥壳后）：字母间无分隔符时逐字母展开。
         # 单词边界正则对连写必然失配（B 的后瞻撞上 D），\boxed{BD} 曾因此
-        # 归一化为空。仅限 2-5 个纯 A-E 字母的短串，避免把普通英文单词错当选项串。
-        if re.fullmatch(r"[A-E](?:\s*[A-E]){1,4}", text, flags=re.I):
-            letters = re.findall(r"[A-E]", text, flags=re.I)
+        # 归一化为空。仅限 2-8 个纯 A-H 字母的短串，避免把普通英文单词错当选项串。
+        # 上限放到 8：官方题库存在 A-F 六选项多选（ugmath_hard26 idx 9/21），
+        # 全选 "ABCDEF" 这种连写串在上限 5 时会被整串清空而丢掉答案。
+        if re.fullmatch(r"[A-H](?:\s*[A-H]){1,7}", text, flags=re.I):
+            letters = re.findall(r"[A-H]", text, flags=re.I)
         else:
-            letters = re.findall(r"(?<![A-Za-z0-9])[A-E](?![A-Za-z0-9])", text, flags=re.I)
+            letters = re.findall(r"(?<![A-Za-z0-9])[A-H](?![A-Za-z0-9])", text, flags=re.I)
         ordered = []
         for letter in letters:
             upper = letter.upper()
@@ -462,7 +464,7 @@ def objective_answer_is_usable(answer: str, mode: str) -> bool:
     if not normalized:
         return False
     if mode == "choice":
-        return bool(re.fullmatch(r"[A-E](?:、[A-E])*", normalized))
+        return bool(re.fullmatch(r"[A-H](?:、[A-H])*", normalized))
     if mode == "true_false":
         return normalized in {"正确", "错误"}
     if mode == "fill":

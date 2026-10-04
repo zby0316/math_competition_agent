@@ -37,6 +37,23 @@ _UNDEFINED_ANSWER_RE = re.compile(
     r"(?i)\s*(?:(?:[A-Za-z]\w*)\s*=\s*)?(?:nan|zoo|complexinfinity)\s*"
 )
 _EXPLICIT_COUNTEREXAMPLE_RE = re.compile(r"(?:反例|counterexample)", re.IGNORECASE)
+#: 声明"零个失败/反例"的行不是反例证据，恰恰相反：它说明没有出现反例。
+#:
+#: 曾实测：stdout 里一行 ``fail_count: 0`` 会命中 _CONTRADICTION_RE 的 ``FAIL``
+#: 子串（该正则没有词边界），整题被判成 ``evidence_status="contradict"``；
+#: 下游 ``_evidence_override`` 随即用 Python 分支的答案顶掉推理分支的正确答案，
+#: 产出"答案与自带步骤互相矛盾"的交付文本（推理得 42、最终写 99，而步骤里仍写
+#: 42），并且白白多跑一轮 reconciliation。
+#:
+#: 这里只加零值防护、不收窄 _CONTRADICTION_RE：``fail_count: 3`` 这类非零计数
+#: 仍然是货真价实的反例信号，必须继续被识别。
+_ZERO_COUNT_RE = re.compile(
+    r"(?i)"
+    r"(?:fail\w*|errors?|mismatch\w*|contradictions?|counterexamples?)"
+    r"[^\n:：=]{0,24}[:：=]\s*0(?![\d.])"
+    r"|\b0\s+(?:fail\w*|errors?|mismatch\w*|contradictions?|counterexamples?)\b"
+    r"|(?:反例|矛盾|不一致|失败)[^\n:：=]{0,12}[:：=]\s*0(?![\d.])"
+)
 _UNCERTAIN_RE = re.compile(r"未化简|无法化简|未能化简|无法判定|不能判定|outside.{0,20}domain|定义域外|"
                            r"could not simplify|unable to simplify|unevaluated|inconclusive", re.I)
 
@@ -112,6 +129,10 @@ def parse_verification_evidence(
         # A comparison involving an undefined value proves neither equality nor
         # contradiction. Other, independent counterexamples remain usable.
         if _undefined_only(line) or _uncertain_only(line):
+            continue
+        # "零个失败"不是失败：fail_count: 0 / 0 mismatches / 反例: 0 这类行必须
+        # 在读 _CONTRADICTION_RE 之前拦掉，否则整题会被判成 contradict。
+        if _ZERO_COUNT_RE.search(line):
             continue
         if _CONTRADICTION_RE.search(line):
             text = line.strip()

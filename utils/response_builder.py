@@ -47,6 +47,24 @@ def _format_literal_value(value) -> str:
     return str(value)
 
 
+def _is_numeric_sequence_literal(value) -> bool:
+    """全是数字、且长度 ≥2 的括号序列更像数学记号，而不是待"人性化"的 Python 字面量。
+
+    ``ast.literal_eval("(70, 175)")`` 会成功，因为 **Python 元组语法与数学开区间
+    记号恰好重合**；于是参考答案 ``(70, 175)`` 被改写成 ``70，175``（括号消失、
+    半角逗号变全角），``[0,1]`` 变成 ``0，1``。仓库基准集里这种形态就是参考答案
+    本身（``answer_slots``：``(70, 175)``、``(1, 5, 6)``、``[0,1]``），改动等于
+    把答案换成另一种字符串。
+
+    ``_format_literal_value`` 的字典分支（``{'positive_definite': True}`` → ``正定``）
+    与字符串序列分支才是它真正要处理的 Python 分支结构化结果，保持不变。
+    """
+    if not isinstance(value, (list, tuple)) or len(value) < 2:
+        return False
+    return all(isinstance(item, (int, float)) and not isinstance(item, bool)
+               for item in value)
+
+
 def _humanize_python_literal(s: str) -> str:
     try:
         import ast
@@ -54,6 +72,9 @@ def _humanize_python_literal(s: str) -> str:
     except Exception:
         return s
     if isinstance(value, (dict, list, tuple)):
+        if _is_numeric_sequence_literal(value):
+            # 区间 / 集合 / 有序组记号：保留原括号与半角逗号。
+            return s
         return _format_literal_value(value)
     return s
 
@@ -180,7 +201,7 @@ def _extract_fallback_answer(cleaned: str, problem_type: str = "") -> str:
     if problem_type == "choice":
         for pattern in (
             r"正确(?:的)?(?:选项|答案)(?:组合)?\s*(?:应)?(?:为|是)\s*[：:]?\s*([^\n。；;]+)",
-            r"(?:选项|答案)\s*[：:]\s*([A-EＡ-Ｅ][^\n。]*)",
+            r"(?:选项|答案)\s*[：:]\s*([A-HＡ-Ｈ][^\n。]*)",
         ):
             matches = list(re.finditer(pattern, source))
             if matches:

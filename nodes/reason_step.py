@@ -91,7 +91,7 @@ def _parse_reasoning_output(response, question_mode="computation"):
         for line in reversed(str(response or "").splitlines()):
             candidate = line.strip().strip("`*_ ")
             if question_mode == "choice" and not re.fullmatch(
-                    r"[A-EＡ-Ｅ](?:\s*[、,，/和及&]\s*[A-EＡ-Ｅ])*[。.]?", candidate,
+                    r"[A-HＡ-Ｈ](?:\s*[、,，/和及&]\s*[A-HＡ-Ｈ])*[。.]?", candidate,
                     flags=re.I):
                 continue
             normalized = normalize_objective_answer(candidate, question_mode)
@@ -109,7 +109,20 @@ def _parse_reasoning_output(response, question_mode="computation"):
         if objective_answer_is_usable(normalized, question_mode):
             r["answer"] = normalized
         else:
-            r["answer"] = ""
+            # 归一化失败 ≠ 答案无效；无条件清空才是真正的损失。
+            # 实测（修复前）四种情形答案被整段丢弃，该题必然判 0：
+            #   choice     + "直方图" / "以上都有可能"  —— 模型直接答选项原文
+            #   true_false + "True" / "是"             —— 归一化只认中文判断词
+            # 原文交给判分器至少还有判对的机会，因此只在原文本体是垃圾（占位符 /
+            # LaTeX 残片 / 明显不完整 / 元叙述）时才丢弃。
+            #
+            # fill 保持原样清空：它的过滤（"不确定"/元指令回显/叙事文本）是刻意
+            # 设计的，而且清空后会走压缩重试去拿真实空位内容——保留一个
+            # "不确定" 反而会掐掉那次重试。
+            if question_mode == "fill":
+                r["answer"] = ""
+            else:
+                r["answer"] = _reject_bad_answer(r["answer"])
     # 精简客观题提示用 ``依据：`` 而非四章节契约。把该证据保留为一条真实步骤，
     # 避免下游质量门与 trace 把一个有效答案当作空响应。
     if r["answer"] and not r["steps"] and is_objective_mode(question_mode):
@@ -134,6 +147,16 @@ def _reject_bad_answer(answer):
 
 
 _ENUM_ITEM_RE = re.compile(r"^\s*(?:\d+\s*[.、)]|[-*•①②③④⑤])")
+#: 多空填空题的逐空标签：``空1:`` / ``第2空：`` / ``(1)`` / ``（1）``。
+#: ``_ENUM_ITEM_RE`` 既不认括号编号、也不认 ``空N:`` 前缀，于是多空答案会落到下面
+#: "短节取最后一行"策略，只剩最后一个空位。实测（修复前）：
+#:   空1: 移动平均法\n空2: 时间序列分解法  -> '空2: 时间序列分解法'（丢空1）
+#:   (1) 移动平均法\n(2) 时间序列分解法    -> '(2) 时间序列分解法'（丢第 1 空）
+#:   空1: A\n空2: B\n空3: C              -> '空3: C'（三空只剩一空）
+#: 判分器按空位逐项比对时，这等于整题作废；只有写成同一行用「；」分隔才侥幸完整。
+_BLANK_ITEM_RE = re.compile(
+    r"^\s*(?:空|第)\s*\d+\s*(?:空|项|问)?\s*[:：.、)]|^\s*[（(]\s*\d+\s*[）)]"
+)
 # 行是否携带答案信息：等式 / 数学式 / 数字 / 结论词。纯引导语（"…如下所示："）丢弃。
 _PAYLOAD_LINE_RE = re.compile(r"[=$]|\d|拒绝|接受|显著|结论|因此|所以|故|建议|选择|综上|存在|唯一|收敛|成立")
 
@@ -220,6 +243,14 @@ def _distill_answer(text):
         answer = _reject_bad_answer(_join_parts(boxes))
         if answer:
             return answer
+
+    # 2.6. 多空填空：逐空标签行整体保留（实测记录见 _BLANK_ITEM_RE）。
+    # 必须排在策略 3 之前——短节走"取最后一行"会把前面的空位全部丢掉。
+    blank_items = [l for l in lines if _BLANK_ITEM_RE.match(l)]
+    if len(blank_items) >= 2:
+        joined = _join_parts([_strip_bullet(l) for l in blank_items])
+        if not looks_like_latex_fragment(joined) and not is_placeholder_answer(joined):
+            return joined
 
     # 3. 短节 → 最后一行
     if len(text) <= 80:

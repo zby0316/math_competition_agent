@@ -24,6 +24,33 @@ _UNIVERSAL_HEADING_RE = re.compile(r"^#{2,3}\s*(?:跨学科|通用|附录)", re.
 #: 中文连续段与拉丁单词；单个汉字太常见，不足以用来区分。
 _TERM_RE = re.compile(r"[一-鿿]{2,}|[A-Za-z][A-Za-z\-]{2,}")
 
+#: 题面语言判定：拉丁字母与 CJK 字数。
+_CJK_CHAR_RE = re.compile(r"[一-鿿]")
+_LATIN_CHAR_RE = re.compile(r"[A-Za-z]")
+
+
+def _is_english_dominant(problem: str) -> bool:
+    """题面是否以英文为主。
+
+    中文手册的模块标题无法与英文题面做字面重合（``_score`` 是词汇交集），因此
+    正文模块对英文题面恒得 0 分；而"模块速查"尾巴里的 ``- 检索词：`` 行塞了
+    how many / minimum / subsets 之类的英文泛词，会被 ``_retrieval_bonus`` 白
+    给分。结果是英文题面**必然**由速查尾巴霸榜、把正文模块整体挤出预算。
+
+    实测（修复前）：一道 "How many derangements of 5 elements are there?"
+    在 85914 字符的《离散数学》手册上只抽到 2803 字符，命中的是"鸽巢原理在整数
+    组极值中的应用""序列求和约束的极值保证与构造""网格最坏情形极值"三条无关
+    速查，而真正对口的正文模块"组合计数"得 0 分、从未进入 prompt。
+
+    仓库两套公开题集（U-MATH / UGMathBench）全部是英文题面，故该路径是常态而非
+    边角。英文题面下停用速查尾巴的检索词加成，让选段退化为确定性的头部截断
+    （手册总纲 + 首批正文模块），而不是注入无关条目。
+    """
+    text = problem or ""
+    latin = len(_LATIN_CHAR_RE.findall(text))
+    cjk = len(_CJK_CHAR_RE.findall(text))
+    return latin >= 12 and latin > 3 * cjk
+
 #: 模块标题表达不出的主题线索。博弈论题目会说 游戏/必胜/策略，却从不写
 #: 博弈论 这个词，纯术语重合会把为它写的模块和无关模块打成同分。
 #: 每个条目把"模块标题关键词"映射到"应当把该模块拉进来的题面词汇"。
@@ -154,9 +181,21 @@ def _select(document: str, problem: str, limit: int, boundary) -> str:
         return text[:limit]
 
     problem_terms = _terms(problem)
-    scored = [(index, _score(module, problem_terms) + _cue_bonus(module, problem)
-               + _retrieval_bonus(module, problem))
-              for index, module in enumerate(modules)]
+    # 英文题面下必须把 `- 检索词：` 行从打分文本里剔除。那些行是给中文题面写的
+    # 线索，行内的英文泛词（how many / minimum / subsets）会被 _terms(module)
+    # 收进来**直接命中英文题面**，让无关的速查条目拿到正分。实测一道
+    # "How many derangements of 5 elements are there?" 让
+    # "模块速查：网格最坏情形极值：识别查询与覆盖统计" 拿到 _score=2，
+    # 而真正对口的正文模块 "## 2. 组合计数" 得 0 分被挤出预算。
+    english = _is_english_dominant(problem)
+    if english:
+        scored = [(index, _score(_RETRIEVAL_LINE_RE.sub("", module), problem_terms)
+                   + _cue_bonus(module, problem))
+                  for index, module in enumerate(modules)]
+    else:
+        scored = [(index, _score(module, problem_terms) + _cue_bonus(module, problem)
+                   + _retrieval_bonus(module, problem))
+                  for index, module in enumerate(modules)]
     if not any(score for _, score in scored):
         return text[:limit]
 
