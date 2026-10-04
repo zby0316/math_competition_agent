@@ -33,6 +33,11 @@ _CHOICE_STEM_RE = re.compile(r"下列|正确的是|错误的是|不正确|选项
 _DOT_LABEL_RE = re.compile(r"(?<![A-Za-z0-9])[A-HＡ-Ｈ]\s*[.．、]")
 _PAREN_LABEL_RE = re.compile(r"[（(]\s*[A-HＡ-Ｈ]\s*[）)]")
 _RIGHTPAREN_LABEL_RE = re.compile(r"(?<![A-Za-z0-9（(])[A-HＡ-Ｈ]\s*[)）]")
+
+#: 逐字母扫描选项的上限长度：超过它的文本按"解答/散文"处理，不再从中捞字母。
+#: 真正的选项串都极短（"A"、"A、C、F"、"1. A；2. C"、"答案为 A、B、F"），
+#: 而英文解答里孤立的 f/g/h/a 会被逐字母扫描误认成选项。
+_CHOICE_MAX_SCAN_CHARS = 60
 _SOLVING_VERB_RE = re.compile(r"求|计算|证明|化简|求解|判断|最大值|最小值|最大|最小")
 
 
@@ -439,8 +444,16 @@ def normalize_objective_answer(answer: str, mode: str) -> str:
         # 全选 "ABCDEF" 这种连写串在上限 5 时会被整串清空而丢掉答案。
         if re.fullmatch(r"[A-H](?:\s*[A-H]){1,7}", text, flags=re.I):
             letters = re.findall(r"[A-H]", text, flags=re.I)
-        else:
+        elif len(text) <= _CHOICE_MAX_SCAN_CHARS:
             letters = re.findall(r"(?<![A-Za-z0-9])[A-H](?![A-Za-z0-9])", text, flags=re.I)
+        else:
+            # 长文本不是选项串：英文解答里的孤立 f、g、h、a（"for $f$ near $a$
+            # with $h=0.1$"）会被逐字母扫描误当选项。差分验证实测（同一批输入
+            # 喂原始版与补丁版）：
+            #   "1. The average rate of change for $f$ near $a$ ..." -> 'F、A、H'
+            #   proof_gap12 两道证明长文 -> 'E、F' 与 'F、C、G、A'
+            # 这类答案交给判分器看原文，远好过交一串凭空多出来的字母。
+            letters = []
         ordered = []
         for letter in letters:
             upper = letter.upper()
