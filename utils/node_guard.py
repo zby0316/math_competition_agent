@@ -121,6 +121,14 @@ def _fallback_for_node(node: str, state: dict, error: dict, config: dict | None 
         else:
             ptype = (state.get("validation_details") or {}).get("problem_type", "computation")
             final = f"结论：{answer}" if ptype == "proof" else f"最终答案：{answer}"
+            if ptype == "proof":
+                # 证明题的答卷主体就是论证过程：只给结论、不给证明，判分器看到的
+                # 是一个无依据的断言。assemble_step.py 的同类降级路径（协调器 LLM
+                # 不可用时）已经调用 build_proof_body 补上正文，这条「协调器节点失败
+                # /超时」的路径漏了——而它是确定性拼装、不花任何 LLM 时间，降级路径
+                # 同样负担得起（见 build_proof_body docstring）。此处补齐。
+                from utils.response_builder import build_proof_body
+                final = build_proof_body(final, rr)
         return {
             **base,
             "final_response": final,
