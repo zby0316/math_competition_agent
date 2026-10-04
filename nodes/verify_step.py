@@ -440,8 +440,20 @@ def verify_step(state, config):
                 "```python``` 代码块：保留原计算，务必以 print(\"最终答案:\", answer) 结尾。",
                 problem, candidate_answer)
             continue
+        stderr_text = output.get("stderr") or ""
+        # 识别"超时型"失败：这类失败的根因几乎总是符号计算卡死，重试若不改方法
+        # 只会原样再超时一次（实测 sp.integrate(log(x+1)/(x**2+1),(x,0,1))
+        # 需 599 秒且原样返回未求值积分，而数值法 0.03 秒）。
+        exec_limit = CONFIG["node_timeouts"]["python_mcp_execute"]
+        timed_out = ("超时" in stderr_text) or ("timeout" in stderr_text.lower()) \
+            or float(output.get("execution_time") or 0) >= exec_limit - 0.5
         prompt = _retry_prompt(
-            f"代码执行失败：\n错误：{(output.get('stderr') or '')[:500]}\n"
-            "请只输出修正后的 ```python``` 代码块，用 sympy，结尾 print(\"最终答案:\", answer)。",
+            f"代码执行失败：\n错误：{stderr_text[:500]}\n"
+            + ("⚠️ 这是一次【执行超时】。根因几乎总是符号计算卡死："
+               "`sp.integrate`／`sp.solve`／`sp.simplify`／`sp.limit` 在困难输入上可能几分钟不返回。"
+               "**不要再用符号求解硬碰**，改用数值路径：`sp.Integral(f,(x,a,b)).evalf()`、"
+               "`mpmath.quad`、`sp.N(...)`——毫秒级返回；核对候选答案用数值比对 "
+               "`abs(数值 - 候选值) < 1e-9`，不必求闭式。\n" if timed_out else "")
+            + "请只输出修正后的 ```python``` 代码块，用 sympy，结尾 print(\"最终答案:\", answer)。",
             problem, candidate_answer)
     return finalize(last_output)
