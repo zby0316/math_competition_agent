@@ -139,9 +139,19 @@ def is_placeholder_answer(text: str) -> bool:
 #: 会真实打开文件）。进入这两者的答案文本必须不含：字符串字面量（引号/反引号）、
 #: 双下划线（dunder 访问）、可触达内建/文件/调试器的函数名。数学答案不需要其中
 #: 任何一样，误拒只会退化为字符串相似度比较。
+#:
+#: 但**反斜杠开头的 LaTeX 命令必须排除**：`\lambda` 的 `lambda` 段会命中关键字表，
+#: 于是所有含 λ 的答案被判为"不安全表达式"、跳过符号等价比较。实测（修复前）：
+#:     contains_unsafe_expr_text('\\lambda \ge 1')  -> True
+#:     contains_unsafe_expr_text('2\\lambda+1')     -> True
+#: λ 在特征值、谱理论、Lagrange 乘子、特征方程里无处不在，误判会让这些题的
+#: 推理侧与 Python 侧无法做符号比对，只能退到字符串相似度（易得 uncertain）。
+#: `\open`/`\eval`/`\vars` 等同理。反斜杠在 Python 里不能作为标识符起始，
+#: 因此排除它们不会削弱这条守卫——真实载荷（`open('/etc/hosts')`、`__import__`、
+#: `exec(...)`）仍被拦住。
 _EXPR_EVAL_DANGER_RE = re.compile(
     r"['\"`]|__|"
-    r"(?<![A-Za-z0-9_])(?:import|eval|exec|compile|getattr|setattr|vars|"
+    r"(?<![A-Za-z0-9_\\])(?:import|eval|exec|compile|getattr|setattr|vars|"
     r"globals|locals|open|input|breakpoint|chr|ord|lambda)(?![A-Za-z0-9_])"
 )
 
