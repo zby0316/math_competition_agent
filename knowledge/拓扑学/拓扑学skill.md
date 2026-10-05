@@ -11,30 +11,6 @@ description: 系统求解与核验点集拓扑和初等代数拓扑问题，包�
 - 不接管：只用实数度量定义证明 Cauchy/极限转数学分析；曲率、测地线和基本形式转微分几何。
 - 验证契约：每个结论标注空间、子空间拓扑和所用分离/紧致假设，不能把欧氏空间结论无条件推广。
 
-## 官方考点高频错误清单（代数拓扑专题）
-
-本手册正文以**点集拓扑**与**基本群/覆盖空间**为主。真题里另有整类**代数拓扑**题
-（同调与上同调环、示性类、Morse 理论、谱序列、纽结），知识点自成体系，单列如下。
-
-- **同调群的计算路线要写全**：链复形 $\cdots\to C_{k+1}\xrightarrow{\partial_{k+1}}C_k\xrightarrow{\partial_k}C_{k-1}\to\cdots$，$H_k=\ker\partial_k/\operatorname{im}\partial_{k+1}$。**先把各阶链群与边界算子写出再算商**；直接凭直觉报 $H_k$ 在"计算各阶奇异同调群"上会被判无过程。
-- **乘积空间的同调要用 Künneth，且 Tor 项不能省**：整系数下
-  $H_k(X\times Y)\cong\bigoplus_{i+j=k}\bigl(H_i(X)\otimes H_j(Y)\bigr)\oplus\bigoplus_{i+j=k-1}\operatorname{Tor}\bigl(H_i(X),H_j(Y)\bigr)$。
-  只写张量积部分会**漏掉挠部分**（如 $\mathbb{RP}^2\times\mathbb{RP}^2$ 的 $H_2$ 含 $\mathbb{Z}/2$）。
-- **上同调要的是"环"不是"群"**：$H^*(X;R)$ 带 cup product $\smile$。题目问"全部生成元与乘法关系"时必须给出**环结构**（如 $\mathbb{RP}^n$ 模 $\mathbb{Z}/2$ 为 $\mathbb{Z}/2[\alpha]/(\alpha^{n+1})$），只列各阶群不算完成。
-- **透镜空间 $L(p,q)$ 的上同调依赖系数环**：整系数 $H^0=H^3=\mathbb{Z}$、$H^1=H^2=0$；模 $p$ 系数时由一个 1 次生成元 $\alpha$ 生成且 $\alpha^2=0$（$p$ 为奇素数）。**不同 $q$ 可给出同伦等价的空间，但 cup product 结构只依赖 $p$**，求环结构时不要把 $q$ 写进乘法关系。
-- **欧拉示性数的三条常用公式**：$\chi(X)=\sum_k(-1)^k\operatorname{rank}H_k(X)$；**乘积** $\chi(X\times Y)=\chi(X)\chi(Y)$；**奇维闭流形** $\chi=0$。计算时优先用乘积公式省掉整轮同调计算。
-- **悬置的同调平移**：$\tilde H_{k+1}(\Sigma X)\cong\tilde H_k(X)$。故 $\Sigma S^4=S^5$ 只在 0 阶与 5 阶有 $\mathbb{Z}$，$\chi(S^5)=1+(-1)^5=0$。**不要把悬置写成同调整体平移（维度要 +1）**。
-- **Stiefel–Whitney 示性类模 2、且 $w_0=1$**：$w_i(TM)\in H^i(M;\mathbb{Z}/2)$。**可平行化流形（如 $T^2$、$S^1$、Lie 群）的全部 $w_i=0\ (i\ge1)$**；$\mathbb{RP}^n$ 的切丛总示性类为 $w=(1+\alpha)^{n+1}$。题问"所有非零生成元"时必须写出总示性类并逐一说明哪些非零、哪些消没。
-- **Morse 不等式与"完美 Morse 函数"**：非退化临界点的**指标**是该点 Hessian 的负惯性指数；记 $c_k$ 为指标 $k$ 的临界点数，则 $c_k\ge b_k$（第 $k$ 个 Betti 数），且 $\sum_k(-1)^kc_k=\chi(M)$。**取等号（$c_k=b_k$）即完美 Morse 函数**：$S^2$ 有 $b_0=b_2=1,b_1=0$，故恰好 3 个临界点（极小、鞍点、极大各一，指标 0/1/2）可以实现——构造时要给出具体函数（如高度函数）并**逐点算出指标**。
-- **de Rham 上同调要写出代表元**：$H^k_{dR}(M)\cong H^k(M;\mathbb{R})$。二维环面 $T^2$：$H^0$（常数函数，维数 1）、$H^1$（$\mathrm{d}x,\mathrm{d}y$ 的常系数线性组合，维数 2）、$H^2$（$\mathrm{d}x\wedge\mathrm{d}y$，维数 1）。**只给维数不写出代表元按未完成计**。
-- **纤维丛用 Serre 谱序列，并说明退化页**：$F\to E\to B$ 给出 $E_2^{p,q}=H^p\bigl(B;\mathcal H^q(F)\bigr)\Rightarrow H^{p+q}(E)$。计算 $H_*(E)$ 时**必须说明谱序列在第几页退化、为什么**；若丛平凡则直接写 $E\cong B\times F$，不必开谱序列。主 $S^1$ 丛由 $H^2(B;\mathbb{Z})$ 分类，$B=T^2$ 上只有平凡丛，故 $E\cong T^3$、$H_2(E;\mathbb{Z})=\mathbb{Z}^3$。
-- **纽结亏格下界由 Alexander 多项式的次数给出**：三叶结 $\Delta(t)=t^2-t+1$，$\deg\Delta=2$，Seifert 亏格满足 $g(K)\ge\frac{\deg\Delta}{2}$，故 $g\ge1$；结合 $g=0\iff$ 平凡纽结，得三叶结非平凡且亏格恰为 1。**只写多项式不给下界论证会丢结论分**。
-- **曲面自相交数必为偶数（定向闭曲面）**：相交形式是辛形式，对 $\alpha=\sum a_ie_i+\sum b_if_i$ 有 $\alpha\cdot\alpha=2\sum a_ib_i$。**自相交数为奇数即说明计算有误**，可用作自查。
-- **局部上同调与 Milnor 数**：孤立奇点 $f$ 的 Milnor 数
-  $\mu=\dim_{\mathbb{C}}\mathbb{C}\{z_1,\dots,z_n\}\big/\bigl\langle \partial f/\partial z_i\bigr\rangle$。
-  对准齐次多项式 $f=\sum z_i^{a_i}$ 有 $\mu=\prod_i(a_i-1)$。**先定奇点是否孤立、再算 $\mu$**；非孤立奇点时该公式不适用。
-
-
 ## 高频错误与口径约定
 
 - **一点并（wedge）与覆盖空间**：$\pi_1(S^1\vee S^1)\cong \mathbb{Z}*\mathbb{Z}=F_2$（秩 2 自由群）；其**万有（普遍）覆盖空间是无限 4-正则树**——即 $F_2$ 的 Cayley 图，每个顶点恰发出 4 条边（对应 $a,a^{-1},b,b^{-1}$）。一般地 $\pi_1(\vee_{i=1}^{n}S^1)\cong F_n$，万有覆盖为无限 $2n$-正则树。
