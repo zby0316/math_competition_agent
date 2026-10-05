@@ -31,6 +31,29 @@ description: Use when verifying abstract algebra problems with sympy — group t
 - **整环的特征只能是 $0$ 或素数**：特征为 $n>0$ 的域必包含 $\mathbb F_p$（$p=\operatorname{char}$）作为素子域；特征为 $0$ 时素子域同构于 $\mathbb Q$。不能出现"特征为 $6$ 的域"这类结论。
 - **共轭类方程与交换性的判定**：$|G|=|Z(G)|+\sum_i[G:C_G(x_i)]$（对非中心共轭类代表求和）。判断群是否交换看 $Z(G)=G$ 或 $G/Z(G)$ 是否循环，不能用"某个元素与很多元素交换"来代替。
 
+### 进阶清单：代数数论 / 交换代数 / 代数几何
+
+本手册正文覆盖本科群环域。真题里另有整类**代数数论、交换代数与代数几何**题
+（数域判别式、理想分解、类群、局部化、克鲁尔维数、坐标环与奇点），
+这三类题在领域检索上落到本手册，故单列要点如下。
+
+- **代数整数环 $\mathcal O_K$ 与 $\mathbb Z$ 的差别**：$\mathcal O_K$ 是 Dedekind 整环——**每个非零理想唯一分解为素理想乘积**，但**元素不一定唯一分解**（$\mathbb Z[\sqrt{-5}]$ 中 $6=2\cdot3=(1+\sqrt{-5})(1-\sqrt{-5})$）。因此"分解"题要先判断问的是**元素分解**还是**理想分解**：问元素要给出全部不可约分解或指出不唯一，问理想才能用素理想唯一分解。
+- **理想分解为素理想的算法**：对 $\mathcal O_K$，取素 $p$，看极小多项式 $\bmod p$ 分解为 $\bar g_1^{e_1}\cdots\bar g_r^{e_r}$，则 $(p)=\mathfrak p_1^{e_1}\cdots\mathfrak p_r^{e_r}$，$f_i=\deg\bar g_i$，且 $\sum e_if_i=[K:\mathbb Q]$。**$e_i>1$ 是分歧、$r<[K:\mathbb Q]$ 是惯性**，两者不可混；答案要写成具体的素理想 $(\mathfrak p_i)=(p,g_i(\alpha))$ 形式。
+- **数域判别式与多项式判别式不是一回事**：$\Delta_K$ 是 $\mathcal O_K$ 的判别式；多项式判别式 $\operatorname{disc}(f)$ 只在 $\mathcal O_K=\mathbb Z[\alpha]$ 时相等，一般有 $\operatorname{disc}(f)=[\mathcal O_K:\mathbb Z[\alpha]]^2\Delta_K$。**直接用多项式判别式当域判别式是本类题最高频的失分点**；二次域 $K=\mathbb Q(\sqrt d)$（$d$ 无平方因子）有显式公式：$d\equiv1\pmod 4$ 时 $\Delta_K=d$，否则 $\Delta_K=4d$。
+- **虚二次域的单位群是有限循环群**：虚二次域只有 $\pm1$（$d\ne-1,-3$ 时）；$\mathbb Q(i)$ 为 $\{\pm1,\pm i\}$（4 阶）；$\mathbb Q(\sqrt{-3})$ 为 6 阶。**题目写"写出单位群全部元素"就必须列出全部而非只说阶数**；实二次域的单位群由 Pell 方程给出无穷多元素，此时要写生成元形式 $\pm\varepsilon^n$。
+- **类群与类数**：$\mathrm{Cl}(K)=I_K/P_K$ 是有限群，其阶 $h_K$ 是类数。**求"类群的阶"要么用 Minkowski 界枚举理想类，要么用类数公式**；虚二次域在 $|d|$ 小时可逐个判断哪些理想是主理想。注意 $\mathrm{Cl}(K)$ 平凡 $\iff$ $\mathcal O_K$ 是主理想整环。
+- **理想范数与素理想计数**：$N(\mathfrak p)=p^{f}$，其中 $f$ 是剩余次数；$N((\alpha))=|N_{K/\mathbb Q}(\alpha)|$。题目要求"对范数 $\le X$ 的全部素理想求和"时，**必须把每个 $p\le X$ 的分解型逐一列出再累加**，不能只统计不分歧的 $p$；同时注意 $N(\mathfrak p)$ 是按**理想范数**筛，不是按有理素数 $p$ 筛（$p\le X$ 与 $N(\mathfrak p)\le X$ 在 $f>1$ 时不等价）。
+- **数值求和题的误差要求必须落实**：题目写"数值误差小于 $10^{-4}$"时，要给出**足够位数的数值结果**并说明截断项数的估计（如用 $\sum_{N\le X}$ 的余项界）；只给定性描述按未完成计。
+- **局部化是"允许分母"**：$S^{-1}R$ 使 $S$ 中元素可逆。$R_{\mathfrak p}$（$\mathfrak p$ 处局部化）是**局部环**，唯一极大理想为 $\mathfrak pR_{\mathfrak p}$。**局部化保持整性、Noether 性，但不保持"整闭"以外的很多性质**（如不保持维数不变——局部化可能降维）。
+- **准素分解与素分解要分清**：Noether 环中理想可分解为**准素**理想之交（未必是素理想之积）；极小准素分支的唯一性成立，**但准素分支本身不唯一**。被问"分解是否唯一"时答案取决于问的是极小素理想集合（唯一）还是准素分支（一般不唯一）。
+- **克鲁尔维数的计算规则**：$\dim R$ 是素理想链的最大长度。$\dim k[x_1,\dots,x_n]=n$；**Noether 环上 $\dim R=\dim R_{\mathfrak p}$ 的最大值**；主理想定理给出 $\dim R/(f)\ge\dim R-1$（等号在 $f$ 非零因子时成立）。**局部化可能降维，整扩张保持维数**，不要在局部化后仍套用原维数。
+- **Hilbert 零点定理（Nullstellensatz）**：代数闭域 $k$ 上，$I(V(J))=\sqrt J$（根式理想）。**推论：极大理想与点一一对应**（$k$ 代数闭时 $k[x_1,\dots,x_n]$ 的极大理想恰是 $(x_1-a_1,\dots,x_n-a_n)$）。非代数闭域上此结论失效，必须换成 $\bar k$ 上讨论。
+- **坐标环与奇点判据**：仿射簇 $V$ 的坐标环 $R=k[V]$；点 $P$ 处局部环 $R_{\mathfrak m_P}$ 是正则局部环 $\iff$ $P$ 是非奇点。**正则 $\iff$ $\dim_k\mathfrak m/\mathfrak m^2=\dim R$**（Jacobian 判据的等价形式）。求奇点就是求使 Jacobian 矩阵秩下降的点。
+- **局部上同调与 Milnor 数（奇点题）**：孤立超曲面奇点 $f$ 的 Milnor 数
+  $\mu=\dim_{\mathbb C}\mathbb C\{z\}/\langle\partial f/\partial z_i\rangle$。**准齐次 $f=\sum z_i^{a_i}$ 时 $\mu=\prod(a_i-1)$**；非孤立奇点该式不适用，必须先验证奇点集只有一点。
+- **"有限域上点数"用 Weil 猜想/Hasse 界自检**：椭圆曲线 $E/\mathbb F_q$ 满足 $|\#E(\mathbb F_q)-(q+1)|\le2\sqrt q$。**算出点数后回代这个界可以立刻发现算术错误**，比重新推导省时。
+
+
 
 ## 概述
 
