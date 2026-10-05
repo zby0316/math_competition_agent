@@ -22,7 +22,13 @@ _CONTENT_START_RE = re.compile(
     r")"
 )
 
-_VISIBLE_CHARS_RE = re.compile(r"[A-Za-z0-9\u4e00-\u9fff]")
+#: 「有信息负载」的字符类。除了字母数字与汉字，**必须含判断题的答案符号**
+#: ``√ × ✓ ✗``：它们是中文判断题最标准的作答符号，但在 Unicode 里属于
+#: ``\W``（非单词字符），于是只含 ``√`` 的答案被 ``_PUNCT_ONLY_RE`` 判成
+#: "纯标点占位符"，``format_answer_for_output`` 直接返回空串。实测（修复前）：
+#:     is_placeholder_answer('√') -> True     （正确答案被当成占位符丢掉）
+#:     format_answer_for_output('√', 'computation') -> ''
+_VISIBLE_CHARS_RE = re.compile(r"[A-Za-z0-9\u4e00-\u9fff√×✓✗]")
 _PUNCT_ONLY_RE = re.compile(r"^[\s\W_]+$", re.UNICODE)
 
 #: \u63d0\u793a\u8bcd\u6a21\u677f\u9aa8\u67b6\u7684\u4e2d\u62ec\u53f7\u6bb5\uff08\u66fe\u51fa\u73b0\uff1a"- [\u9a8c\u8bc1\u70b91\uff1a\u5982\u4f55\u9a8c\u8bc1\u8fd9\u4e2a\u7b54\u6848\u662f\u6b63\u786e\u7684]"\u3001

@@ -36,9 +36,26 @@ def test_choice_letters_are_still_normalised():
     assert _answer("choice", "ABF") == "A、B、F"
 
 
-def test_true_false_english_and_short_forms_are_preserved():
-    assert _answer("true_false", "True") == "True"
-    assert _answer("true_false", "是") == "是"
+def test_true_false_english_and_short_forms_are_normalised():
+    """判断题的全部常见答法都要归一化成标准形，而不是保留原文。
+
+    本测试原先是 ``assert _answer("true_false", "True") == "True"``——那编码的是
+    "归一化失败则保留原文"的旧行为：``True``/``是`` 因为不在词表里而原样出厂。
+    词表补全后它们被归一化，交付形态与判分器的参考形（``正确``/``错误``）精确一致，
+    比原样输出更易被判对。**保留原文的底线没有丢**：本体是垃圾时仍然丢弃
+    （见 test_choice_junk_is_still_dropped）。
+    """
+    assert _answer("true_false", "True") == "正确"
+    assert _answer("true_false", "是") == "正确"
+    assert _answer("true_false", "成立") == "正确"
+    assert _answer("true_false", "√") == "正确"
+    assert _answer("true_false", "False") == "错误"
+    assert _answer("true_false", "否") == "错误"
+    assert _answer("true_false", "不成立") == "错误"
+    assert _answer("true_false", "×") == "错误"
+    # 原有的中文判断词行为不变
+    assert _answer("true_false", "对") == "正确"
+    assert _answer("true_false", "错") == "错误"
 
 
 def test_choice_junk_is_still_dropped():

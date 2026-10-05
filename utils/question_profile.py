@@ -492,13 +492,34 @@ def normalize_objective_answer(answer: str, mode: str) -> str:
         return "、".join(ordered)
     if mode == "true_false":
         # 优先识别"不正确/错误"这类双字否定短语，再落到单独的 ``正确``。
-        matches = list(re.finditer(r"不正确|错误|正确|不对|对|错|×|√", text, flags=re.I))
+        #
+        # 词表必须覆盖**中文判断题的全部常见答法**。旧表只有
+        # 不正确|错误|正确|不对|对|错|×|√，于是下面这些标准写法全部落空、
+        # 归一化返回空串，``objective_answer_is_usable`` 随即判为"答案不可用"
+        # ——模型答对了却被当成没作答。实测（修复前）：
+        #     normalize_objective_answer('是',   'true_false') -> ''
+        #     normalize_objective_answer('否',   'true_false') -> ''
+        #     normalize_objective_answer('T',    'true_false') -> ''
+        #     normalize_objective_answer('True', 'true_false') -> ''
+        #     normalize_objective_answer('成立',  'true_false') -> ''
+        #     normalize_objective_answer('不成立','true_false') -> ''
+        #     normalize_objective_answer('yes',  'true_false') -> ''
+        # 注意否定词必须排在肯定词之前（"不成立"里含"成立"、"不对"里含"对"），
+        # 正则的从左到右最长优先顺序即为此而设。
+        matches = list(re.finditer(
+            r"不正确|不成立|不对|错误|成立|正确|真的|假的|"
+            r"√|×|✓|✗|"
+            r"(?<![A-Za-z])(?:True|False|true|false|T|F|yes|no|YES|NO|Y|N)(?![A-Za-z])|"
+            r"是|否|对|错",
+            text, flags=re.I))
         if not matches:
             return ""
         # 第一个判断词才是答案；后面的出现通常属于解释句
         # （例如 ``错误，因为...正确``）。
         value = matches[0].group(0)
-        return "正确" if value in {"正确", "对", "√"} else "错误"
+        _TRUE = {"正确", "对", "√", "✓", "是", "成立", "真的",
+                 "t", "true", "y", "yes"}
+        return "正确" if value.strip().casefold() in _TRUE else "错误"
     return text
 
 
