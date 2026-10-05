@@ -87,6 +87,32 @@ def _narrative_ratio(text: str) -> float:
     return hits / len(words)
 
 
+def _is_factorial_tail(s: str) -> bool:
+    """结尾的 ``!`` 是阶乘记号而非感叹号。
+
+    判据（只看 ``!`` 前那一个字符）：
+    * ``) ] }`` 或数字之后 —— ``(n+1)!``、``5!``、``x_{n}!`` 必是阶乘；
+    * **单个字母**之后 —— ``n!``、``k!`` 是阶乘，而 ``Really!``、``Yes!``
+      这类英文单词的 ``!`` 前面还有字母，仍判为感叹句；
+    * 中文之后（``好！``）不是阶乘。
+
+    实测坐标：``_distill_answer('n!')`` 修复前返回空串。
+    """
+    m = re.search(r"[！!]\s*$", s or "")
+    if not m:
+        return False
+    before = (s or "")[: m.start()].rstrip()
+    if not before:
+        return False
+    last = before[-1]
+    if last in ")]}" or last.isdigit():
+        return True
+    if last.isascii() and last.isalpha():
+        prev = before[-2] if len(before) >= 2 else ""
+        return not (prev.isascii() and prev.isalpha())
+    return False
+
+
 def is_junk(text: str) -> bool:
     """答案主体是否为思维碎片/元叙述/内部指令（True → 不得作为答案输出）。"""
     s = (text or "").strip()
@@ -97,7 +123,17 @@ def is_junk(text: str) -> bool:
     if _HESITATION_RE.search(s):
         return True
     # 疑问/感叹收尾：结论不以问句结束。（允许内部含 '?' 的合法记号，如 "P(X>1)"）
-    if re.search(r"[？?！!]\s*$", s):
+    #
+    # 但 **`!` 必须先排除阶乘**：`n!`、`k!`、`(n+1)!`、`5!` 都是标准数学记号，
+    # 而 `n!` 是组合数学里最常见的答案形态之一。旧实现把 `?` 和 `!` 一并按
+    # "语句收尾"处理，于是**阶乘答案被整条清空**。实测（修复前）：
+    #     _distill_answer('n!')            -> ''      ← 答案凭空消失
+    #     _reject_bad_answer('n!')         -> ''
+    # 官方风格集 112 个参考答案里就有一条是 `n!`（另有以 `!` 结尾的表达式），
+    # 这类答案一旦被清空，等于该题必然失分。
+    if re.search(r"[？?]\s*$", s):
+        return True
+    if re.search(r"[！!]\s*$", s) and not _is_factorial_tail(s):
         return True
     # 句首疑问句（曾出现："Are there any other ... sequences? The known theorem
     # says..."）：答案不会以问句开场；含 boxed 结论时除外。
