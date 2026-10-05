@@ -48,7 +48,7 @@ def _format_literal_value(value) -> str:
 
 
 def _is_numeric_sequence_literal(value) -> bool:
-    """全是数字、且长度 ≥2 的括号序列更像数学记号，而不是待"人性化"的 Python 字面量。
+    """全是数字的括号序列更像数学记号，而不是待"人性化"的 Python 字面量。
 
     ``ast.literal_eval("(70, 175)")`` 会成功，因为 **Python 元组语法与数学开区间
     记号恰好重合**；于是参考答案 ``(70, 175)`` 被改写成 ``70，175``（括号消失、
@@ -58,11 +58,31 @@ def _is_numeric_sequence_literal(value) -> bool:
 
     ``_format_literal_value`` 的字典分支（``{'positive_definite': True}`` → ``正定``）
     与字符串序列分支才是它真正要处理的 Python 分支结构化结果，保持不变。
+
+    **嵌套数字序列同样属于数学记号**：``[(0, -2), (2, 0)]`` 是"全部整数解"的标准
+    写法（每个内层元组是一组解），旧判据只认"一层全是标量数字"，于是把它拍平成
+    ``0，-2，2，0``——括号消失、解对结构丢失，判分器再也认不出参考答案
+    ``(2,0),(0,-2)``。实测复现：idx 3（求 $x^3-y^3=2xy+8$ 的全部整数解）在
+    trace 里已经拿到正确的 ``[(0, -2), (2, 0)]``，交付时却被打散成
+    ``0，-2，2，0`` 而判错。"求所有解 / 所有 $(x,y)$" 在竞赛题里极常见。
+    内层若含字符串（如 ``[('a',1),('b',2)]``）则不在此列，仍走人性化分支。
     """
-    if not isinstance(value, (list, tuple)) or len(value) < 2:
+    if not isinstance(value, (list, tuple)) or len(value) == 0:
         return False
-    return all(isinstance(item, (int, float)) and not isinstance(item, bool)
-               for item in value)
+
+    def _scalar(x) -> bool:
+        return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+    def _nested(x) -> bool:
+        return (isinstance(x, (list, tuple)) and len(x) >= 2
+                and all(_scalar(item) for item in x))
+
+    if len(value) == 1:
+        # 单元素序列本身不是数学记号（``[5]`` 拍平成 ``5`` 是对的），但
+        # ``[(0, 0)]`` 是"恰好只有一个解"的标准写法，外层只有一个元素、
+        # 内层却是一组解——同样不能被拍平。
+        return _nested(value[0])
+    return all(_scalar(item) or _nested(item) for item in value)
 
 
 def _humanize_python_literal(s: str) -> str:

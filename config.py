@@ -84,4 +84,9 @@ CONFIG = {
 # ============ 版本标记（评测日志/trace 溯源用） ============
 # 每轮代码改动后更新此值；solve() 的 trace 会携带它，配合评测日志的
 # Commit ID 即可确定某次出分对应哪一版代码。
-AGENT_VERSION = "round2-B-repair7+candidate-claim-locations+coverage 2026-10-03"
+#
+# 这一项不只是记账：官方规则写明「打分核心依据是 final_response 答案正确率；
+# trace 仅用于问题排查，**同分场景下作为智能体设计优劣的加分参考**」。
+# 版本号停留在旧轮次会让核验方无法把 trace 与提交版本对齐。
+# 变量名沿用 AGENT_VERSION（platform/trace 契约字段名，不改）。
+AGENT_VERSION = "round15-multisol-answer-structure 2026-10-05"
