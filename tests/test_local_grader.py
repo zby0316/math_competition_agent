@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from eval_local import grade
-from utils.local_grader import grade_math_answer
+from utils.local_grader import grade_math_answer, grade_math_answer_detail
 
 
 DATASET = Path(__file__).resolve().parents[1] / "benchmarks" / "umath_pilot6.jsonl"
@@ -69,3 +69,23 @@ def test_matching_but_self_conflicting_answer_is_not_confirmed():
 def test_missing_inputs():
     assert grade_math_answer("Find x", "3", "")[0] is None
     assert grade_math_answer("Find x", "", "3")[0] is False
+
+
+@pytest.mark.parametrize(
+    ("problem", "predicted", "expected", "state"),
+    [
+        ("Find x", "3", "3", "correct"),
+        ("Find x", "3", "4", "incorrect"),
+        ("Prove that 1+1=2", "1+1=2", "1+1=2", "needs_review"),
+    ],
+)
+def test_detailed_grader_exposes_three_conservative_states(problem, predicted, expected, state):
+    assert grade_math_answer_detail(problem, predicted, expected)["state"] == state
+
+
+def test_detailed_grader_attaches_exact_or_finite_numeric_evidence_without_sampling():
+    assert grade_math_answer_detail("Find x", "1/3", "2/6")["evidence"] == {
+        "kind": "exact_constant", "difference": "0"}
+    evidence = grade_math_answer_detail("Find x", "1", "1.5")["evidence"]
+    assert evidence["kind"] == "finite_constant_difference"
+    assert grade_math_answer_detail("Find f", "x", "x")["evidence"]["reason"] == "symbolic_or_unparsed"

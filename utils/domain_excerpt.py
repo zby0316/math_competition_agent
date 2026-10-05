@@ -14,11 +14,16 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Iterable
 import re
 
-#: 这类文档的模块边界：要么是传统的 ``## 模块...`` 标题，
-#: 要么是竞赛技能手册使用的编号式 ``## 1. ...``。
-_MODULE_RE = re.compile(r"^#{2,3}\s*(?:模块|\d+\s*[.)、:：-])", re.MULTILINE)
+#: 识别中文/阿拉伯编号的二级正文，以及旧式三级“模块”标题。前置的领域
+#: 边界、证明口径和高频错误仍保留为前言，避免修复章节识别时丢失通用前提。
+_MODULE_RE = re.compile(
+    r"^(?:##(?!#)\s+|###\s*(?:模块|\d+\s*[.)、:：-]))", re.MULTILINE)
+_STRUCTURAL_H2_RE = re.compile(
+    r"^##\s*(?:模块|\d+\s*[.)、:：-]|[一二三四五六七八九十]+\s*[.)、:：-]|第[一二三四五六七八九十]+.*(?:部分|章|节))")
 #: 末尾的通用小节，与领域无关、对任何题目都适用。
 _UNIVERSAL_HEADING_RE = re.compile(r"^#{2,3}\s*(?:跨学科|通用|附录)", re.MULTILINE)
 #: 中文连续段与拉丁单词；单个汉字太常见，不足以用来区分。
@@ -27,6 +32,30 @@ _TERM_RE = re.compile(r"[一-鿿]{2,}|[A-Za-z][A-Za-z\-]{2,}")
 #: 题面语言判定：拉丁字母与 CJK 字数。
 _CJK_CHAR_RE = re.compile(r"[一-鿿]")
 _LATIN_CHAR_RE = re.compile(r"[A-Za-z]")
+_CJK_RUN_RE = re.compile(r"[一-鿿]{2,}")
+
+
+@dataclass(frozen=True)
+class ExcerptSelection:
+    """选段正文及可写入 trace 的紧凑诊断。"""
+
+    text: str
+    limit: int
+    used_chars: int
+    selected_headings: tuple[str, ...]
+    excluded_headings: tuple[str, ...]
+    fallback_reason: str | None
+
+    def trace_record(self, category: str, purpose: str) -> dict:
+        return {
+            "category": category,
+            "purpose": purpose,
+            "limit": self.limit,
+            "used_chars": self.used_chars,
+            "selected_headings": list(self.selected_headings),
+            "excluded_headings": list(self.excluded_headings),
+            "fallback_reason": self.fallback_reason,
+        }
 
 
 def _is_english_dominant(problem: str) -> bool:
@@ -120,9 +149,29 @@ def _retrieval_bonus(module: str, problem: str) -> int:
     return hits if hits < 2 else 2 * hits
 
 
+def _outside_fenced_code_starts(document: str, boundary) -> list[int]:
+    """只把围栏外的标题视作结构，示例代码里的 ``##`` 不是知识章节。"""
+    starts: list[int] = []
+    fenced = False
+    offset = 0
+    for line in document.splitlines(keepends=True):
+        if re.match(r"^\s*(`{3,}|~{3,})", line):
+            fenced = not fenced
+        elif not fenced and boundary.match(line):
+            starts.append(offset)
+        offset += len(line)
+    return starts
+
+
 def _split_modules(document: str, boundary=_MODULE_RE) -> tuple[str, list[str]]:
     """返回 (前言, 各小节)。没有匹配到任何边界时 `sections` 为空。"""
-    starts = [match.start() for match in boundary.finditer(document)]
+    starts = (_outside_fenced_code_starts(document, boundary)
+              if boundary is _MODULE_RE else [match.start() for match in boundary.finditer(document)])
+    if boundary is _MODULE_RE:
+        structural = [start for start in starts if _STRUCTURAL_H2_RE.match(document[start:])]
+        if structural:
+            # 模块正文从第一个结构化二级标题开始；其前的通用条件保留给每次选段。
+            starts = [start for start in starts if start >= structural[0]]
     if not starts:
         return document, []
     bounds = starts + [len(document)]
@@ -134,6 +183,24 @@ def _terms(text: str) -> set[str]:
     return {match.group(0).lower() for match in _TERM_RE.finditer(text or "")}
 
 
+def _cjk_ngram_score(module: str, problem: str) -> int:
+    """补足中文无分词文本的短语命中，避免“特征值”被整句吞掉。"""
+    module_text = module or ""
+    seen: set[str] = set()
+    score = 0
+    for run in _CJK_RUN_RE.findall(problem or ""):
+        width = min(8, len(run))
+        for size in range(2, width + 1):
+            for start in range(0, len(run) - size + 1):
+                token = run[start:start + size]
+                if token in seen or token not in module_text:
+                    continue
+                seen.add(token)
+                # 双字词只给弱信号；三字及以上短语才可显著提升章节排序。
+                score += 1 if size == 2 else 2
+    return min(score, 24)
+
+
 def _score(module: str, problem_terms: set[str]) -> int:
     """模块词汇与题面词汇的重合度。
 
@@ -143,7 +210,45 @@ def _score(module: str, problem_terms: set[str]) -> int:
     heading = module.split("\n", 1)[0]
     module_terms = _terms(module)
     heading_terms = _terms(heading)
-    return len(module_terms & problem_terms) + 2 * len(heading_terms & problem_terms)
+    problem = " ".join(problem_terms)
+    # 正文的中文短语只能作为辅助信号：通用章节也常出现“收敛”“验证”等词。
+    # 标题命中的主题短语权重更高，才能把“函数项级数”排在“通用结果验证”前。
+    return (len(module_terms & problem_terms)
+            + 2 * len(heading_terms & problem_terms)
+            + min(_cjk_ngram_score(module, problem), 12)
+            + 2 * min(_cjk_ngram_score(heading, problem), 12))
+
+
+def _normal_heading(line: str) -> str:
+    return re.sub(r"\s+", " ", line.strip())
+
+
+def exclude_markdown_sections(document: str, headings: Iterable[str]) -> tuple[str, tuple[str, ...]]:
+    """移除精确命名章节及其同级以下内容，供候选知识视图隔离风险条目。"""
+    blocked = {_normal_heading(value) for value in headings if value}
+    if not blocked:
+        return document, ()
+    lines = document.splitlines(keepends=True)
+    kept: list[str] = []
+    excluded: list[str] = []
+    skip_level: int | None = None
+    fenced = False
+    for line in lines:
+        if re.match(r"^\s*(`{3,}|~{3,})", line):
+            fenced = not fenced
+        match = None if fenced else re.match(r"^(#{2,6})\s+(.+?)\s*$", line)
+        if match:
+            level = len(match.group(1))
+            heading = _normal_heading(line)
+            if skip_level is not None and level <= skip_level:
+                skip_level = None
+            if heading in blocked:
+                skip_level = level
+                excluded.append(heading)
+                continue
+        if skip_level is None:
+            kept.append(line)
+    return "".join(kept), tuple(excluded)
 
 
 #: 验证示例虽然历史文件名是 ``.py``，本质是提示词文档。知识点标题是主要边界；
@@ -160,13 +265,54 @@ def select_script_excerpt(script: str, problem: str, limit: int) -> str:
     return _select(script, problem, limit, _SCRIPT_SECTION_RE)
 
 
-def select_skill_excerpt(document: str, problem: str, limit: int) -> str:
+def select_skill_excerpt_with_diagnostics(
+    document: str,
+    problem: str,
+    limit: int,
+    *,
+    excluded_headings: Iterable[str] = (),
+) -> ExcerptSelection:
+    """选择技能手册正文，并保留不含原文的诊断元数据。"""
+    filtered, excluded = exclude_markdown_sections(document or "", excluded_headings)
+    excerpt = _select(filtered, problem, limit, _MODULE_RE)
+    headings_list: list[str] = []
+    fenced = False
+    for line in excerpt.splitlines():
+        if re.match(r"^\s*(`{3,}|~{3,})", line):
+            fenced = not fenced
+        elif not fenced and re.match(r"^#{2,3}\s+", line):
+            headings_list.append(_normal_heading(line))
+    headings = tuple(headings_list)
+    preamble, modules = _split_modules(filtered, _MODULE_RE)
+    fallback = None
+    if len(filtered) > limit and not modules:
+        fallback = "no_recognized_sections"
+    elif len(filtered) > limit and not headings:
+        fallback = "no_scored_sections"
+    return ExcerptSelection(
+        text=excerpt,
+        limit=limit,
+        used_chars=len(excerpt),
+        selected_headings=headings,
+        excluded_headings=excluded,
+        fallback_reason=fallback,
+    )
+
+
+def select_skill_excerpt(
+    document: str,
+    problem: str,
+    limit: int,
+    *,
+    excluded_headings: Iterable[str] = (),
+) -> str:
     """至多返回 `document` 的 `limit` 字符，偏向 `problem` 的主题。
 
     文档没有模块结构或全部零分时退化为 `document[:limit]`，
     因此可以无痛替换裸切片，且不改变那类场景的行为。
     """
-    return _select(document, problem, limit, _MODULE_RE)
+    return select_skill_excerpt_with_diagnostics(
+        document, problem, limit, excluded_headings=excluded_headings).text
 
 
 def _select(document: str, problem: str, limit: int, boundary) -> str:

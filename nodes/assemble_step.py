@@ -31,6 +31,10 @@ def _evidence_override(state: dict, validated: str) -> tuple[str, str]:
         return validated, ""
     if po.get("evidence_status") != "contradict":
         return validated, ""
+    # FAIL 是验证器对其**自身输出**的明确否定。它可以说明待核验的推理
+    # 候选有问题，却绝不能让同一份已失败的 Python 输出反客为主成为最终答案。
+    if po.get("verification_marker") == "FAIL":
+        return validated, "python_self_verification_failed"
     if (po.get("authenticity") or {}).get("fabricated"):
         return validated, ""
     python_answer = str(po.get("answer") or "").strip()

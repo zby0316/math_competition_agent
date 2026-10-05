@@ -174,3 +174,43 @@ def grade_math_answer(problem: str, predicted: str, expected: str) -> tuple[bool
     }:
         return True, detail["reason"]
     return None, "review: " + detail["reason"]
+
+
+def grade_math_answer_detail(problem: str, predicted: str, expected: str) -> dict:
+    """Return a conservative result with an explicit three-state label.
+
+    ``needs_review`` is not an incorrect score: it means the offline parser or
+    proof checker lacks enough evidence. The established tuple API remains
+    unchanged for existing callers.
+    """
+    verdict, reason = grade_math_answer(problem, predicted, expected)
+    state = {True: "correct", False: "incorrect", None: "needs_review"}[verdict]
+    return {"state": state, "verdict": verdict, "reason": reason,
+            "evidence": _scalar_evidence(predicted, expected)}
+
+
+def _scalar_evidence(predicted: str, expected: str) -> dict:
+    """Produce auditable evidence for finite scalar comparisons only.
+
+    Expressions with free symbols deliberately remain unresolved here: matching
+    them at finitely many points is not evidence of a general identity.
+    """
+    import sympy as sp
+
+    left = _standalone_expression(_prepare(predicted))
+    right = _standalone_expression(_prepare(expected))
+    if not left or not right:
+        return {"kind": "unavailable", "reason": "not_two_scalar_expressions"}
+    a, b = _try_parse_expr(left), _try_parse_expr(right)
+    if a is None or b is None or getattr(a, "free_symbols", set()) or getattr(b, "free_symbols", set()):
+        return {"kind": "unavailable", "reason": "symbolic_or_unparsed"}
+    try:
+        difference = sp.simplify(a - b)
+        if difference == 0:
+            return {"kind": "exact_constant", "difference": "0"}
+        value = complex(sp.N(difference, 30, chop=True))
+        if all(abs(part) != float("inf") and part == part for part in (value.real, value.imag)):
+            return {"kind": "finite_constant_difference", "difference": str(value)}
+    except Exception:
+        pass
+    return {"kind": "unavailable", "reason": "nonfinite_or_unevaluable"}

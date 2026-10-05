@@ -89,4 +89,4 @@ CONFIG = {
 # trace 仅用于问题排查，**同分场景下作为智能体设计优劣的加分参考**」。
 # 版本号停留在旧轮次会让核验方无法把 trace 与提交版本对齐。
 # 变量名沿用 AGENT_VERSION（platform/trace 契约字段名，不改）。
-AGENT_VERSION = "round15-multisol-answer-structure 2026-10-05"
+AGENT_VERSION = "round4-team-merge+github-7fe7098 2026-10-05"

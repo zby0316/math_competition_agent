@@ -73,6 +73,14 @@ def test_candidate_can_add_quotient_details_without_duplicate_topology_task():
     assert len(plan['tasks']) == len(task_map(plan))
 
 
+def test_candidate_topological_classification_requires_definition_level_check():
+    body = '取 A=(0,1]，所得商空间拓扑为平凡拓扑，且同胚于一个两点空间。'
+    task = task_map(targeted_proof_checks('构造商空间反例。', '拓扑学', body))['claimed_structure']
+    assert task['sources'] == ['candidate_proof']
+    assert '枚举每个子集的原像' in task['instruction']
+    assert '主结论成立' in task['instruction']
+
+
 @pytest.mark.parametrize('candidate', [
     'Thinking Process\nLet me think about a complex inner product.',
     '```text\n复 Hilbert 内积模板\n```\n由假设直接推得结论。',

@@ -8,6 +8,7 @@ from typing import Dict, List  # 导入类型提示库
 from llm_client import InternChatClient  # 导入大语言模型客户端
 from user_agent import ReasoningAgent  # 导入推理代理类
 from utils.run_manifest import make_manifest, ensure_manifest
+from utils.safe_paths import output_file, safe_problem_idx
 
 
 LOCAL_MAX_CONCURRENCY = int(os.environ.get("LOCAL_MAX_CONCURRENCY", "8"))  # 从环境变量获取最大并发数，默认为8
@@ -39,13 +40,16 @@ def load_jsonl(path: Path) -> List[Dict]:  # 定义加载JSONL文件函数
             if not line.strip():  # 如果行为空白则跳过
                 continue
             item = json.loads(line)  # 解析JSON行数据
+            if not isinstance(item, dict) or not isinstance(item.get("problem"), str):
+                raise ValueError(f"Invalid JSONL record at line {line_number + 1}: problem must be a string")
             item.setdefault("idx", line_number)  # 设置默认索引为行号
+            item["idx"] = safe_problem_idx(item["idx"])
             items.append(item)  # 将项目添加到列表
     return items  # 返回项目列表
 
 
 def result_path(output_dir: Path, item: Dict) -> Path:  # 定义结果文件路径生成函数
-    return output_dir / f"{item['idx']}.json"  # 返回输出目录下以索引命名的JSON文件路径
+    return output_file(output_dir, item["idx"], ".json")
 
 
 def is_processed(path: Path) -> bool:  # 定义检查是否已处理函数

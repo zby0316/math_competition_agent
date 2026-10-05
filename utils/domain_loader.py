@@ -1,3 +1,4 @@
+import json
 import re
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -8,15 +9,18 @@ DOMAIN_SYNONYMS = {
         "依概率", "依分布", "几乎必然", "随机变量", "分布函数", "概率收敛",
         "中心极限定理", "大数定律", "Slutsky", "贝叶斯", "全概率",
         "二项分布", "泊松分布", "指数分布", "正态分布", "矩母函数", "特征函数",
+        "random variable", "normal distribution", "central limit theorem",
     ],
     "随机过程": [
         "Brownian", "布朗", "Wiener", "首达时", "停时", "鞅", "Markov链",
         "马尔可夫", "Poisson过程", "泊松过程", "生灭过程", "更新过程", "随机游走",
+        "Brownian motion", "Markov chain", "Poisson process", "stopping time",
     ],
     "数学分析": [
         "一致收敛", "函数列", "函数项级数", "逐点收敛", "极限函数", "可导",
         "导数列", "Taylor", "泰勒", "幂级数", "含参积分", "广义积分", "上确界",
         "Fourier变换", "Cauchy数列", "完备度量空间", "差商", "Laplacian on circle",
+        "uniform convergence", "Fourier transform", "power series", "metric space",
     ],
     "统计推断": [
         "最大似然", "MLE", "置信区间", "假设检验", "拒绝域", "显著性水平",
@@ -25,48 +29,62 @@ DOMAIN_SYNONYMS = {
         "似然比", "检验统计量", "临界值", "统计图形", "直方图", "散点图",
         "箱线图", "时间数列", "时间序列", "趋势变动", "季节变动", "移动平均",
         "指数平滑", "自相关图", "样本均值", "样本方差",
+        "maximum likelihood", "confidence interval", "hypothesis testing", "time series",
     ],
-    "复分析": ["留数", "解析", "全纯", "Cauchy", "柯西", "Laurent", "洛朗", "极点"],
+    "复分析": ["留数", "解析", "全纯", "Cauchy", "柯西", "Laurent", "洛朗", "极点",
+             "residue theorem", "holomorphic", "Laurent series"],
     "抽象代数": [
         "有限域", "群", "环", "理想", "同态", "子群", "正规子群", "域扩张",
         "Galois", "分裂域", "二面体群", "换位子群", "Sylow",
+        "group homomorphism", "Galois theory", "ring ideal",
     ],
     "高等代数": [
         "矩阵", "特征值", "特征向量", "线性空间", "秩", "行列式", "二次型",
         "极小多项式", "对称多项式", "特征多项式", "二元域", "max-plus", "热带代数",
+        "eigenvalue", "characteristic polynomial", "linear algebra",
     ],
-    "常微分方程": ["常微分", "ODE", "初值问题", "通解", "特解", "Wronskian"],
+    "常微分方程": ["常微分", "ODE", "初值问题", "通解", "特解", "Wronskian",
+              "ordinary differential equation", "initial value problem"],
     "偏微分方程": [
         "偏微分", "PDE", "热方程", "波动方程", "Laplace方程", "边值问题",
         "形式伴随", "散度型", "formal adjoint", "divergence-form",
+        "partial differential equation", "boundary value problem",
     ],
-    "泛函分析": ["Banach", "Hilbert", "有界线性算子", "泛函", "弱收敛", "紧算子"],
-    "拓扑学": ["拓扑", "开集", "闭集", "紧致", "连通", "同胚", "基本群"],
-    "微分几何": ["流形", "曲率", "测地线", "联络", "切空间", "第一基本形式"],
+    "泛函分析": ["Banach", "Hilbert", "有界线性算子", "泛函", "弱收敛", "紧算子",
+              "Banach space", "bounded linear functional", "weak convergence"],
+    "拓扑学": ["拓扑", "开集", "闭集", "紧致", "连通", "同胚", "基本群",
+            "Hausdorff", "homeomorphism", "compact space"],
+    "微分几何": ["流形", "曲率", "测地线", "联络", "切空间", "第一基本形式",
+              "Riemannian", "geodesic", "Gaussian curvature"],
     "数值分析": [
         "插值", "Newton", "迭代", "误差", "数值积分", "Runge-Kutta",
         "中心差分", "数值微分", "复化", "梯形公式", "Simpson", "Romberg",
         "Frobenius", "条件数", "Euler", "稳定区间", "Doolittle", "LU分解",
         "有限差分", "有限元", "有限体积", "截断误差", "finite difference",
         "finite element", "condition number", "numerical discretization",
+        "numerical analysis", "finite volume",
     ],
-    "测度积分": ["测度", "可测", "Lebesgue", "勒贝格", "几乎处处", "支配收敛", "Fatou", "实变函数", "实分析"],
+    "测度积分": ["测度", "可测", "Lebesgue", "勒贝格", "几乎处处", "支配收敛", "Fatou", "实变函数", "实分析",
+             "Lebesgue integral", "measurable function", "dominated convergence"],
     "运筹学": [
         "线性规划", "单纯形", "对偶", "运输问题", "排队", "决策树", "指派问题",
         "整数规划", "分支定界", "最短路", "关键路径", "目标规划", "KKT",
         "调度", "资源分配", "linear programming", "simplex", "scheduling",
         "branch and bound", "assignment problem", "maximum flow",
+        "operations research", "network flow",
     ],
     "离散数学": [
         "图", "树", "组合", "递推", "生成函数", "布尔", "命题逻辑", "数论",
         "整除", "素数", "丢番图", "同余", "鸽巢", "组合博弈", "拉丁方",
         "组合数学", "组合计数", "初等数论", "数理逻辑",
+        "graph theory", "generating function", "number theory",
     ],
     "非基础及进阶课程": [
         "欧氏几何", "平面几何", "凸几何", "射影几何", "解析几何", "立体几何",
         "外心", "内心", "垂心",
         "角平分线", "外接圆", "内切圆", "根轴", "极点极线", "切弦角",
         "circumcenter", "orthocenter", "circumcircle", "radical axis", "polar line",
+        "Euclidean geometry", "projective geometry",
     ],
     "线性回归": [
         "回归", "最小二乘", "OLS", "残差", "t检验", "F检验", "R方",
@@ -74,6 +92,7 @@ DOMAIN_SYNONYMS = {
         "ANOVA", "方差分析表", "均值响应", "预测区间", "Gauss-Markov",
         "Durbin-Watson", "BLUE", "偏F", "多重共线性", "VIF", "异方差", "内生性",
         "工具变量", "非参数回归", "非线性回归", "残差图", "自相关",
+        "ordinary least squares", "heteroscedasticity", "linear regression",
     ],
 }
 
@@ -126,6 +145,17 @@ def _domain_priority_boost(category: str, problem: str) -> float:
     return 100.0 + hits * 5.0
 
 
+def _keyword_in_text(keyword: str, text: str) -> bool:
+    """Case-insensitive matching with boundaries for short Latin acronyms."""
+    needle = str(keyword or "").casefold()
+    haystack = str(text or "").casefold()
+    if not needle:
+        return False
+    if re.fullmatch(r"[a-z0-9-]{2,4}", needle):
+        return bool(re.search(rf"(?<![a-z0-9]){re.escape(needle)}(?![a-z0-9])", haystack))
+    return needle in haystack
+
+
 class DomainLoader:
     DEFAULT_BASE = Path(__file__).resolve().parent.parent / "knowledge"
 
@@ -136,6 +166,7 @@ class DomainLoader:
         self._doc_cache: Dict[str, str] = {}
         self._script_cache: Dict[str, str] = {}
         self._embedding_index = None
+        self._source_catalog = None
 
     def _scan_category_names(self) -> List[str]:
         return sorted(p.name for p in self.base_path.iterdir() if p.is_dir())
@@ -163,6 +194,24 @@ class DomainLoader:
             self._doc_cache[category] = f.read_text(encoding="utf-8")
         return self._doc_cache[category]
 
+    def _catalog(self) -> dict:
+        if self._source_catalog is None:
+            path = self.base_path / "source_catalog.json"
+            try:
+                self._source_catalog = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+            except (OSError, json.JSONDecodeError):
+                self._source_catalog = {}
+        return self._source_catalog
+
+    def quarantined_headings(self, category: str) -> list[str]:
+        """返回候选运行时不可进入提示词的章节标题。"""
+        document = f"{category}/{category}skill.md"
+        entries = self._catalog().get("entries", [])
+        return [entry["heading"] for entry in entries
+                if entry.get("document") == document
+                and entry.get("runtime_policy") == "quarantine"
+                and isinstance(entry.get("heading"), str)]
+
     def get_validation_script(self, category: str) -> str:
         if category not in self._script_cache:
             f = self.base_path / category / f"{category}验证示例.py"
@@ -175,10 +224,33 @@ class DomainLoader:
             # keywords_index 已把 DOMAIN_SYNONYMS 的同义词并入（_build_keywords_index
             # 第 148 行 kw.update），这里再单独统计 alias_hits 会把同义词计两次分，
             # 使含多个同义词的领域被系统性高估。只按索引命中计分即可。
-            hits = [kw for kw in kws if kw and kw in problem]
-            category_hit = 1.0 if cat in problem else 0.0
+            hits = [kw for kw in kws if _keyword_in_text(kw, problem)]
+            category_hit = 1.0 if _keyword_in_text(cat, problem) else 0.0
             scores[cat] = len(hits) + category_hit + _domain_priority_boost(cat, problem)
         return sorted(scores.items(), key=lambda x: (x[1], x[0]), reverse=True)[:top_k]
+
+    def expand_retrieval_query(self, problem: str, max_categories: int = 3,
+                               max_anchor_chars: int = 80) -> str:
+        """Attach a bounded, auditable bilingual routing hint to a TF-IDF query.
+
+        The original question remains intact.  Only positively matched local
+        categories are appended, so unrelated skill text cannot enter through
+        an all-domain synonym expansion.
+        """
+        ranked = self.find_candidate_categories(problem, top_k=max_categories)
+        anchors = []
+        chars = 0
+        for category, score in ranked:
+            if score <= 0 or len(anchors) >= max_categories:
+                continue
+            next_chars = chars + len(category) + (1 if anchors else 0)
+            if next_chars > max_anchor_chars:
+                break
+            anchors.append(category)
+            chars = next_chars
+        if not anchors:
+            return problem
+        return problem + "\n[local-domain-anchors] " + " ".join(anchors)
 
     def get_embedding_index(self):
         if self._embedding_index is None:

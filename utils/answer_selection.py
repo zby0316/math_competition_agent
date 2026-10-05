@@ -27,7 +27,10 @@ def preferred_answer(state, match_result):
     ptype = match_result.get("problem_type", "computation")
     python_answer = _clean_answer(po.get("answer", ""))
     reasoning_answer = _clean_answer(rr.get("answer", ""))
-    python_ok = bool(po.get("success")) and bool(python_answer)
+    # `最终答案:` 只是程序的打印字段，不能覆盖其上一行的 `验证状态: FAIL`。
+    # 失败验证仍是诊断证据，但不是该 Python 答案的支持证据。
+    python_ok = bool(po.get("success")) and bool(python_answer) \
+        and po.get("verification_marker") != "FAIL"
     reasoning_ok = bool(reasoning_answer) and not looks_incomplete_answer(reasoning_answer)
     question_mode = state.get("question_mode") or ""
     if is_objective_mode(question_mode):
@@ -38,7 +41,8 @@ def preferred_answer(state, match_result):
         return ""
     evidence_status = po.get("evidence_status", "")
     fabricated = bool((po.get("authenticity") or {}).get("fabricated"))
-    if evidence_status == "contradict" and python_answer and not fabricated:
+    if evidence_status == "contradict" and python_answer and not fabricated \
+            and po.get("verification_marker") != "FAIL":
         if not looks_incomplete_answer(python_answer):
             if not _same_scalar_or_text(python_answer, reasoning_answer):
                 return python_answer

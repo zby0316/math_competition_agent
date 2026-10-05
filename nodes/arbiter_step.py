@@ -91,8 +91,11 @@ def _candidate_pool(state: dict) -> list[_Candidate]:
     reasoning_answer = _usable_answer(rr.get("answer", ""))
     # stdout 挖掘出的答案（answer_source=stdout_mined）不要求 success：截断前
     # 打印的结论仍是真实计算产物，作为候选参加仲裁优于凭空丢弃。
+    # 验证器自行报告 FAIL 时，打印的“最终答案”只是失败计算的副产物，不是
+    # 独立候选。保留其反例证据供 judge/reconciliation 使用，但禁止仲裁选择它。
     python_answer = _usable_answer(po.get("answer", "")) \
-        if (po.get("success") or po.get("answer_source") == "stdout_mined") else ""
+        if ((po.get("success") or po.get("answer_source") == "stdout_mined")
+            and po.get("verification_marker") != "FAIL") else ""
 
     reasoning_steps = "\n".join(
         f"步骤{s.get('step_num', '')}: {s.get('description', '')}"

@@ -10,6 +10,10 @@ outputs/
 sample_outputs/
 *.log
 
+# 根目录 Markdown 仅本地保留；项目 README 继续版本控制
+/*.md
+!/README.md
+
 # 本地调试/评测工件，不随系统仓库发布
 test/
 competition/

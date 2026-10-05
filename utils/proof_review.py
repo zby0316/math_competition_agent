@@ -78,6 +78,13 @@ def _method_tasks(text, category=""):
         if matches(r"商拓扑|商空间|quotient"):
             instruction += "商空间的开闭集须由商映射原像核对，不凭集合名称猜测。"
         tasks.append({"id": "topology", "instruction": instruction})
+    if matches(r"拓扑为|拓扑是|同胚于|同构于|homeomorphic\s+to|topology\s+(?:is|equals)|"
+               r"isomorphic\s+to"):
+        tasks.append({"id": "claimed_structure", "instruction":
+                      "候选额外声称空间的拓扑类型、同胚/同构类型或其他结构分类时，"
+                      "必须从定义独立验证该分类的决定性不变量；不得仅因主结论成立就采信附加分类。"
+                      "有限空间或有限商空间应枚举每个子集的原像/开闭性（或给出等价的完整定义核验），"
+                      "再与所声称结构的开集族、分离性等逐项比较。分类并非题目所需时，无法核实应删除或标为未决。"})
     if matches(r"开球|闭球|边界|端点|Baire|一致有界|open\s+ball|closed\s+ball|boundary|endpoint|uniform\s+bounded"):
         tasks.append({"id": "boundaries", "instruction":
                       "成员关系从精确的不等式推出，开球需严格小于半径。"

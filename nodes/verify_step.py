@@ -12,7 +12,7 @@ from utils.prompt_bank import PYTHON_PROMPT
 from utils.score_budget import estimate_tokens
 from utils.cot_trim import strip_cot_prefix
 from utils.retry_pricing import can_afford_retry, last_attempt_cost
-from utils.domain_excerpt import select_script_excerpt, select_skill_excerpt
+from utils.domain_excerpt import select_script_excerpt, select_skill_excerpt_with_diagnostics
 from utils.verdict_evidence import parse_verification_evidence
 from utils.question_profile import is_objective_mode, structure_instruction
 from config import CONFIG
@@ -224,9 +224,13 @@ def verify_step(state, config):
     # 后者给"怎么写验证代码"。同一素材源推理分支已在读，这里用小额度共享。
     try:
         skill_doc = sl.get_skill_document(category)
+        blocked_headings = sl.quarantined_headings(category)
     except Exception:
         skill_doc = ""
-    knowledge_ref = select_skill_excerpt(skill_doc, problem, 1600)
+        blocked_headings = []
+    knowledge_selection = select_skill_excerpt_with_diagnostics(
+        skill_doc, problem, 1600, excluded_headings=blocked_headings)
+    knowledge_ref = knowledge_selection.text
     if knowledge_ref:
         base_prompt += "\n\n[技能知识点参考]\n" + knowledge_ref
     if candidate_answer:
@@ -260,6 +264,7 @@ def verify_step(state, config):
             "python_evidence_status": enriched.get("evidence_status", "inconclusive"),
             "python_evidence_summary": enriched.get("evidence_summary", ""),
             "python_contradictions": enriched.get("contradictions", []),
+            "knowledge_selections": [knowledge_selection.trace_record(category, "python_verification")],
         }
     if clock and clock.fast_path():
         max_attempts = 1

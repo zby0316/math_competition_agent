@@ -109,6 +109,9 @@ class ReasoningAgent:
         from utils.diagnostics import python_diagnostics, call_counts
         trace.append({"step": "diagnostics", "python": python_diagnostics(state),
                       **call_counts(state.get("_llm_spend_log") or [])})
+        if state.get("knowledge_selections"):
+            trace.append({"step": "knowledge_selection",
+                          "selections": state["knowledge_selections"]})
         if state.get("proof_review"):
             trace.append({"step": "proof_review", **state["proof_review"]})
         elif state.get("question_mode") == "proof":

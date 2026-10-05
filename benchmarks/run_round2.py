@@ -1,5 +1,6 @@
 """Version-isolated paired-run harness. Default is dry-run; --run calls the API."""
 import argparse
+import atexit
 import importlib.util
 import json
 import os
@@ -10,6 +11,65 @@ from pathlib import Path
 from types import SimpleNamespace
 
 HARNESS_ROOT = Path(__file__).resolve().parents[1]
+
+# The harness dynamically imports its recording helper. Keep the repository
+# root importable so the helper may use shared ``utils`` modules.
+if str(HARNESS_ROOT) not in sys.path:
+    sys.path.insert(0, str(HARNESS_ROOT))
+
+
+class _RunLease:
+    """An OS-level nonblocking lease for one resumable output directory.
+
+    The HTTP cap is reconstructed from append-only call logs.  Two concurrent
+    resumptions can otherwise read the same historical count, both believe the
+    remaining quota is available, and jointly exceed the cap.  This byte-range
+    lock is released automatically if a process is killed, unlike a sentinel
+    file that can become stale after an interrupted desktop session.
+    """
+
+    def __init__(self, handle):
+        self._handle = handle
+        self._released = False
+
+    def release(self):
+        if self._released:
+            return
+        try:
+            self._handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(self._handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(self._handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            self._handle.close()
+            self._released = True
+
+
+def acquire_run_lease(output_dir: Path) -> _RunLease:
+    """Acquire the exclusive live-run lease or fail before any API call."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = output_dir / ".active_run.lock"
+    handle = lock_path.open("a+b")
+    if lock_path.stat().st_size == 0:
+        handle.write(b"0")
+        handle.flush()
+    handle.seek(0)
+    try:
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        handle.close()
+        raise RuntimeError(
+            f"An active run already owns {output_dir}; refusing concurrent resume before API calls"
+        ) from exc
+    return _RunLease(handle)
 
 
 def load_harness_module(name, filename):
@@ -32,9 +92,16 @@ def load_env(path):
 def selected_identity(code_root, manifest_tools):
     code_root = code_root.resolve()
     identity = manifest_tools.code_identity(code_root)
-    provenance = code_root.parent / "baseline_archive.json"
-    if provenance.is_file():
-        data = json.loads(provenance.read_text(encoding="utf-8"))
+    provenance, data = None, None
+    for name in ("baseline_archive.json", "candidate_archive.json"):
+        possible = code_root.parent / name
+        if not possible.is_file():
+            continue
+        candidate_data = json.loads(possible.read_text(encoding="utf-8"))
+        if Path(candidate_data.get("code_root", "")).resolve() == code_root:
+            provenance, data = possible, candidate_data
+            break
+    if provenance is not None:
         if Path(data["code_root"]).resolve() == code_root:
             archive = code_root.with_suffix(".zip")
             if manifest_tools.sha256(archive.read_bytes()) != data["archive_sha256"]:
@@ -87,9 +154,17 @@ def main():
                           "input_sha256": manifest_tools.sha256(args.input.read_bytes()),
                           "output_dir": str(args.output_dir)}, ensure_ascii=False, indent=2))
         return
+    # Hold the lease from manifest validation through call-log accounting and
+    # the final atomic result write.  Registering cleanup covers normal errors;
+    # OS byte locks are also released if the host terminates this process.
+    lease = acquire_run_lease(args.output_dir)
+    atexit.register(lease.release)
     from llm_client import InternChatClient
     from user_agent import ReasoningAgent
-    client = InternChatClient()
+    # A hard HTTP budget is meaningful only if one admitted chat cannot make
+    # hidden transport retries.  Keep retries at one; graph-level recovery is
+    # separately visible and budgeted by the recording wrapper below.
+    client = InternChatClient(retry=1)
     # Match the transport tuning done by both versions' ReasoningAgent.
     agent = ReasoningAgent(client)
     manifest = manifest_tools.make_manifest(args.input, inputs, client, 1)
@@ -106,7 +181,8 @@ def main():
             if not isinstance(attempts, int):
                 raise ValueError("Cannot safely resume a capped run with unknown historical HTTP attempts")
             spent += attempts
-    http_probe = recorder_tools.install_http_probe(max(0, args.max_http_attempts - spent))
+    remaining_attempts = max(0, args.max_http_attempts - spent)
+    http_probe = recorder_tools.install_http_probe(remaining_attempts)
     for row in inputs:
         if http_probe.exhausted():
             print("HTTP budget exhausted; remaining questions were not run", flush=True)
@@ -125,6 +201,8 @@ def main():
         status = "error" if any(entry.get("step") == "error" for entry in result.get("trace", [])) else "success"
         manifest_tools.atomic_json(destination, {"idx": row["idx"], "status": status,
             "budget_exhausted": http_probe.exhausted(),
+            "http_admitted": http_probe.admitted(),
+            "http_transport_attempts": http_probe.transport_attempts(),
             "elapsed_s": time.monotonic() - started, **result})
         print(f"Finished idx={row['idx']}", flush=True)
 

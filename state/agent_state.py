@@ -21,6 +21,8 @@ class AgentState(TypedDict):
     category_confidence: NotRequired[float]
     candidate_categories: NotRequired[List[str]]
     classification_stages_used: NotRequired[List[str]]
+    # 并行分支写入的知识选段诊断；不复制知识正文。
+    knowledge_selections: NotRequired[Annotated[List[Dict], operator.add]]
     # 推理阶段
     reasoning_result: NotRequired[Optional[Dict[str, Any]]]
     reasoning_trace: NotRequired[List[Dict]]
@@ -71,5 +73,5 @@ def create_initial_state(problem: str, metadata: Dict[str, Any]) -> AgentState:
         problem_integrity_events=[],
         question_mode=question_mode,
         reasoning_attempts=0, python_attempts=0, arbiter_attempts=0,
-        answer_locked=False, errors=[], validation_history=[],
+        answer_locked=False, errors=[], validation_history=[], knowledge_selections=[],
     )

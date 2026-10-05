@@ -10,6 +10,7 @@ import sys
 import time
 import tempfile
 import subprocess
+from pathlib import Path
 from typing import Optional
 
 # 输出上限：LLM 生成的代码可能打印海量数据（如完整矩阵、大枚举），capture_output
@@ -17,6 +18,20 @@ from typing import Optional
 # 既防内存被打爆，又保留"最终答案:"标记的抽取。
 _STDOUT_LIMIT = 64 * 1024  # 64 KB
 _STDERR_LIMIT = 8 * 1024   # 8 KB
+
+
+def _runtime_temp_parent() -> str:
+    """Return a writable parent for disposable executor workspaces.
+
+    Desktop sandbox sessions can expose an unreadable system ``TEMP``. Keep
+    the parent under the project output area (or an explicit override), while
+    ``TemporaryDirectory`` still removes each per-execution child afterwards.
+    """
+    configured = os.environ.get("MATH_EXECUTOR_TMPDIR")
+    parent = (Path(configured) if configured else
+              Path(__file__).resolve().parents[1] / "outputs" / "executor_tmp")
+    parent.mkdir(parents=True, exist_ok=True)
+    return str(parent)
 
 
 def _extract_answer_from_output(stdout: Optional[str]) -> Optional[str]:
@@ -69,44 +84,52 @@ def execute_python(code: str, timeout: int = 30) -> dict:
     stdout_file = None
     stderr_file = None
     try:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:
-            f.write(code)
-            temp_file = f.name
-        # 输出重定向到临时文件（而非内存管道），从源头避免海量输出吃爆内存。
-        stdout_fd = tempfile.NamedTemporaryFile(mode="w+", suffix=".out", delete=False, encoding="utf-8")
-        stderr_fd = tempfile.NamedTemporaryFile(mode="w+", suffix=".err", delete=False, encoding="utf-8")
-        stdout_file = stdout_fd.name
-        stderr_file = stderr_fd.name
-        stdout_fd.close()
-        stderr_fd.close()
-        start = time.time()
-        # Minimal env: PATH (find python), HOME (~/.local site-packages for sympy/numpy),
-        # LANG/LC_ALL (UTF-8 for Chinese output). No [FUNC] leaked.
-        # PYTHONIOENCODING/PYTHONUTF8：Windows 上 LANG/LC_ALL 无效，子进程写管道默认用
-        # ANSI 代码页——在 GBK 机器上与父进程的 UTF-8 解码必然错配，显式钉死 UTF-8。
-        env = {
-            "PATH": os.environ.get("PATH", ""),
-            "HOME": os.environ.get("HOME", ""),
-            "LANG": "C.UTF-8",
-            "LC_ALL": "C.UTF-8",
-            "PYTHONIOENCODING": "utf-8",
-            "PYTHONUTF8": "1",
-        }
-        with open(stdout_file, "wb") as so, open(stderr_file, "wb") as se:
-            result = subprocess.run(
-                [sys.executable, temp_file],
-                stdout=so, stderr=se, timeout=timeout, env=env,
-            )
-        execution_time = time.time() - start
-        stdout = _read_bounded(stdout_file, _STDOUT_LIMIT)
-        stderr = _read_bounded(stderr_file, _STDERR_LIMIT)
-        return {
-            "success": result.returncode == 0,
-            "stdout": stdout,
-            "stderr": stderr,
-            "answer": _extract_answer_from_output(stdout),
-            "execution_time": execution_time,
-        }
+        # This confines ordinary relative file writes and interpreter caches to a
+        # disposable directory. It is process isolation, not a security sandbox.
+        with tempfile.TemporaryDirectory(prefix="math_executor_", dir=_runtime_temp_parent()) as workspace:
+            temp_file = os.path.join(workspace, "snippet.py")
+            stdout_file = os.path.join(workspace, "stdout.txt")
+            stderr_file = os.path.join(workspace, "stderr.txt")
+            with open(temp_file, "w", encoding="utf-8") as f:
+                f.write(code)
+            start = time.time()
+            # Minimal environment: no host credentials or user-home lookup. The
+            # child still has normal Python capabilities, so callers must not
+            # describe this path as a true sandbox.
+            env = {
+                "PATH": os.environ.get("PATH", ""),
+                "SYSTEMROOT": os.environ.get("SYSTEMROOT", ""),
+                "WINDIR": os.environ.get("WINDIR", ""),
+                "TEMP": workspace,
+                "TMP": workspace,
+                "LANG": "C.UTF-8",
+                "LC_ALL": "C.UTF-8",
+                "PYTHONIOENCODING": "utf-8",
+                "PYTHONUTF8": "1",
+            }
+            try:
+                with open(stdout_file, "wb") as so, open(stderr_file, "wb") as se:
+                    result = subprocess.run(
+                        [sys.executable, temp_file], cwd=workspace,
+                        stdout=so, stderr=se, timeout=timeout, env=env,
+                    )
+            except subprocess.TimeoutExpired:
+                partial_stdout = _read_bounded(stdout_file, _STDOUT_LIMIT)
+                return {"success": False, "stdout": partial_stdout,
+                        "stderr": f"代码执行超时（>{timeout}秒）",
+                        "answer": _extract_answer_from_output(partial_stdout),
+                        "execution_time": float(timeout), "isolation_level": "process_only"}
+            execution_time = time.time() - start
+            stdout = _read_bounded(stdout_file, _STDOUT_LIMIT)
+            stderr = _read_bounded(stderr_file, _STDERR_LIMIT)
+            return {
+                "success": result.returncode == 0,
+                "stdout": stdout,
+                "stderr": stderr,
+                "answer": _extract_answer_from_output(stdout),
+                "execution_time": execution_time,
+                "isolation_level": "process_only",
+            }
     except subprocess.TimeoutExpired as e:
         # kill 后 subprocess.run 会把已回收的部分输出塞进异常对象；超时前打印的
         # "最终答案:"（如 LLM 代码先出答案再陷入死循环/长绘图）从这里救回。
@@ -119,17 +142,10 @@ def execute_python(code: str, timeout: int = 30) -> dict:
         return {"success": False, "stdout": partial_stdout,
                 "stderr": f"代码执行超时（>{timeout}秒）",
                 "answer": _extract_answer_from_output(partial_stdout),
-                "execution_time": float(timeout)}
+                "execution_time": float(timeout), "isolation_level": "process_only"}
     except Exception as e:
         return {"success": False, "stdout": "", "stderr": str(e),
-                "answer": None, "execution_time": 0.0}
-    finally:
-        for p in (temp_file, stdout_file, stderr_file):
-            if p and os.path.exists(p):
-                try:
-                    os.unlink(p)
-                except Exception:
-                    pass
+                "answer": None, "execution_time": 0.0, "isolation_level": "process_only"}
 
 
 # 受限 builtins 白名单：in-process 回退只暴露纯计算与基础类型操作，
@@ -190,7 +206,7 @@ def _exec_in_process(code: str, timeout: int = 30) -> dict:
 
 # ---- extension server (standalone use) ----
 def _build_mcp_server():
-    from extension.server.fastmcp import FastMCP
+    from mcp.server.fastmcp import FastMCP
     server = FastMCP("python_executor")
 
     @server.tool()

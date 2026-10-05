@@ -52,9 +52,17 @@ class DomainRetrievalIndex:
 
     def rank_all(self, problem: str, top_k: int = 5):
         """按与题面的 TF-IDF 余弦相似度返回 Top-k 分类（覆盖全部 18 类）。"""
-        qv = self.encode(problem)
+        qv = self.encode(self.skills_loader.expand_retrieval_query(problem))
         sims = cosine_similarity(qv, self._category_vectors).flatten()
-        ranked = sorted(zip(self._categories, [float(s) for s in sims]), key=lambda x: x[1], reverse=True)
+        # Char n-grams are language-agnostic, but an English query's appended
+        # CJK category anchor can still be underweighted by token boundaries.
+        # Only positively matched local categories get this bounded boost.
+        anchors = [name for name, score in self.skills_loader.find_candidate_categories(
+            problem, top_k=3) if score > 0]
+        boost = {name: 1.0 - 0.1 * position for position, name in enumerate(anchors)}
+        scored = [float(score) + boost.get(category, 0.0)
+                  for category, score in zip(self._categories, sims)]
+        ranked = sorted(zip(self._categories, scored), key=lambda x: x[1], reverse=True)
         return ranked[:top_k]
 
     def rerank(self, problem: str, candidates, top_k: int = 3):

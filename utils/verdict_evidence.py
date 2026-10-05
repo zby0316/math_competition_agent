@@ -200,6 +200,10 @@ def parse_verification_evidence(
         "evidence_summary": _bounded(evidence_summary or stdout),
         "contradictions": contradictions,
         "evidence_marker": bool(marker),
+        # 保留程序自己声明的 PASS/FAIL/INCONCLUSIVE，而不是只留下布尔值。
+        # 下游需要区分“代码用反例否定了待核验候选”与“代码最后打印的
+        # 自己的答案也没有通过其残差/初值检查”；后者不能升级成可交付答案。
+        "verification_marker": marker_status or "UNSPECIFIED",
         "authenticity": authenticity,
     })
     return result
