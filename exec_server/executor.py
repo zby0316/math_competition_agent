@@ -33,7 +33,12 @@ def _extract_answer_from_output(stdout: Optional[str]) -> Optional[str]:
         return None
     # 取最后一个"最终答案:"标记到 stdout 末尾的全部内容——SymPy Matrix/子群列表等
     # 多行输出必须完整保留（单行截断曾导致 final_response 只剩 "(Matrix([" 碎片）。
-    markers = list(re.finditer(r"最终答案[：:][ \t]*", stdout))
+    #
+    # 标记本身容忍**冒号前的空白**：模型偶尔写成 ``最终答案 ： 42``。
+    # 旧正则要求 ``最终答案`` 后紧跟冒号，这种写法直接返回 None——而 None 会让
+    # 调用方认为"程序没走到结论"从而重试，白烧一次完整调用。
+    # 容忍空白是纯放宽：不会让任何原本匹配的标记失效。
+    markers = list(re.finditer(r"最终答案\s*[：:][ \t]*", stdout))
     if not markers:
         return None
     answer = stdout[markers[-1].end():].strip()

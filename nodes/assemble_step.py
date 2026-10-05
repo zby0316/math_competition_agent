@@ -148,7 +148,7 @@ def _emergency_direct_answer(state: dict, deps) -> str:
         deps.token_budget.consume(estimate_tokens(prompt), estimate_tokens(raw))
     text = strip_cot_prefix(raw or "")
     import re
-    match = re.search(r"最终答案[：:]\s*(.+)", text, re.DOTALL)
+    match = re.search(r"最终答案\s*[：:]\s*(.+)", text, re.DOTALL)
     answer = (match.group(1) if match else text).strip()
     answer = answer.splitlines()[0].strip() if answer else ""
     if not answer or len(answer) > 300 or is_placeholder_answer(answer) \
