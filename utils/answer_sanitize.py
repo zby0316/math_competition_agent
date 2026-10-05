@@ -143,8 +143,15 @@ def is_junk(text: str) -> bool:
         return True
     # "数字. 英文评述句" 形态（曾出现："-177. Strict. So equality only when all
     # equal."）：裸数值后接英文散句、且全文无等式/boxed 绑定 → 思维流。
+    #
+    # 但**编号列表不是这种形态**：多问答案常写成
+    #     "1. When t→+∞, M(t)→+∞. Therefore ... \n2. For k≠0, ..."
+    # 它同样以"数字. 英文"开头、同样可能没有 '='，旧判据会把它整条判为思维流。
+    # 实测：官方风格集 112 个参考答案里 idx 38 正是这种两问编号答案，被判成 junk。
+    # 区分点在于**是否存在第二个编号项**——裸值散句不会有 "\n2."。
     if re.match(r"^[-+]?\d+(?:\.\d+)?\s*[.,;]\s+[A-Za-z]", s) \
-            and not re.search(r"\\boxed|=", s):
+            and not re.search(r"\\boxed|=", s) \
+            and not re.search(r"\n\s*\d+\s*[.、)]", s):
         return True
     # 裸数 + 评估动词（曾出现："3 works"、"1/2 works."）：
     # 结论不带评估口吻；分数/小数同样适用。answer_formatter 的头部修复会剥掉
