@@ -248,6 +248,7 @@ def _distill_answer(text):
     """从 '## 最终答案' 节文本中提炼出简洁答案。
 
     策略顺序（每个候选都要通过 placeholder/残片检查，失败则落到下一策略）：
+    0. 整段被 display-math 定界符包住（``\\[ … \\]`` / ``$$ … $$``）→ 先剥定界符。
     1. 枚举节（≥2 个编号/列表项）→ 全部条目整体保留（曾出现只保留 1 个群，
        其余条目被丢的教训）。
     2. 多行短节 → 保留所有信息行（含无 '=' 的结论行——"拒绝/不拒绝 H0" 这类
@@ -260,6 +261,19 @@ def _distill_answer(text):
     text = (text or "").strip()
     if is_placeholder_answer(text):
         return ""
+    # 0. display-math 定界符先剥掉。策略 1~6 都是**逐行**跑的，而 ``\[`` 与 ``\]``
+    #    各占一行时，单看每一行都是"括号不配平"，于是每个候选都被残片检查否掉、
+    #    整个答案被清空。实测（修复前）：
+    #        '\\[\n\\left(\\frac{n+1}{2}\\right)^2\n\\]'  -> ''
+    #        '\\[\n|S| \\ge 8\n\\]'                      -> ''
+    #    而同样内容的单行写法 ``\[|S| \ge 8\]`` 正常存活——**唯一的变量就是换行**。
+    #    定界符是排版标记、不是答案内容，剥掉后交给后续策略即可。
+    _delim = re.fullmatch(r"\\\[([\s\S]*)\\\]", text) \
+        or re.fullmatch(r"\$\$([\s\S]*)\$\$", text)
+    if _delim:
+        _inner = _delim.group(1).strip()
+        if _inner:
+            text = _inner
     lines = [l.strip() for l in text.splitlines() if l.strip()]
 
     # 1. 枚举节：所有条目整体保留（保留带信息的引导行，如"共 4 种："）
