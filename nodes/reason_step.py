@@ -12,7 +12,7 @@ from utils.answer_pull import (
 from utils.verdict_salvage import recover_verdict_sentence
 from utils.answer_sanitize import extract_partial_findings
 from utils.cot_trim import is_placeholder_answer, strip_cot_prefix
-from utils.domain_excerpt import select_skill_excerpt_with_diagnostics
+from utils.domain_excerpt import select_skill_excerpt
 from utils.retry_pricing import can_afford_retry, last_attempt_cost
 from utils.question_profile import (
     answer_coverage_clause,
@@ -248,7 +248,6 @@ def _distill_answer(text):
     """从 '## 最终答案' 节文本中提炼出简洁答案。
 
     策略顺序（每个候选都要通过 placeholder/残片检查，失败则落到下一策略）：
-    0. 整段被 display-math 定界符包住（``\\[ … \\]`` / ``$$ … $$``）→ 先剥定界符。
     1. 枚举节（≥2 个编号/列表项）→ 全部条目整体保留（曾出现只保留 1 个群，
        其余条目被丢的教训）。
     2. 多行短节 → 保留所有信息行（含无 '=' 的结论行——"拒绝/不拒绝 H0" 这类
@@ -261,19 +260,6 @@ def _distill_answer(text):
     text = (text or "").strip()
     if is_placeholder_answer(text):
         return ""
-    # 0. display-math 定界符先剥掉。策略 1~6 都是**逐行**跑的，而 ``\[`` 与 ``\]``
-    #    各占一行时，单看每一行都是"括号不配平"，于是每个候选都被残片检查否掉、
-    #    整个答案被清空。实测（修复前）：
-    #        '\\[\n\\left(\\frac{n+1}{2}\\right)^2\n\\]'  -> ''
-    #        '\\[\n|S| \\ge 8\n\\]'                      -> ''
-    #    而同样内容的单行写法 ``\[|S| \ge 8\]`` 正常存活——**唯一的变量就是换行**。
-    #    定界符是排版标记、不是答案内容，剥掉后交给后续策略即可。
-    _delim = re.fullmatch(r"\\\[([\s\S]*)\\\]", text) \
-        or re.fullmatch(r"\$\$([\s\S]*)\$\$", text)
-    if _delim:
-        _inner = _delim.group(1).strip()
-        if _inner:
-            text = _inner
     lines = [l.strip() for l in text.splitlines() if l.strip()]
 
     # 1. 枚举节：所有条目整体保留（保留带信息的引导行，如"共 4 种："）
@@ -552,17 +538,13 @@ def reason_step(state, config):
     problem, category = state["problem"], state["category"]
     question_mode = state.get("question_mode", "computation")
     skill_doc = sl.get_skill_document(category)
-    blocked_headings = sl.quarantined_headings(category)
     # 按主题选摘，而不是按位置截断。裸 [:3000] 切片只取到文档开头模块，当
     # 非基础及进阶课程长到 8949 字符后，其数论（offset 3404）与博弈论（offset 5369）
     # 模块再也到不了模型——博弈题会拿到 Lebesgue 测度。
     template = PROOF_REASONING_PROMPT if question_mode == "proof" else REASONING_PROMPT
-    reasoning_selection = select_skill_excerpt_with_diagnostics(
-        skill_doc, problem, 3000, excluded_headings=blocked_headings)
-    knowledge_selections = [reasoning_selection.trace_record(category, "reasoning")]
     base_prompt = template.format(
         category=category,
-        skill_document=reasoning_selection.text,
+        skill_document=select_skill_excerpt(skill_doc, problem, 3000),
         problem=problem)
     base_prompt += mode_instruction(question_mode)
     base_prompt += structure_instruction(problem)
@@ -636,16 +618,13 @@ def reason_step(state, config):
                 f"答案：<{answer_shape}>\n"
                 "依据：<不超过三句的定理/计算核对>"
             )
-        objective_selection = select_skill_excerpt_with_diagnostics(
-            skill_doc, problem, 2200, excluded_headings=blocked_headings)
-        knowledge_selections = [objective_selection.trace_record(category, "objective_reasoning")]
         objective_prompt = (
             "你是数学、统计学与计量经济学教师。严格按题库教材定义逐项核对题面选项/空位，"
             "特别检查相近概念的边界（非参数回归不等于非线性回归，标准差与方差按技能口径区分）；"
             f"{domain_guard}"
             f"{contract}\n\n"
             f"题型：{question_mode}\n学科：{category}\n技能参考：\n"
-            f"{objective_selection.text}\n\n题目：\n{problem}"
+            f"{select_skill_excerpt(skill_doc, problem, 2200)}\n\n题目：\n{problem}"
         )
         trace = []
         response = ""
@@ -675,7 +654,6 @@ def reason_step(state, config):
             trace.append({"attempt": attempts, "status": "objective_plain",
                           "response_chars": len(response or "")})
             return {"reasoning_result": parsed, "reasoning_trace": trace,
-                    "knowledge_selections": knowledge_selections,
                     "reasoning_attempts": attempts, "reasoning_raw_response": response}
         if not parsed.get("answer"):
             # 解析失败的原始响应必须留证（75-212 字符的失败响应如果只记字符数，
@@ -751,7 +729,6 @@ def reason_step(state, config):
             final_entry["raw_excerpt"] = _raw_excerpt(response, head=300, tail=500)
         trace.append(final_entry)
         return {"reasoning_result": parsed, "reasoning_trace": trace,
-                "knowledge_selections": knowledge_selections,
                 "reasoning_attempts": attempts, "reasoning_raw_response": response}
 
     hint = state.get("branch_hint")
@@ -792,7 +769,6 @@ def reason_step(state, config):
                  "mathematical_correctness_verified": False}
                 for candidate, raw, number in proof_partials]
         return {"reasoning_result": selected, "reasoning_trace": trace,
-                "knowledge_selections": knowledge_selections,
                 "reasoning_attempts": attempts, "reasoning_raw_response": selected_raw}
 
     for _ in range(max_attempts):

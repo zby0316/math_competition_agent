@@ -31,10 +31,6 @@ def _evidence_override(state: dict, validated: str) -> tuple[str, str]:
         return validated, ""
     if po.get("evidence_status") != "contradict":
         return validated, ""
-    # FAIL 是验证器对其**自身输出**的明确否定。它可以说明待核验的推理
-    # 候选有问题，却绝不能让同一份已失败的 Python 输出反客为主成为最终答案。
-    if po.get("verification_marker") == "FAIL":
-        return validated, "python_self_verification_failed"
     if (po.get("authenticity") or {}).get("fabricated"):
         return validated, ""
     python_answer = str(po.get("answer") or "").strip()
@@ -152,7 +148,7 @@ def _emergency_direct_answer(state: dict, deps) -> str:
         deps.token_budget.consume(estimate_tokens(prompt), estimate_tokens(raw))
     text = strip_cot_prefix(raw or "")
     import re
-    match = re.search(r"最终答案\s*[：:]\s*(.+)", text, re.DOTALL)
+    match = re.search(r"最终答案[：:]\s*(.+)", text, re.DOTALL)
     answer = (match.group(1) if match else text).strip()
     answer = answer.splitlines()[0].strip() if answer else ""
     if not answer or len(answer) > 300 or is_placeholder_answer(answer) \

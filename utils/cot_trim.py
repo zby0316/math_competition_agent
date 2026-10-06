@@ -22,21 +22,14 @@ _CONTENT_START_RE = re.compile(
     r")"
 )
 
-#: 「有信息负载」的字符类。除了字母数字与汉字，**必须含判断题的答案符号**
-#: ``√ × ✓ ✗``：它们是中文判断题最标准的作答符号，但在 Unicode 里属于
-#: ``\W``（非单词字符），于是只含 ``√`` 的答案被 ``_PUNCT_ONLY_RE`` 判成
-#: "纯标点占位符"，``format_answer_for_output`` 直接返回空串。实测（修复前）：
-#:     is_placeholder_answer('√') -> True     （正确答案被当成占位符丢掉）
-#:     format_answer_for_output('√', 'computation') -> ''
-_VISIBLE_CHARS_RE = re.compile(r"[A-Za-z0-9\u4e00-\u9fff√×✓✗]")
+_VISIBLE_CHARS_RE = re.compile(r"[A-Za-z0-9\u4e00-\u9fff]")
 _PUNCT_ONLY_RE = re.compile(r"^[\s\W_]+$", re.UNICODE)
 
 #: \u63d0\u793a\u8bcd\u6a21\u677f\u9aa8\u67b6\u7684\u4e2d\u62ec\u53f7\u6bb5\uff08\u66fe\u51fa\u73b0\uff1a"- [\u9a8c\u8bc1\u70b91\uff1a\u5982\u4f55\u9a8c\u8bc1\u8fd9\u4e2a\u7b54\u6848\u662f\u6b63\u786e\u7684]"\u3001
 #: "\u6b65\u9aa41\uff1a[\u63cf\u8ff0]\uff08[\u5177\u4f53\u516c\u5f0f]\uff09" \u4ee5 validated answer \u51fa\u5382\uff09\u3002
 _TEMPLATE_TOKEN_RE = re.compile(
-    r"[\[\u3010][^\]\u3011]{0,16}?(?:\u63cf\u8ff0|\u5177\u4f53\u516c\u5f0f|\u9a8c\u8bc1\u70b9|\u7ed3\u8bba|\u7b54\u6848|\u65b9\u6cd5|\u6b65\u9aa4|\u8fc7\u7a0b|\u8bf4\u660e|\u6570\u503c|\u8868\u8fbe\u5f0f|"
-    r"\u7ed3\u679c|\u586b\u5199|\u6b64\u5904|\u4f60\u7684|\u538b\u7f29\u7248|\u4e00\u53e5\u8bdd|"
-    r"\u8ba1\u7b97|\u5206\u6790|\u5173\u952e\u4fe1\u606f|\u9898\u76ee|\u5b9a\u7406|\u601d\u8def|\u63a8\u5bfc|\u5df2\u77e5)[^\]\u3011]{0,32}[\]\u3011]"
+    r"[\[\u3010]\s*(?:\u63cf\u8ff0|\u5177\u4f53\u516c\u5f0f|\u9a8c\u8bc1\u70b9|\u7ed3\u8bba|\u7b54\u6848|\u65b9\u6cd5|\u6b65\u9aa4|\u8fc7\u7a0b|\u8bf4\u660e|\u6570\u503c|\u8868\u8fbe\u5f0f|"
+    r"\u7ed3\u679c|\u586b\u5199|\u6b64\u5904|\u4f60\u7684)[^\]\u3011]*[\]\u3011]"
 )
 
 _PLACEHOLDERS = {
@@ -57,29 +50,6 @@ _PLACEHOLDERS = {
     "无法确定",
     "不能确定",
     "未知",
-    # --- 补全（曾实测漏网） -------------------------------------------------
-    # 词表原先收了 "answer" 却没收 "conclusion"、收了「结论」却没收「最终结论」，
-    # 于是 `[final conclusion]` 这类模型占位符一路穿过全部防线出厂。
-    # 真实案例：官方风格集 idx 32 的 final_response 就是 "[final conclusion]"
-    # （参考答案是 p ≤ 1/4）——整题因占位符被判错，而这是纯工程缺陷。
-    # 归一化会剥掉方括号/下划线/连字符并转小写，因此下面每一项同时覆盖
-    # `[x]`、`【x】`、`X`、`x_y` 等写法；判定是全等匹配，不会误伤含内容的答案。
-    "conclusion",
-    "finalconclusion",
-    "finalresult",
-    "insertanswer",
-    "youranswer",
-    "answerhere",
-    "tbd",
-    "xxx",
-    "最终结论",
-    "答案见上",
-    "见上",
-    "如上",
-    "略",
-    "略去",
-    "省略",
-    "待定",
 }
 
 
@@ -146,19 +116,9 @@ def is_placeholder_answer(text: str) -> bool:
 #: 会真实打开文件）。进入这两者的答案文本必须不含：字符串字面量（引号/反引号）、
 #: 双下划线（dunder 访问）、可触达内建/文件/调试器的函数名。数学答案不需要其中
 #: 任何一样，误拒只会退化为字符串相似度比较。
-#:
-#: 但**反斜杠开头的 LaTeX 命令必须排除**：`\lambda` 的 `lambda` 段会命中关键字表，
-#: 于是所有含 λ 的答案被判为"不安全表达式"、跳过符号等价比较。实测（修复前）：
-#:     contains_unsafe_expr_text('\\lambda \ge 1')  -> True
-#:     contains_unsafe_expr_text('2\\lambda+1')     -> True
-#: λ 在特征值、谱理论、Lagrange 乘子、特征方程里无处不在，误判会让这些题的
-#: 推理侧与 Python 侧无法做符号比对，只能退到字符串相似度（易得 uncertain）。
-#: `\open`/`\eval`/`\vars` 等同理。反斜杠在 Python 里不能作为标识符起始，
-#: 因此排除它们不会削弱这条守卫——真实载荷（`open('/etc/hosts')`、`__import__`、
-#: `exec(...)`）仍被拦住。
 _EXPR_EVAL_DANGER_RE = re.compile(
     r"['\"`]|__|"
-    r"(?<![A-Za-z0-9_\\])(?:import|eval|exec|compile|getattr|setattr|vars|"
+    r"(?<![A-Za-z0-9_])(?:import|eval|exec|compile|getattr|setattr|vars|"
     r"globals|locals|open|input|breakpoint|chr|ord|lambda)(?![A-Za-z0-9_])"
 )
 
